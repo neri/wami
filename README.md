@@ -1,2 +1,15 @@
 # wasm-o
-WebAssembly test
+
+WebAssembly Runtime Test
+
+## run
+
+```
+# cargo run WASM
+```
+
+## test
+
+```
+# cargo test
+```

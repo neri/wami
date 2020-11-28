@@ -63,8 +63,8 @@ impl WasmLoader {
                 WasmSectionType::Code => self.parse_sec_code(&mut section),
                 WasmSectionType::Data => self.parse_sec_data(&mut section),
                 WasmSectionType::Start => self.parse_sec_start(&mut section),
-                // WasmSectionType::Global => todo!();
-                _ => Err(WasmDecodeError::UnexpectedToken),
+                WasmSectionType::Global => self.parse_sec_global(&mut section),
+                // _ => Err(WasmDecodeError::UnexpectedToken),
             }?;
         }
         Ok(())
@@ -93,7 +93,7 @@ impl WasmLoader {
         let n_items = section.stream.read_uint()? as usize;
         for _ in 0..n_items {
             let import = WasmImport::from_stream(&mut section.stream)?;
-            if let WasmImportType::Type(index) = import.index {
+            if let WasmImportIndex::Type(index) = import.index {
                 self.module
                     .functions
                     .push(WasmFunction::from_import(index, self.module.n_ext_func));
@@ -119,7 +119,7 @@ impl WasmLoader {
         let n_items = section.stream.read_uint()? as usize;
         for i in 0..n_items {
             let export = WasmExport::from_stream(&mut section.stream)?;
-            if let WasmExportType::Function(index) = export.index {
+            if let WasmExportIndex::Function(index) = export.index {
                 self.module
                     .functions
                     .get_mut(index)
@@ -175,16 +175,15 @@ impl WasmLoader {
         let n_items = section.stream.read_uint()? as usize;
         for i in 0..n_items {
             let index = i + self.module.n_ext_func;
-            let func_def = self
-                .module
+            let module = &mut self.module;
+            let func_def = module
                 .functions
                 .get(index)
                 .ok_or(WasmDecodeError::InvalidParameter)?;
-            let type_def = self
-                .module
+            let func_type = module
                 .type_by_ref(func_def.type_ref)
                 .ok_or(WasmDecodeError::InvalidParameter)?;
-            let body = WasmFunctionBody::from_stream(&mut section.stream, type_def)?;
+            let body = WasmFunctionBody::from_stream(&mut section.stream, func_type, module)?;
             self.module.functions[index].body = Some(body);
         }
         Ok(())
@@ -214,6 +213,29 @@ impl WasmLoader {
         Ok(())
     }
 
+    /// Parse "global" section
+    fn parse_sec_global(&mut self, section: &mut WasmSection) -> Result<(), WasmDecodeError> {
+        let n_items = section.stream.read_uint()? as usize;
+        for _ in 0..n_items {
+            let val_type = section
+                .stream
+                .read_byte()
+                .and_then(|v| WasmValType::from_u64(v as u64))?;
+            let is_mutable = section.stream.read_byte()? == 1;
+            let value = self
+                .eval_offset(&mut section.stream)
+                .map(|v| WasmValue::I32(v as i32))?;
+
+            let global = WasmGlobal {
+                val_type,
+                is_mutable,
+                value,
+            };
+            self.module.globals.push(global);
+        }
+        Ok(())
+    }
+
     fn eval_offset(&mut self, stream: &mut Leb128Stream) -> Result<usize, WasmDecodeError> {
         stream
             .read_byte()
@@ -237,6 +259,7 @@ pub struct WasmModule {
     tables: Vec<WasmTable>,
     functions: Vec<WasmFunction>,
     start: Option<usize>,
+    globals: Vec<WasmGlobal>,
     n_ext_func: usize,
 }
 
@@ -250,6 +273,7 @@ impl WasmModule {
             tables: Vec::new(),
             functions: Vec::new(),
             start: None,
+            globals: Vec::new(),
             n_ext_func: 0,
         }
     }
@@ -291,7 +315,7 @@ impl WasmModule {
     /// Get a reference to the exported function with the specified name
     pub fn function(&self, name: &str) -> Result<&WasmFunction, WasmRuntimeError> {
         for export in &self.exports {
-            if let WasmExportType::Function(v) = export.index {
+            if let WasmExportIndex::Function(v) = export.index {
                 if export.name == name {
                     return self.func_by_ref(v);
                 }
@@ -328,7 +352,13 @@ impl WasmModule {
     pub fn disassemble(&self, func_idx: usize) -> Result<(), WasmDecodeError> {
         let func = self.functions.get(func_idx).unwrap();
         let type_ref = self.types.get(func.type_ref).unwrap();
-        let body = func.body.as_ref().unwrap();
+        let body = match func.body.as_ref() {
+            Some(v) => v,
+            None => {
+                println!("  (#ERROR)");
+                return Err(WasmDecodeError::UnexpectedEof);
+            }
+        };
         let locals = body.local_types.as_slice();
         if locals.len() > 0 {
             let mut local_index = type_ref.params.len();
@@ -344,7 +374,7 @@ impl WasmModule {
             let op = WasmOpcode::from_u8(opcode);
 
             match op.mnemonic_type() {
-                WasmMnemonicType::BlockElse => {
+                WasmMnemonicType::Else => {
                     block_level -= 1;
                     Self::nest(block_level);
                     println!("else");
@@ -365,10 +395,11 @@ impl WasmModule {
             }
 
             match op.mnemonic_type() {
-                WasmMnemonicType::BlockElse | WasmMnemonicType::End => (),
-                WasmMnemonicType::Block
-                | WasmMnemonicType::BlockLoop
-                | WasmMnemonicType::BlockIf => {
+                WasmMnemonicType::Else | WasmMnemonicType::End => (),
+
+                WasmMnemonicType::Implied => println!("{}", op.to_str()),
+
+                WasmMnemonicType::Block => {
                     let type_ref = stream.read_byte().and_then(|v| {
                         WasmBlockType::from_i64(v as i64)
                             .map_err(|_| WasmDecodeError::UnexpectedToken)
@@ -388,10 +419,20 @@ impl WasmModule {
                     let opr = stream.read_uint()?;
                     println!("{} {}", op.to_str(), opr);
                 }
+                WasmMnemonicType::BrTable => {
+                    let n_vec = stream.read_uint()?;
+                    print!("{} ", op.to_str());
+                    for _ in 0..n_vec {
+                        let target = stream.read_uint()?;
+                        print!(" {}", target);
+                    }
+                    let target = stream.read_uint()?;
+                    println!(" {}", target);
+                }
                 WasmMnemonicType::Memory => {
                     let a = stream.read_uint()?;
                     let o = stream.read_uint()?;
-                    println!("{} {{ offset={} align={} }}", op.to_str(), o, a);
+                    println!("{} offset={} align={}", op.to_str(), o, a);
                 }
                 WasmMnemonicType::I32 => {
                     let opr = stream.read_sint()? as i32;
@@ -401,7 +442,9 @@ impl WasmModule {
                     let opr = stream.read_sint()?;
                     println!("{} {} ;; 0x{:x}", op.to_str(), opr, opr);
                 }
-                _ => println!("{}", op.to_str()),
+
+                WasmMnemonicType::F32 => todo!(),
+                WasmMnemonicType::F64 => todo!(),
             }
         }
         Ok(())
@@ -418,31 +461,47 @@ impl WasmModule {
 pub struct Leb128Stream<'a> {
     blob: &'a [u8],
     position: usize,
+    fetch_position: usize,
 }
 
 impl<'a> Leb128Stream<'a> {
+    /// Instantiates from a slice
     pub const fn from_slice(slice: &'a [u8]) -> Self {
         Self {
             blob: slice,
             position: 0,
+            fetch_position: 0,
         }
     }
 }
 
 #[allow(dead_code)]
 impl Leb128Stream<'_> {
+    /// Returns to the origin of the stream
+    #[inline]
     pub fn reset(&mut self) {
         self.position = 0;
+        self.fetch_position = 0;
     }
 
+    /// Gets current position of stream
+    #[inline]
     pub const fn position(&self) -> usize {
         self.position
     }
 
+    #[inline]
+    pub const fn fetch_position(&self) -> usize {
+        self.fetch_position
+    }
+
+    /// Returns whether the end of the stream has been reached
+    #[inline]
     pub const fn is_eof(&self) -> bool {
         self.position >= self.blob.len()
     }
 
+    /// Reads one byte from a stream
     pub fn read_byte(&mut self) -> Result<u8, WasmDecodeError> {
         if self.is_eof() {
             return Err(WasmDecodeError::UnexpectedEof);
@@ -452,6 +511,7 @@ impl Leb128Stream<'_> {
         Ok(d)
     }
 
+    /// Returns a slice of the specified number of bytes from the stream
     pub fn get_bytes(&mut self, size: usize) -> Result<&[u8], WasmDecodeError> {
         let limit = self.blob.len();
         if self.position <= limit && size <= limit && self.position + size <= limit {
@@ -463,11 +523,14 @@ impl Leb128Stream<'_> {
         }
     }
 
+    /// Reads multiple bytes from the stream
+    #[inline]
     pub fn read_bytes(&mut self) -> Result<&[u8], WasmDecodeError> {
         self.read_uint()
             .and_then(move |size| self.get_bytes(size as usize))
     }
 
+    /// Reads an unsigned integer from a stream
     pub fn read_uint(&mut self) -> Result<u64, WasmDecodeError> {
         let mut value: u64 = 0;
         let mut scale = 0;
@@ -488,6 +551,7 @@ impl Leb128Stream<'_> {
         Ok(value)
     }
 
+    /// Reads a signed integer from a stream
     pub fn read_sint(&mut self) -> Result<i64, WasmDecodeError> {
         let mut value: u64 = 0;
         let mut scale = 0;
@@ -513,9 +577,24 @@ impl Leb128Stream<'_> {
         }
     }
 
+    /// Reads the UTF-8 encoded string from the stream
+    #[inline]
     pub fn get_string(&mut self) -> Result<&str, WasmDecodeError> {
         self.read_bytes()
             .and_then(|v| str::from_utf8(v).map_err(|_| WasmDecodeError::UnexpectedToken))
+    }
+
+    #[inline]
+    pub fn read_opcode(&mut self) -> Result<WasmOpcode, WasmDecodeError> {
+        self.fetch_position = self.position();
+        self.read_byte().map(|v| WasmOpcode::from_u8(v))
+    }
+
+    #[inline]
+    pub fn read_memarg(&mut self) -> Result<(u32, u32), WasmDecodeError> {
+        let a = self.read_uint()? as u32;
+        let o = self.read_uint()? as u32;
+        Ok((o, a))
     }
 
     fn next_section(&mut self) -> Result<Option<WasmSection>, WasmDecodeError> {
@@ -525,20 +604,12 @@ impl Leb128Stream<'_> {
         };
 
         let blob = self.read_bytes()?;
-        let stream = Leb128Stream { blob, position: 0 };
+        let stream = Leb128Stream::from_slice(blob);
         Ok(Some(WasmSection {
             section_type: section_type.into(),
             stream,
         }))
     }
-}
-
-#[derive(Debug, Copy, Clone)]
-pub enum WasmDecodeError {
-    BadExecutable,
-    UnexpectedEof,
-    UnexpectedToken,
-    InvalidParameter,
 }
 
 struct WasmSection<'a> {
@@ -583,7 +654,7 @@ impl From<u8> for WasmSectionType {
 }
 
 #[repr(u8)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum WasmValType {
     I32 = 0x7F,
     I64 = 0x7E,
@@ -618,7 +689,7 @@ impl fmt::Display for WasmValType {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum WasmBlockType {
     Empty = 0x40,
     I32 = 0x7F,
@@ -628,14 +699,14 @@ pub enum WasmBlockType {
 }
 
 impl WasmBlockType {
-    pub const fn from_i64(v: i64) -> Result<Self, WasmRuntimeError> {
+    pub const fn from_i64(v: i64) -> Result<Self, WasmDecodeError> {
         match v {
             0x40 => Ok(Self::Empty),
             0x7F => Ok(Self::I32),
             0x7E => Ok(Self::I64),
             0x7D => Ok(Self::F32),
             0x7C => Ok(Self::F64),
-            _ => Err(WasmRuntimeError::InvalidParameter),
+            _ => Err(WasmDecodeError::InvalidParameter),
         }
     }
 
@@ -808,6 +879,10 @@ impl WasmFunction {
         self.origin
     }
 
+    pub fn body(&self) -> Option<&WasmFunctionBody> {
+        self.body.as_ref()
+    }
+
     pub fn invoke(&self, params: &[WasmValue]) -> Result<WasmValue, WasmRuntimeError> {
         let body = self.body.as_ref().ok_or(WasmRuntimeError::NoMethod)?;
 
@@ -834,7 +909,7 @@ pub enum WasmFunctionOrigin {
     Import(usize),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WasmType {
     params: Vec<WasmValType>,
     result: Vec<WasmValType>,
@@ -898,14 +973,14 @@ impl fmt::Display for WasmType {
 pub struct WasmImport {
     mod_name: String,
     name: String,
-    index: WasmImportType,
+    index: WasmImportIndex,
 }
 
 impl WasmImport {
     fn from_stream(stream: &mut Leb128Stream) -> Result<Self, WasmDecodeError> {
         let mod_name = stream.get_string()?.to_string();
         let name = stream.get_string()?.to_string();
-        let index = WasmImportType::from_stream(stream)?;
+        let index = WasmImportIndex::from_stream(stream)?;
 
         Ok(Self {
             mod_name,
@@ -922,32 +997,26 @@ impl WasmImport {
         self.name.as_ref()
     }
 
-    pub const fn index(&self) -> WasmImportType {
+    pub const fn index(&self) -> WasmImportIndex {
         self.index
     }
 }
 
 #[derive(Debug, Copy, Clone)]
-pub enum WasmImportType {
+pub enum WasmImportIndex {
     Type(usize),
     Table(usize),
     Memory(usize),
     Global(usize),
 }
 
-impl WasmImportType {
+impl WasmImportIndex {
     fn from_stream(stream: &mut Leb128Stream) -> Result<Self, WasmDecodeError> {
         stream.read_uint().and_then(|v| match v {
-            0 => stream.read_uint().map(|v| WasmImportType::Type(v as usize)),
-            1 => stream
-                .read_uint()
-                .map(|v| WasmImportType::Table(v as usize)),
-            2 => stream
-                .read_uint()
-                .map(|v| WasmImportType::Memory(v as usize)),
-            3 => stream
-                .read_uint()
-                .map(|v| WasmImportType::Global(v as usize)),
+            0 => stream.read_uint().map(|v| Self::Type(v as usize)),
+            1 => stream.read_uint().map(|v| Self::Table(v as usize)),
+            2 => stream.read_uint().map(|v| Self::Memory(v as usize)),
+            3 => stream.read_uint().map(|v| Self::Global(v as usize)),
             _ => Err(WasmDecodeError::UnexpectedToken),
         })
     }
@@ -955,13 +1024,13 @@ impl WasmImportType {
 
 pub struct WasmExport {
     name: String,
-    index: WasmExportType,
+    index: WasmExportIndex,
 }
 
 impl WasmExport {
     fn from_stream(stream: &mut Leb128Stream) -> Result<Self, WasmDecodeError> {
         let name = stream.get_string()?.to_string();
-        let index = WasmExportType::from_stream(stream)?;
+        let index = WasmExportIndex::from_stream(stream)?;
         Ok(Self { name, index })
     }
 
@@ -969,51 +1038,44 @@ impl WasmExport {
         self.name.as_ref()
     }
 
-    pub const fn index(&self) -> WasmExportType {
+    pub const fn index(&self) -> WasmExportIndex {
         self.index
     }
 }
 
 #[derive(Debug, Copy, Clone)]
-pub enum WasmExportType {
+pub enum WasmExportIndex {
     Function(usize),
     Table(usize),
     Memory(usize),
     Global(usize),
 }
 
-impl WasmExportType {
+impl WasmExportIndex {
     fn from_stream(stream: &mut Leb128Stream) -> Result<Self, WasmDecodeError> {
         stream.read_uint().and_then(|v| match v {
-            0 => stream
-                .read_uint()
-                .map(|v| WasmExportType::Function(v as usize)),
-            1 => stream
-                .read_uint()
-                .map(|v| WasmExportType::Table(v as usize)),
-            2 => stream
-                .read_uint()
-                .map(|v| WasmExportType::Memory(v as usize)),
-            3 => stream
-                .read_uint()
-                .map(|v| WasmExportType::Global(v as usize)),
+            0 => stream.read_uint().map(|v| Self::Function(v as usize)),
+            1 => stream.read_uint().map(|v| Self::Table(v as usize)),
+            2 => stream.read_uint().map(|v| Self::Memory(v as usize)),
+            3 => stream.read_uint().map(|v| Self::Global(v as usize)),
             _ => Err(WasmDecodeError::UnexpectedToken),
         })
     }
 }
 
 pub struct WasmFunctionBody {
-    #[allow(dead_code)]
     param_types: Vec<WasmValType>,
     local_types: Vec<WasmValType>,
     result_types: Vec<WasmValType>,
     code_block: Arc<RefCell<Vec<u8>>>,
+    block_info: WasmBlockInfo,
 }
 
 impl WasmFunctionBody {
     fn from_stream(
         stream: &mut Leb128Stream,
         func_type: &WasmType,
+        module: &WasmModule,
     ) -> Result<Self, WasmDecodeError> {
         let blob = stream.read_bytes()?;
         let mut stream = Leb128Stream::from_slice(blob);
@@ -1027,13 +1089,73 @@ impl WasmFunctionBody {
             }
         }
         let code_block = Arc::new(RefCell::new(blob[stream.position..].to_vec()));
+        let param_types = func_type.params.clone();
+        let result_types = func_type.result.clone();
+
+        let block_info = {
+            let mut local_types = Vec::new();
+            for param_type in &param_types {
+                local_types.push(param_type.clone());
+            }
+            for local in &locals {
+                local_types.push(local.clone());
+            }
+            let code_ref = code_block.borrow();
+            let mut code_block = Leb128Stream::from_slice(&code_ref);
+            WasmBlockInfo::analyze(&mut code_block, &local_types, &result_types, module)
+        }?;
+
         Ok(Self {
-            param_types: func_type.params.clone(),
+            param_types,
             local_types: locals,
-            result_types: func_type.result.clone(),
+            result_types,
             code_block,
+            block_info,
         })
     }
+
+    pub fn param_types(&self) -> &[WasmValType] {
+        self.param_types.as_slice()
+    }
+
+    pub fn local_types(&self) -> &[WasmValType] {
+        self.local_types.as_slice()
+    }
+
+    pub fn result_types(&self) -> &[WasmValType] {
+        self.result_types.as_slice()
+    }
+
+    pub fn block_info(&self) -> &WasmBlockInfo {
+        &self.block_info
+    }
+
+    pub fn code_block(&self) -> Arc<RefCell<Vec<u8>>> {
+        self.code_block.clone()
+    }
+}
+
+#[allow(dead_code)]
+pub struct WasmGlobal {
+    val_type: WasmValType,
+    is_mutable: bool,
+    value: WasmValue,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum WasmDecodeError {
+    BadExecutable,
+    UnexpectedEof,
+    UnexpectedToken,
+    InvalidParameter,
+    InvalidStackLevel,
+    InvalidGlobal,
+    InvalidLocal,
+    OutOfStack,
+    TypeMismatch,
+    BlockMismatch,
+    ElseWithoutIf,
+    UnreachableTrap,
 }
 
 #[allow(dead_code)]
@@ -1041,16 +1163,13 @@ impl WasmFunctionBody {
 pub enum WasmRuntimeError {
     OutOfBounds,
     OutOfMemory,
-    OutOfStack,
-    InvalidStackLevel,
-    InvalidLocal,
     UnexpectedEof,
     UnexpectedToken,
     InvalidParameter,
     InvalidBytecode,
     NoMethod,
-    TypeMismatch,
     DivideByZero,
+    TypeMismatch,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -1123,568 +1242,6 @@ impl WasmValue {
         match self {
             Self::I64(a) => Ok(f(a).into()),
             _ => return Err(WasmRuntimeError::TypeMismatch),
-        }
-    }
-
-    pub fn div_u(self, rhs: Self) -> Result<WasmValue, WasmRuntimeError> {
-        match self {
-            Self::I32(a) => {
-                let b = match rhs {
-                    Self::I32(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                if b == 0 {
-                    return Err(WasmRuntimeError::DivideByZero);
-                }
-                Ok(WasmValue::I32((a as u32 / b as u32) as i32))
-            }
-            Self::I64(a) => {
-                let b = match rhs {
-                    Self::I64(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                if b == 0 {
-                    return Err(WasmRuntimeError::DivideByZero);
-                }
-                Ok(WasmValue::I64((a as u64 / b as u64) as i64))
-            }
-            _ => return Err(WasmRuntimeError::InvalidParameter),
-        }
-    }
-
-    pub fn rem_u(self, rhs: Self) -> Result<WasmValue, WasmRuntimeError> {
-        match self {
-            Self::I32(a) => {
-                let b = match rhs {
-                    Self::I32(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                if b == 0 {
-                    return Err(WasmRuntimeError::DivideByZero);
-                }
-                Ok(WasmValue::I32((a as u32 % b as u32) as i32))
-            }
-            Self::I64(a) => {
-                let b = match rhs {
-                    Self::I64(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                if b == 0 {
-                    return Err(WasmRuntimeError::DivideByZero);
-                }
-                Ok(WasmValue::I64((a as u64 % b as u64) as i64))
-            }
-            _ => return Err(WasmRuntimeError::InvalidParameter),
-        }
-    }
-
-    pub fn shr_u(self, rhs: Self) -> Result<WasmValue, WasmRuntimeError> {
-        match self {
-            Self::I32(a) => {
-                let b = match rhs {
-                    Self::I32(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I32((a as u32 >> b as u32) as i32))
-            }
-            Self::I64(a) => {
-                let b = match rhs {
-                    Self::I64(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I64((a as u64 >> b as u64) as i64))
-            }
-            _ => return Err(WasmRuntimeError::InvalidParameter),
-        }
-    }
-
-    pub fn rotl(self, rhs: Self) -> Result<WasmValue, WasmRuntimeError> {
-        match self {
-            Self::I32(a) => {
-                let b = match rhs {
-                    Self::I32(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I32(a.rotate_left(b as u32)))
-            }
-            Self::I64(a) => {
-                let b = match rhs {
-                    Self::I64(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I64(a.rotate_left(b as u32)))
-            }
-            _ => return Err(WasmRuntimeError::InvalidParameter),
-        }
-    }
-
-    pub fn rotr(self, rhs: Self) -> Result<WasmValue, WasmRuntimeError> {
-        match self {
-            Self::I32(a) => {
-                let b = match rhs {
-                    Self::I32(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I32(a.rotate_right(b as u32)))
-            }
-            Self::I64(a) => {
-                let b = match rhs {
-                    Self::I64(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I64(a.rotate_right(b as u32)))
-            }
-            _ => return Err(WasmRuntimeError::InvalidParameter),
-        }
-    }
-
-    pub fn eqz(self) -> Result<WasmValue, WasmRuntimeError> {
-        match self {
-            Self::I32(a) => Ok(WasmValue::I32(if a == 0 { 1 } else { 0 })),
-            Self::I64(a) => Ok(WasmValue::I32(if a == 0 { 1 } else { 0 })),
-            _ => return Err(WasmRuntimeError::InvalidParameter),
-        }
-    }
-
-    pub fn eq(self, rhs: Self) -> Result<WasmValue, WasmRuntimeError> {
-        match self {
-            Self::I32(a) => {
-                let b = match rhs {
-                    Self::I32(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I32(if a == b { 1 } else { 0 }))
-            }
-            Self::I64(a) => {
-                let b = match rhs {
-                    Self::I64(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I32(if a == b { 1 } else { 0 }))
-            }
-            _ => return Err(WasmRuntimeError::InvalidParameter),
-        }
-    }
-
-    pub fn ne(self, rhs: Self) -> Result<WasmValue, WasmRuntimeError> {
-        match self {
-            Self::I32(a) => {
-                let b = match rhs {
-                    Self::I32(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I32(if a != b { 1 } else { 0 }))
-            }
-            Self::I64(a) => {
-                let b = match rhs {
-                    Self::I64(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I32(if a != b { 1 } else { 0 }))
-            }
-            _ => return Err(WasmRuntimeError::InvalidParameter),
-        }
-    }
-
-    pub fn lt_s(self, rhs: Self) -> Result<WasmValue, WasmRuntimeError> {
-        match self {
-            Self::I32(a) => {
-                let b = match rhs {
-                    Self::I32(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I32(if a < b { 1 } else { 0 }))
-            }
-            Self::I64(a) => {
-                let b = match rhs {
-                    Self::I64(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I32(if a < b { 1 } else { 0 }))
-            }
-            _ => return Err(WasmRuntimeError::InvalidParameter),
-        }
-    }
-
-    pub fn lt_u(self, rhs: Self) -> Result<WasmValue, WasmRuntimeError> {
-        match self {
-            Self::I32(a) => {
-                let b = match rhs {
-                    Self::I32(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I32(if (a as u32) < (b as u32) { 1 } else { 0 }))
-            }
-            Self::I64(a) => {
-                let b = match rhs {
-                    Self::I64(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I32(if (a as u64) < (b as u64) { 1 } else { 0 }))
-            }
-            _ => return Err(WasmRuntimeError::InvalidParameter),
-        }
-    }
-
-    pub fn le_s(self, rhs: Self) -> Result<WasmValue, WasmRuntimeError> {
-        match self {
-            Self::I32(a) => {
-                let b = match rhs {
-                    Self::I32(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I32(if a <= b { 1 } else { 0 }))
-            }
-            Self::I64(a) => {
-                let b = match rhs {
-                    Self::I64(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I32(if a <= b { 1 } else { 0 }))
-            }
-            _ => return Err(WasmRuntimeError::InvalidParameter),
-        }
-    }
-
-    pub fn le_u(self, rhs: Self) -> Result<WasmValue, WasmRuntimeError> {
-        match self {
-            Self::I32(a) => {
-                let b = match rhs {
-                    Self::I32(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I32(if (a as u32) <= (b as u32) { 1 } else { 0 }))
-            }
-            Self::I64(a) => {
-                let b = match rhs {
-                    Self::I64(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I32(if (a as u64) <= (b as u64) { 1 } else { 0 }))
-            }
-            _ => return Err(WasmRuntimeError::InvalidParameter),
-        }
-    }
-
-    pub fn gt_s(self, rhs: Self) -> Result<WasmValue, WasmRuntimeError> {
-        match self {
-            Self::I32(a) => {
-                let b = match rhs {
-                    Self::I32(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I32(if a > b { 1 } else { 0 }))
-            }
-            Self::I64(a) => {
-                let b = match rhs {
-                    Self::I64(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I32(if a > b { 1 } else { 0 }))
-            }
-            _ => return Err(WasmRuntimeError::InvalidParameter),
-        }
-    }
-
-    pub fn gt_u(self, rhs: Self) -> Result<WasmValue, WasmRuntimeError> {
-        match self {
-            Self::I32(a) => {
-                let b = match rhs {
-                    Self::I32(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I32(if (a as u32) > (b as u32) { 1 } else { 0 }))
-            }
-            Self::I64(a) => {
-                let b = match rhs {
-                    Self::I64(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I32(if (a as u64) > (b as u64) { 1 } else { 0 }))
-            }
-            _ => return Err(WasmRuntimeError::InvalidParameter),
-        }
-    }
-
-    pub fn ge_s(self, rhs: Self) -> Result<WasmValue, WasmRuntimeError> {
-        match self {
-            Self::I32(a) => {
-                let b = match rhs {
-                    Self::I32(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I32(if a >= b { 1 } else { 0 }))
-            }
-            Self::I64(a) => {
-                let b = match rhs {
-                    Self::I64(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I32(if a >= b { 1 } else { 0 }))
-            }
-            _ => return Err(WasmRuntimeError::InvalidParameter),
-        }
-    }
-
-    pub fn ge_u(self, rhs: Self) -> Result<WasmValue, WasmRuntimeError> {
-        match self {
-            Self::I32(a) => {
-                let b = match rhs {
-                    Self::I32(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I32(if (a as u32) >= (b as u32) { 1 } else { 0 }))
-            }
-            Self::I64(a) => {
-                let b = match rhs {
-                    Self::I64(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I32(if (a as u64) >= (b as u64) { 1 } else { 0 }))
-            }
-            _ => return Err(WasmRuntimeError::InvalidParameter),
-        }
-    }
-}
-
-impl Add for WasmValue {
-    type Output = Result<WasmValue, WasmRuntimeError>;
-    fn add(self, rhs: Self) -> Self::Output {
-        match self {
-            Self::I32(a) => {
-                let b = match rhs {
-                    Self::I32(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I32(a + b))
-            }
-            Self::I64(a) => {
-                let b = match rhs {
-                    Self::I64(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I64(a + b))
-            }
-            _ => return Err(WasmRuntimeError::InvalidParameter),
-        }
-    }
-}
-
-impl Sub for WasmValue {
-    type Output = Result<WasmValue, WasmRuntimeError>;
-    fn sub(self, rhs: Self) -> Self::Output {
-        match self {
-            Self::I32(a) => {
-                let b = match rhs {
-                    Self::I32(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I32(a - b))
-            }
-            Self::I64(a) => {
-                let b = match rhs {
-                    Self::I64(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I64(a - b))
-            }
-            _ => return Err(WasmRuntimeError::InvalidParameter),
-        }
-    }
-}
-
-impl Mul for WasmValue {
-    type Output = Result<WasmValue, WasmRuntimeError>;
-    fn mul(self, rhs: Self) -> Self::Output {
-        match self {
-            Self::I32(a) => {
-                let b = match rhs {
-                    Self::I32(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I32(a * b))
-            }
-            Self::I64(a) => {
-                let b = match rhs {
-                    Self::I64(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I64(a * b))
-            }
-            _ => return Err(WasmRuntimeError::InvalidParameter),
-        }
-    }
-}
-
-impl Div for WasmValue {
-    type Output = Result<WasmValue, WasmRuntimeError>;
-    fn div(self, rhs: Self) -> Self::Output {
-        match self {
-            Self::I32(a) => {
-                let b = match rhs {
-                    Self::I32(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                if b == 0 {
-                    return Err(WasmRuntimeError::DivideByZero);
-                }
-                Ok(WasmValue::I32(a / b))
-            }
-            Self::I64(a) => {
-                let b = match rhs {
-                    Self::I64(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                if b == 0 {
-                    return Err(WasmRuntimeError::DivideByZero);
-                }
-                Ok(WasmValue::I64(a / b))
-            }
-            _ => return Err(WasmRuntimeError::InvalidParameter),
-        }
-    }
-}
-
-impl Rem for WasmValue {
-    type Output = Result<WasmValue, WasmRuntimeError>;
-    fn rem(self, rhs: Self) -> Self::Output {
-        match self {
-            Self::I32(a) => {
-                let b = match rhs {
-                    Self::I32(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                if b == 0 {
-                    return Err(WasmRuntimeError::DivideByZero);
-                }
-                Ok(WasmValue::I32(a % b))
-            }
-            Self::I64(a) => {
-                let b = match rhs {
-                    Self::I64(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                if b == 0 {
-                    return Err(WasmRuntimeError::DivideByZero);
-                }
-                Ok(WasmValue::I64(a % b))
-            }
-            _ => return Err(WasmRuntimeError::InvalidParameter),
-        }
-    }
-}
-
-impl BitAnd for WasmValue {
-    type Output = Result<WasmValue, WasmRuntimeError>;
-    fn bitand(self, rhs: Self) -> Self::Output {
-        match self {
-            Self::I32(a) => {
-                let b = match rhs {
-                    Self::I32(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I32(a & b))
-            }
-            Self::I64(a) => {
-                let b = match rhs {
-                    Self::I64(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I64(a & b))
-            }
-            _ => return Err(WasmRuntimeError::InvalidParameter),
-        }
-    }
-}
-
-impl BitOr for WasmValue {
-    type Output = Result<WasmValue, WasmRuntimeError>;
-    fn bitor(self, rhs: Self) -> Self::Output {
-        match self {
-            Self::I32(a) => {
-                let b = match rhs {
-                    Self::I32(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I32(a | b))
-            }
-            Self::I64(a) => {
-                let b = match rhs {
-                    Self::I64(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I64(a | b))
-            }
-            _ => return Err(WasmRuntimeError::InvalidParameter),
-        }
-    }
-}
-
-impl BitXor for WasmValue {
-    type Output = Result<WasmValue, WasmRuntimeError>;
-    fn bitxor(self, rhs: Self) -> Self::Output {
-        match self {
-            Self::I32(a) => {
-                let b = match rhs {
-                    Self::I32(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I32(a ^ b))
-            }
-            Self::I64(a) => {
-                let b = match rhs {
-                    Self::I64(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I64(a ^ b))
-            }
-            _ => return Err(WasmRuntimeError::InvalidParameter),
-        }
-    }
-}
-
-impl Shl for WasmValue {
-    type Output = Result<WasmValue, WasmRuntimeError>;
-    fn shl(self, rhs: Self) -> Self::Output {
-        match self {
-            Self::I32(a) => {
-                let b = match rhs {
-                    Self::I32(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I32(a << b))
-            }
-            Self::I64(a) => {
-                let b = match rhs {
-                    Self::I64(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I64(a << b))
-            }
-            _ => return Err(WasmRuntimeError::InvalidParameter),
-        }
-    }
-}
-
-impl Shr for WasmValue {
-    type Output = Result<WasmValue, WasmRuntimeError>;
-    fn shr(self, rhs: Self) -> Self::Output {
-        match self {
-            Self::I32(a) => {
-                let b = match rhs {
-                    Self::I32(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I32(a >> b))
-            }
-            Self::I64(a) => {
-                let b = match rhs {
-                    Self::I64(v) => v,
-                    _ => return Err(WasmRuntimeError::TypeMismatch),
-                };
-                Ok(WasmValue::I64(a >> b))
-            }
-            _ => return Err(WasmRuntimeError::InvalidParameter),
         }
     }
 }
@@ -1762,19 +1319,28 @@ impl<'a> WasmCodeBlock<'a> {
         self.code.position()
     }
 
-    pub fn get_opcode(&mut self) -> Result<WasmOpcode, WasmRuntimeError> {
-        self.code
-            .read_byte()
-            .map(|v| WasmOpcode::from_u8(v))
-            .map_err(|err| Self::map_err(err))
+    pub const fn fetch_position(&self) -> usize {
+        self.code.fetch_position
     }
 
-    pub fn get_sint(&mut self) -> Result<i64, WasmRuntimeError> {
+    pub fn read_opcode(&mut self) -> Result<WasmOpcode, WasmRuntimeError> {
+        self.code.read_opcode().map_err(|err| Self::map_err(err))
+    }
+
+    pub fn read_sint(&mut self) -> Result<i64, WasmRuntimeError> {
         self.code.read_sint().map_err(|err| Self::map_err(err))
     }
 
-    pub fn get_uint(&mut self) -> Result<u64, WasmRuntimeError> {
+    pub fn read_uint(&mut self) -> Result<u64, WasmRuntimeError> {
         self.code.read_uint().map_err(|err| Self::map_err(err))
+    }
+
+    pub fn read_byte(&mut self) -> Result<u8, WasmRuntimeError> {
+        self.code.read_byte().map_err(|err| Self::map_err(err))
+    }
+
+    pub fn read_memarg(&mut self) -> Result<(u32, u32), WasmRuntimeError> {
+        self.code.read_memarg().map_err(|err| Self::map_err(err))
     }
 
     fn map_err(err: WasmDecodeError) -> WasmRuntimeError {
@@ -1795,6 +1361,694 @@ impl<'a> WasmCodeBlock<'a> {
     }
 }
 
+#[derive(Debug)]
+pub struct WasmBlockInfo {
+    max_stack: usize,
+    blocks: Vec<WasmBlockContext>,
+}
+
+impl WasmBlockInfo {
+    /// Analyze block info
+    pub fn analyze<'a>(
+        code_block: &mut Leb128Stream,
+        local_types: &[WasmValType],
+        result_types: &[WasmValType],
+        module: &WasmModule,
+    ) -> Result<Self, WasmDecodeError> {
+        let mut blocks = Vec::new();
+        let mut block_stack = Vec::new();
+        let mut value_stack = Vec::new();
+        let mut max_stack = 0;
+
+        loop {
+            max_stack = usize::max(max_stack, value_stack.len());
+            let position = code_block.position();
+            let opcode = code_block.read_opcode()?;
+            let old_values = value_stack.clone();
+
+            match opcode {
+                WasmOpcode::Unreachable => (),
+
+                WasmOpcode::Nop => (),
+
+                WasmOpcode::Block => {
+                    let block_type = code_block
+                        .read_byte()
+                        .and_then(|v| WasmBlockType::from_i64(v as i64))?;
+                    let block = RefCell::new(WasmBlockContext {
+                        inst_type: BlockInstType::Block,
+                        block_type,
+                        stack_level: value_stack.len(),
+                        start_position: position,
+                        end_position: 0,
+                        else_position: 0,
+                    });
+                    block_stack.push(blocks.len());
+                    blocks.push(block);
+                }
+                WasmOpcode::Loop => {
+                    let block_type = code_block
+                        .read_byte()
+                        .and_then(|v| WasmBlockType::from_i64(v as i64))?;
+                    let block = RefCell::new(WasmBlockContext {
+                        inst_type: BlockInstType::Loop,
+                        block_type,
+                        stack_level: value_stack.len(),
+                        start_position: position,
+                        end_position: 0,
+                        else_position: 0,
+                    });
+                    block_stack.push(blocks.len());
+                    blocks.push(block);
+                }
+                WasmOpcode::If => {
+                    let cc = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    if cc != WasmValType::I32 {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                    let block_type = code_block
+                        .read_byte()
+                        .and_then(|v| WasmBlockType::from_i64(v as i64))?;
+                    let block = RefCell::new(WasmBlockContext {
+                        inst_type: BlockInstType::If,
+                        block_type,
+                        stack_level: value_stack.len(),
+                        start_position: position,
+                        end_position: 0,
+                        else_position: 0,
+                    });
+                    block_stack.push(blocks.len());
+                    blocks.push(block);
+                }
+                WasmOpcode::Else => {
+                    let block_ref = block_stack.last().ok_or(WasmDecodeError::ElseWithoutIf)?;
+                    let mut block = blocks.get(*block_ref).unwrap().borrow_mut();
+                    if block.inst_type != BlockInstType::If {
+                        return Err(WasmDecodeError::ElseWithoutIf);
+                    }
+                    block.else_position = position;
+                    let n_drops = value_stack.len() - block.stack_level;
+                    for _ in 0..n_drops {
+                        value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    }
+                }
+                WasmOpcode::End => {
+                    if block_stack.len() > 0 {
+                        let block_ref = block_stack.pop().ok_or(WasmDecodeError::BlockMismatch)?;
+                        let mut block = blocks.get(block_ref).unwrap().borrow_mut();
+                        block.end_position = code_block.position();
+                        let n_drops = value_stack.len() - block.stack_level;
+                        for _ in 0..n_drops {
+                            value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                        }
+                        block.block_type.into_type().first().map(|v| {
+                            value_stack.push(v.clone());
+                        });
+                    // TODO: type check
+                    } else {
+                        break;
+                    }
+                }
+
+                WasmOpcode::Br => {
+                    let _br = code_block.read_uint()?;
+                }
+                WasmOpcode::BrIf => {
+                    let _br = code_block.read_uint()?;
+                    let cc = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    if cc != WasmValType::I32 {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                }
+                WasmOpcode::BrTable => {
+                    let table_len = code_block.read_uint()?;
+                    for _ in 0..table_len {
+                        let _br = code_block.read_uint()?;
+                    }
+                    let _br = code_block.read_uint()?;
+                }
+
+                WasmOpcode::Return => {
+                    // TODO: type check
+                }
+
+                WasmOpcode::Call | WasmOpcode::ReturnCall => {
+                    let func_index = code_block.read_uint()? as usize;
+                    let function = module
+                        .func_by_ref(func_index)
+                        .map_err(|_| WasmDecodeError::InvalidParameter)?;
+                    let func_type = module
+                        .type_by_ref(function.type_ref)
+                        .ok_or(WasmDecodeError::InvalidParameter)?;
+                    for _param in func_type.param_types() {
+                        value_stack.pop();
+                    }
+                    for result in func_type.result_types() {
+                        value_stack.push(result.clone());
+                    }
+                }
+                WasmOpcode::CallIndirect | WasmOpcode::ReturnCallIndirect => {
+                    let _br = code_block.read_uint()?;
+                    let cc = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    if cc != WasmValType::I32 {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                }
+
+                WasmOpcode::Drop => {
+                    value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                }
+                WasmOpcode::Select => {
+                    let cc = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    let b = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    let a = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    if a != b || cc != WasmValType::I32 {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                    value_stack.push(a);
+                }
+
+                WasmOpcode::LocalGet => {
+                    let local_ref = code_block.read_uint()? as usize;
+                    let val = *local_types
+                        .get(local_ref)
+                        .ok_or(WasmDecodeError::InvalidLocal)?;
+                    value_stack.push(val);
+                }
+                WasmOpcode::LocalSet => {
+                    let local_ref = code_block.read_uint()? as usize;
+                    let val = *local_types
+                        .get(local_ref)
+                        .ok_or(WasmDecodeError::InvalidLocal)?;
+                    let stack = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    if stack != val {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                }
+                WasmOpcode::LocalTee => {
+                    let local_ref = code_block.read_uint()? as usize;
+                    let val = *local_types
+                        .get(local_ref)
+                        .ok_or(WasmDecodeError::InvalidLocal)?;
+                    let stack = *value_stack.last().ok_or(WasmDecodeError::OutOfStack)?;
+                    if stack != val {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                }
+
+                WasmOpcode::GlobalGet => {
+                    let global_ref = code_block.read_uint()? as usize;
+                    let global = module
+                        .globals
+                        .get(global_ref)
+                        .ok_or(WasmDecodeError::InvalidGlobal)?;
+                    value_stack.push(global.val_type);
+                }
+                WasmOpcode::GlobalSet => {
+                    let global_ref = code_block.read_uint()? as usize;
+                    let global = module
+                        .globals
+                        .get(global_ref)
+                        .ok_or(WasmDecodeError::InvalidGlobal)?;
+                    let stack = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    if stack != global.val_type {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                }
+
+                WasmOpcode::I32Load
+                | WasmOpcode::I32Load8S
+                | WasmOpcode::I32Load8U
+                | WasmOpcode::I32Load16S
+                | WasmOpcode::I32Load16U => {
+                    let _ = code_block.read_memarg()?;
+                    let a = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    if a != WasmValType::I32 {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                    value_stack.push(WasmValType::I32);
+                }
+
+                WasmOpcode::I64Load
+                | WasmOpcode::I64Load8S
+                | WasmOpcode::I64Load8U
+                | WasmOpcode::I64Load16S
+                | WasmOpcode::I64Load16U
+                | WasmOpcode::I64Load32S
+                | WasmOpcode::I64Load32U => {
+                    let _ = code_block.read_memarg()?;
+                    let a = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    if a != WasmValType::I32 {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                    value_stack.push(WasmValType::I64);
+                }
+
+                WasmOpcode::I32Store | WasmOpcode::I32Store8 | WasmOpcode::I32Store16 => {
+                    let _ = code_block.read_memarg()?;
+                    let d = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    let i = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    if i != d && i != WasmValType::I32 {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                }
+                WasmOpcode::I64Store
+                | WasmOpcode::I64Store8
+                | WasmOpcode::I64Store16
+                | WasmOpcode::I64Store32 => {
+                    let _ = code_block.read_memarg()?;
+                    let d = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    let i = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    if i != WasmValType::I32 && d != WasmValType::I64 {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                }
+
+                WasmOpcode::F32Load => {
+                    let _ = code_block.read_memarg()?;
+                    let a = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    if a != WasmValType::I32 {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                    value_stack.push(WasmValType::F32);
+                }
+                WasmOpcode::F64Load => {
+                    let _ = code_block.read_memarg()?;
+                    let a = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    if a != WasmValType::I32 {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                    value_stack.push(WasmValType::F64);
+                }
+                WasmOpcode::F32Store => {
+                    let _ = code_block.read_memarg()?;
+                    let d = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    let i = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    if i != WasmValType::I32 && d != WasmValType::F32 {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                }
+                WasmOpcode::F64Store => {
+                    let _ = code_block.read_memarg()?;
+                    let d = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    let i = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    if i != WasmValType::I32 && d != WasmValType::F64 {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                }
+
+                WasmOpcode::MemorySize => {
+                    let _ = code_block.read_uint()?;
+                    value_stack.push(WasmValType::I32);
+                }
+
+                WasmOpcode::MemoryGrow => {
+                    let _ = code_block.read_uint()?;
+                    let a = *value_stack.last().ok_or(WasmDecodeError::OutOfStack)?;
+                    if a != WasmValType::I32 {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                }
+
+                WasmOpcode::I32Const => {
+                    let _ = code_block.read_sint()?;
+                    value_stack.push(WasmValType::I32);
+                }
+                WasmOpcode::I64Const => {
+                    let _ = code_block.read_sint()?;
+                    value_stack.push(WasmValType::I64);
+                }
+
+                // [i32] -> [i32]
+                WasmOpcode::I32Eqz
+                | WasmOpcode::I32Clz
+                | WasmOpcode::I32Ctz
+                | WasmOpcode::I32Popcnt
+                | WasmOpcode::I32Extend8S
+                | WasmOpcode::I32Extend16S => {
+                    let a = *value_stack.last().ok_or(WasmDecodeError::OutOfStack)?;
+                    if a != WasmValType::I32 {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                }
+
+                // [i32, i32] -> [i32]
+                WasmOpcode::I32Eq
+                | WasmOpcode::I32Ne
+                | WasmOpcode::I32LtS
+                | WasmOpcode::I32LtU
+                | WasmOpcode::I32GtS
+                | WasmOpcode::I32GtU
+                | WasmOpcode::I32LeS
+                | WasmOpcode::I32LeU
+                | WasmOpcode::I32GeS
+                | WasmOpcode::I32GeU
+                | WasmOpcode::I32Add
+                | WasmOpcode::I32Sub
+                | WasmOpcode::I32Mul
+                | WasmOpcode::I32DivS
+                | WasmOpcode::I32DivU
+                | WasmOpcode::I32RemS
+                | WasmOpcode::I32RemU
+                | WasmOpcode::I32And
+                | WasmOpcode::I32Or
+                | WasmOpcode::I32Xor
+                | WasmOpcode::I32Shl
+                | WasmOpcode::I32ShrS
+                | WasmOpcode::I32ShrU
+                | WasmOpcode::I32Rotl
+                | WasmOpcode::I32Rotr => {
+                    let a = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    let b = *value_stack.last().ok_or(WasmDecodeError::OutOfStack)?;
+                    if a != b || a != WasmValType::I32 {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                }
+
+                // [i64, i64] -> [i32]
+                WasmOpcode::I64Eq
+                | WasmOpcode::I64Ne
+                | WasmOpcode::I64LtS
+                | WasmOpcode::I64LtU
+                | WasmOpcode::I64GtS
+                | WasmOpcode::I64GtU
+                | WasmOpcode::I64LeS
+                | WasmOpcode::I64LeU
+                | WasmOpcode::I64GeS
+                | WasmOpcode::I64GeU => {
+                    let a = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    let b = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    if a != b || a != WasmValType::I64 {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                    value_stack.push(WasmValType::I32);
+                }
+
+                // [i64] -> [i64]
+                WasmOpcode::I64Clz
+                | WasmOpcode::I64Ctz
+                | WasmOpcode::I64Popcnt
+                | WasmOpcode::I64Extend8S
+                | WasmOpcode::I64Extend16S
+                | WasmOpcode::I64Extend32S => {
+                    let a = *value_stack.last().ok_or(WasmDecodeError::OutOfStack)?;
+                    if a != WasmValType::I64 {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                }
+
+                // [i64, i64] -> [i64]
+                WasmOpcode::I64Add
+                | WasmOpcode::I64Sub
+                | WasmOpcode::I64Mul
+                | WasmOpcode::I64DivS
+                | WasmOpcode::I64DivU
+                | WasmOpcode::I64RemS
+                | WasmOpcode::I64RemU
+                | WasmOpcode::I64And
+                | WasmOpcode::I64Or
+                | WasmOpcode::I64Xor
+                | WasmOpcode::I64Shl
+                | WasmOpcode::I64ShrS
+                | WasmOpcode::I64ShrU
+                | WasmOpcode::I64Rotl
+                | WasmOpcode::I64Rotr => {
+                    let a = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    let b = *value_stack.last().ok_or(WasmDecodeError::OutOfStack)?;
+                    if a != b || a != WasmValType::I64 {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                }
+
+                // [i64] -> [i32]
+                WasmOpcode::I64Eqz | WasmOpcode::I32WrapI64 => {
+                    let a = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    if a != WasmValType::I64 {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                    value_stack.push(WasmValType::I32);
+                }
+
+                // [i32] -> [i64]
+                WasmOpcode::I64ExtendI32S | WasmOpcode::I64ExtendI32U => {
+                    let a = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    if a != WasmValType::I32 {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                    value_stack.push(WasmValType::I64);
+                }
+
+                // WasmOpcode::F32Const => {}
+                // WasmOpcode::F64Const => {}
+
+                // float
+
+                // [f32] -> [i32]
+                WasmOpcode::I32TruncF32S
+                | WasmOpcode::I32TruncF32U
+                | WasmOpcode::I32ReinterpretF32 => {
+                    let a = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    if a != WasmValType::F32 {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                    value_stack.push(WasmValType::I32);
+                }
+
+                // [f32, f32] -> [i32]
+                WasmOpcode::F32Eq
+                | WasmOpcode::F32Ne
+                | WasmOpcode::F32Lt
+                | WasmOpcode::F32Gt
+                | WasmOpcode::F32Le
+                | WasmOpcode::F32Ge => {
+                    let a = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    let b = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    if a != b || a != WasmValType::F32 {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                    value_stack.push(WasmValType::I32);
+                }
+
+                // [f32] -> [f32]
+                WasmOpcode::F32Abs
+                | WasmOpcode::F32Neg
+                | WasmOpcode::F32Ceil
+                | WasmOpcode::F32Floor
+                | WasmOpcode::F32Trunc
+                | WasmOpcode::F32Nearest
+                | WasmOpcode::F32Sqrt => {
+                    let a = *value_stack.last().ok_or(WasmDecodeError::OutOfStack)?;
+                    if a != WasmValType::I32 {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                }
+
+                // [f32, f32] -> [f32]
+                WasmOpcode::F32Add
+                | WasmOpcode::F32Sub
+                | WasmOpcode::F32Mul
+                | WasmOpcode::F32Div
+                | WasmOpcode::F32Min
+                | WasmOpcode::F32Max
+                | WasmOpcode::F32Copysign => {
+                    let a = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    let b = *value_stack.last().ok_or(WasmDecodeError::OutOfStack)?;
+                    if a != b || a != WasmValType::F32 {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                }
+
+                // [f64] -> [i32]
+                WasmOpcode::I32TruncF64S | WasmOpcode::I32TruncF64U => {
+                    let a = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    if a != WasmValType::F64 {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                    value_stack.push(WasmValType::I32);
+                }
+
+                // [f64] -> [i64]
+                WasmOpcode::I64TruncF32S
+                | WasmOpcode::I64TruncF32U
+                | WasmOpcode::I64TruncF64S
+                | WasmOpcode::I64TruncF64U
+                | WasmOpcode::I64ReinterpretF64 => {
+                    let a = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    if a != WasmValType::F64 {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                    value_stack.push(WasmValType::I32);
+                }
+
+                // [f64, f64] -> [i32]
+                WasmOpcode::F64Eq
+                | WasmOpcode::F64Ne
+                | WasmOpcode::F64Lt
+                | WasmOpcode::F64Gt
+                | WasmOpcode::F64Le
+                | WasmOpcode::F64Ge => {
+                    let a = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    let b = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    if a != b || a != WasmValType::F64 {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                    value_stack.push(WasmValType::I32);
+                }
+
+                // [f64] -> [f64]
+                WasmOpcode::F64Abs
+                | WasmOpcode::F64Neg
+                | WasmOpcode::F64Ceil
+                | WasmOpcode::F64Floor
+                | WasmOpcode::F64Trunc
+                | WasmOpcode::F64Nearest
+                | WasmOpcode::F64Sqrt => {
+                    let a = *value_stack.last().ok_or(WasmDecodeError::OutOfStack)?;
+                    if a != WasmValType::F64 {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                }
+
+                // [f64, f64] -> [f64]
+                WasmOpcode::F64Add
+                | WasmOpcode::F64Sub
+                | WasmOpcode::F64Mul
+                | WasmOpcode::F64Div
+                | WasmOpcode::F64Min
+                | WasmOpcode::F64Max
+                | WasmOpcode::F64Copysign => {
+                    let a = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    let b = *value_stack.last().ok_or(WasmDecodeError::OutOfStack)?;
+                    if a != b || a != WasmValType::F64 {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                }
+
+                // [i32] -> [f32]
+                WasmOpcode::F32ConvertI32S
+                | WasmOpcode::F32ConvertI32U
+                | WasmOpcode::F32ReinterpretI32 => {
+                    let a = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    if a != WasmValType::I32 {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                    value_stack.push(WasmValType::F32);
+                }
+
+                // [i64] -> [f64]
+                WasmOpcode::F32ConvertI64S | WasmOpcode::F32ConvertI64U => {
+                    let a = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    if a != WasmValType::I64 {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                    value_stack.push(WasmValType::F32);
+                }
+
+                // [f64] -> [f32]
+                WasmOpcode::F32DemoteF64 => {
+                    let a = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    if a != WasmValType::F64 {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                    value_stack.push(WasmValType::F32);
+                }
+
+                // [i32] -> [f64]
+                WasmOpcode::F64ConvertI32S | WasmOpcode::F64ConvertI32U => {
+                    let a = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    if a != WasmValType::I32 {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                    value_stack.push(WasmValType::F64);
+                }
+
+                // [i64] -> [f64]
+                WasmOpcode::F64ConvertI64S
+                | WasmOpcode::F64ConvertI64U
+                | WasmOpcode::F64ReinterpretI64 => {
+                    let a = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    if a != WasmValType::I64 {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                    value_stack.push(WasmValType::F64);
+                }
+
+                // [f32] -> [f64]
+                WasmOpcode::F64PromoteF32 => {
+                    let a = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    if a != WasmValType::F32 {
+                        return Err(WasmDecodeError::TypeMismatch);
+                    }
+                    value_stack.push(WasmValType::F64);
+                }
+
+                _ => return Err(WasmDecodeError::UnreachableTrap),
+            }
+
+            println!(
+                "{}[{}]> {:04x} {:02x} {} {:?} -> {:?}",
+                block_stack.len(),
+                value_stack.len(),
+                position,
+                opcode as u8,
+                opcode.to_str(),
+                old_values,
+                value_stack
+            );
+        }
+
+        if result_types.len() > 0 {
+            if result_types.len() != value_stack.len() {
+                return Err(WasmDecodeError::TypeMismatch);
+            }
+
+            for result_type in result_types {
+                let val = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                if *result_type != val {
+                    return Err(WasmDecodeError::TypeMismatch);
+                }
+            }
+        } else {
+            if value_stack.len() > 0 {
+                return Err(WasmDecodeError::InvalidStackLevel);
+            }
+        }
+
+        let mut blocks2 = Vec::new();
+        for block in blocks {
+            blocks2.push(block.borrow().clone());
+        }
+        let blocks = blocks2;
+
+        Ok(Self { max_stack, blocks })
+    }
+
+    pub const fn max_stack(&self) -> usize {
+        self.max_stack
+    }
+
+    pub fn blocks(&self) -> &[WasmBlockContext] {
+        self.blocks.as_slice()
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum BlockInstType {
+    Block,
+    Loop,
+    If,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct WasmBlockContext {
+    pub inst_type: BlockInstType,
+    pub block_type: WasmBlockType,
+    pub stack_level: usize,
+    pub start_position: usize,
+    pub end_position: usize,
+    pub else_position: usize,
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -1805,13 +2059,13 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "BadExecutable")]
     fn instantiate_2() {
         let too_small = [0, 97, 115, 109, 1, 0, 0];
         super::WasmLoader::instantiate(&too_small).unwrap();
     }
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "UnexpectedEof")]
     fn instantiate_3() {
         let minimal_bad = [0, 97, 115, 109, 1, 0, 0, 0, 1];
         super::WasmLoader::instantiate(&minimal_bad).unwrap();

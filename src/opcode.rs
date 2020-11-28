@@ -5,9 +5,7 @@ use core::convert::TryFrom;
 pub enum WasmMnemonicType {
     Implied,
     Block,
-    BlockLoop,
-    BlockIf,
-    BlockElse,
+    Else,
     End,
     Br,
     BrTable,
@@ -577,9 +575,9 @@ impl WasmOpcode {
     pub fn mnemonic_type(& self) -> WasmMnemonicType {
         match *self {
             Self::Block => WasmMnemonicType::Block,
-            Self::Loop => WasmMnemonicType::BlockLoop,
-            Self::If => WasmMnemonicType::BlockIf,
-            Self::Else => WasmMnemonicType::BlockElse,
+            Self::Loop => WasmMnemonicType::Block,
+            Self::If => WasmMnemonicType::Block,
+            Self::Else => WasmMnemonicType::Else,
             Self::End => WasmMnemonicType::End,
             Self::Br => WasmMnemonicType::Br,
             Self::BrIf => WasmMnemonicType::Br,

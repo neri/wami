@@ -4,20 +4,16 @@ use super::opcode::*;
 use super::wasm::*;
 use crate::*;
 use alloc::vec::Vec;
-// use super::*;
-// use alloc::sync::Arc;
 // use core::cell::RefCell;
 
 #[allow(dead_code)]
 pub struct WasmRuntimeContext<'a> {
-    value_stack: Vec<WasmValue>,
     call_stack: Vec<WasmCodeBlock<'a>>,
 }
 
 impl<'a> WasmRuntimeContext<'a> {
     pub fn new() -> Self {
         Self {
-            value_stack: Vec::new(),
             call_stack: Vec::new(),
         }
     }
@@ -28,10 +24,18 @@ impl<'a> WasmRuntimeContext<'a> {
         locals: &mut [WasmValue],
         result_types: &[WasmValType],
     ) -> Result<WasmValue, WasmRuntimeError> {
+        let mut locals = {
+            let mut output = Vec::new();
+            for local in locals {
+                output.push(WasmStackValue::from(*local));
+            }
+            output
+        };
+        let mut value_stack: Vec<WasmStackValue> = Vec::new();
         code_block.reset();
         loop {
             // let position = code_block.position();
-            let opcode = code_block.get_opcode()?;
+            let opcode = code_block.read_opcode()?;
 
             // println!("{:04x} {:02x} {}", position, opcode as u8, opcode.to_str());
 
@@ -43,448 +47,473 @@ impl<'a> WasmRuntimeContext<'a> {
                 }
 
                 WasmOpcode::Drop => {
-                    let _ = self.value_stack.pop().ok_or(WasmRuntimeError::OutOfStack)?;
+                    let _ = value_stack.pop();
                 }
                 WasmOpcode::Select => {
-                    let cc = self.pop().and_then(|v| v.get_i32())?;
-                    let b = self.pop()?;
-                    let a = self.pop()?;
-                    let c = if cc != 0 { a } else { b };
-                    self.push(c)?;
+                    let cc = value_stack.pop().unwrap();
+                    let b = value_stack.pop().unwrap();
+                    let a = value_stack.pop().unwrap();
+                    let c = if cc.get_i32() != 0 { a } else { b };
+                    value_stack.push(c);
                 }
 
                 WasmOpcode::LocalGet => {
-                    let local_ref = code_block.get_uint()? as usize;
-                    let val = locals
-                        .get(local_ref)
-                        .ok_or(WasmRuntimeError::InvalidLocal)?;
-                    self.value_stack.push(*val);
+                    let local_ref = code_block.read_uint()? as usize;
+                    let val = *locals.get(local_ref).unwrap();
+                    value_stack.push(val.into());
                 }
                 WasmOpcode::LocalSet => {
-                    let local_ref = code_block.get_uint()? as usize;
-                    let var = locals
-                        .get_mut(local_ref)
-                        .ok_or(WasmRuntimeError::InvalidLocal)?;
-                    let val = self.value_stack.pop().ok_or(WasmRuntimeError::OutOfStack)?;
+                    let local_ref = code_block.read_uint()? as usize;
+                    let var = locals.get_mut(local_ref).unwrap();
+                    let val = value_stack.pop().unwrap();
                     *var = val;
                 }
                 WasmOpcode::LocalTee => {
-                    let local_ref = code_block.get_uint()? as usize;
-                    let var = locals
-                        .get_mut(local_ref)
-                        .ok_or(WasmRuntimeError::InvalidLocal)?;
-                    let val = self
-                        .value_stack
-                        .last()
-                        .ok_or(WasmRuntimeError::OutOfStack)?;
+                    let local_ref = code_block.read_uint()? as usize;
+                    let var = locals.get_mut(local_ref).unwrap();
+                    let val = value_stack.last().unwrap();
                     *var = *val;
                 }
 
                 WasmOpcode::I32Const => {
-                    let val = code_block.get_sint()? as i32;
-                    self.value_stack.push(val.into())
+                    let val = code_block.read_sint()? as i32;
+                    value_stack.push(WasmStackValue { i32: val });
                 }
                 WasmOpcode::I64Const => {
-                    let val = code_block.get_sint()?;
-                    self.value_stack.push(val.into())
+                    let val = code_block.read_sint()?;
+                    value_stack.push(WasmStackValue { i64: val });
                 }
 
                 WasmOpcode::I32Eqz => {
-                    let a = self.pop().and_then(|v| v.get_i32())?;
-                    self.push((a == 0).into())?;
+                    let last = value_stack.last_mut().unwrap();
+                    *last = WasmStackValue::bool(last.get_i32() == 0);
                 }
                 WasmOpcode::I32Eq => {
-                    let b = self.pop().and_then(|v| v.get_i32())?;
-                    let a = self.pop().and_then(|v| v.get_i32())?;
-                    self.push((a == b).into())?;
+                    let b = value_stack.pop().unwrap().get_i32();
+                    let a = value_stack.pop().unwrap().get_i32();
+                    value_stack.push(WasmStackValue::bool(a == b));
                 }
                 WasmOpcode::I32Ne => {
-                    let b = self.pop().and_then(|v| v.get_i32())?;
-                    let a = self.pop().and_then(|v| v.get_i32())?;
-                    self.push((a != b).into())?;
+                    let b = value_stack.pop().unwrap().get_i32();
+                    let a = value_stack.pop().unwrap().get_i32();
+                    value_stack.push(WasmStackValue::bool(a != b));
                 }
                 WasmOpcode::I32LtS => {
-                    let b = self.pop().and_then(|v| v.get_i32())?;
-                    let a = self.pop().and_then(|v| v.get_i32())?;
-                    self.push((a < b).into())?;
+                    let b = value_stack.pop().unwrap().get_i32();
+                    let a = value_stack.pop().unwrap().get_i32();
+                    value_stack.push(WasmStackValue::bool(a < b));
                 }
                 WasmOpcode::I32LtU => {
-                    let b = self.pop().and_then(|v| v.get_u32())?;
-                    let a = self.pop().and_then(|v| v.get_u32())?;
-                    self.push((a < b).into())?;
+                    let b = value_stack.pop().unwrap().get_u32();
+                    let a = value_stack.pop().unwrap().get_u32();
+                    value_stack.push(WasmStackValue::bool(a < b));
                 }
                 WasmOpcode::I32LeS => {
-                    let b = self.pop().and_then(|v| v.get_i32())?;
-                    let a = self.pop().and_then(|v| v.get_i32())?;
-                    self.push((a <= b).into())?;
+                    let b = value_stack.pop().unwrap().get_i32();
+                    let a = value_stack.pop().unwrap().get_i32();
+                    value_stack.push(WasmStackValue::bool(a <= b));
                 }
                 WasmOpcode::I32LeU => {
-                    let b = self.pop().and_then(|v| v.get_u32())?;
-                    let a = self.pop().and_then(|v| v.get_u32())?;
-                    self.push((a <= b).into())?;
+                    let b = value_stack.pop().unwrap().get_u32();
+                    let a = value_stack.pop().unwrap().get_u32();
+                    value_stack.push(WasmStackValue::bool(a <= b));
                 }
                 WasmOpcode::I32GtS => {
-                    let b = self.pop().and_then(|v| v.get_i32())?;
-                    let a = self.pop().and_then(|v| v.get_i32())?;
-                    self.push((a > b).into())?;
+                    let b = value_stack.pop().unwrap().get_i32();
+                    let a = value_stack.pop().unwrap().get_i32();
+                    value_stack.push(WasmStackValue::bool(a > b));
                 }
                 WasmOpcode::I32GtU => {
-                    let b = self.pop().and_then(|v| v.get_u32())?;
-                    let a = self.pop().and_then(|v| v.get_u32())?;
-                    self.push((a > b).into())?;
+                    let b = value_stack.pop().unwrap().get_u32();
+                    let a = value_stack.pop().unwrap().get_u32();
+                    value_stack.push(WasmStackValue::bool(a > b));
                 }
                 WasmOpcode::I32GeS => {
-                    let b = self.pop().and_then(|v| v.get_i32())?;
-                    let a = self.pop().and_then(|v| v.get_i32())?;
-                    self.push((a >= b).into())?;
+                    let b = value_stack.pop().unwrap().get_i32();
+                    let a = value_stack.pop().unwrap().get_i32();
+                    value_stack.push(WasmStackValue::bool(a >= b));
                 }
                 WasmOpcode::I32GeU => {
-                    let b = self.pop().and_then(|v| v.get_u32())?;
-                    let a = self.pop().and_then(|v| v.get_u32())?;
-                    self.push((a >= b).into())?;
+                    let b = value_stack.pop().unwrap().get_u32();
+                    let a = value_stack.pop().unwrap().get_u32();
+                    value_stack.push(WasmStackValue::bool(a >= b));
                 }
 
                 WasmOpcode::I64Eqz => {
-                    let a = self.pop().and_then(|v| v.get_i64())?;
-                    self.push((a == 0).into())?;
+                    let last = value_stack.last_mut().unwrap();
+                    *last = WasmStackValue::bool(last.get_i64() == 0);
                 }
                 WasmOpcode::I64Eq => {
-                    let b = self.pop().and_then(|v| v.get_i64())?;
-                    let a = self.pop().and_then(|v| v.get_i64())?;
-                    self.push((a == b).into())?;
+                    let b = value_stack.pop().unwrap().get_i64();
+                    let a = value_stack.pop().unwrap().get_i64();
+                    value_stack.push(WasmStackValue::bool(a == b));
                 }
                 WasmOpcode::I64Ne => {
-                    let b = self.pop().and_then(|v| v.get_i64())?;
-                    let a = self.pop().and_then(|v| v.get_i64())?;
-                    self.push((a != b).into())?;
+                    let b = value_stack.pop().unwrap().get_i64();
+                    let a = value_stack.pop().unwrap().get_i64();
+                    value_stack.push(WasmStackValue::bool(a != b));
                 }
                 WasmOpcode::I64LtS => {
-                    let b = self.pop().and_then(|v| v.get_i64())?;
-                    let a = self.pop().and_then(|v| v.get_i64())?;
-                    self.push((a < b).into())?;
+                    let b = value_stack.pop().unwrap().get_i64();
+                    let a = value_stack.pop().unwrap().get_i64();
+                    value_stack.push(WasmStackValue::bool(a < b));
                 }
                 WasmOpcode::I64LtU => {
-                    let b = self.pop().and_then(|v| v.get_u64())?;
-                    let a = self.pop().and_then(|v| v.get_u64())?;
-                    self.push((a < b).into())?;
+                    let b = value_stack.pop().unwrap().get_u64();
+                    let a = value_stack.pop().unwrap().get_u64();
+                    value_stack.push(WasmStackValue::bool(a < b));
                 }
                 WasmOpcode::I64LeS => {
-                    let b = self.pop().and_then(|v| v.get_i64())?;
-                    let a = self.pop().and_then(|v| v.get_i64())?;
-                    self.push((a <= b).into())?;
+                    let b = value_stack.pop().unwrap().get_i64();
+                    let a = value_stack.pop().unwrap().get_i64();
+                    value_stack.push(WasmStackValue::bool(a <= b));
                 }
                 WasmOpcode::I64LeU => {
-                    let b = self.pop().and_then(|v| v.get_u64())?;
-                    let a = self.pop().and_then(|v| v.get_u64())?;
-                    self.push((a <= b).into())?;
+                    let b = value_stack.pop().unwrap().get_u64();
+                    let a = value_stack.pop().unwrap().get_u64();
+                    value_stack.push(WasmStackValue::bool(a <= b));
                 }
                 WasmOpcode::I64GtS => {
-                    let b = self.pop().and_then(|v| v.get_i64())?;
-                    let a = self.pop().and_then(|v| v.get_i64())?;
-                    self.push((a > b).into())?;
+                    let b = value_stack.pop().unwrap().get_i64();
+                    let a = value_stack.pop().unwrap().get_i64();
+                    value_stack.push(WasmStackValue::bool(a > b));
                 }
                 WasmOpcode::I64GtU => {
-                    let b = self.pop().and_then(|v| v.get_u64())?;
-                    let a = self.pop().and_then(|v| v.get_u64())?;
-                    self.push((a > b).into())?;
+                    let b = value_stack.pop().unwrap().get_u64();
+                    let a = value_stack.pop().unwrap().get_u64();
+                    value_stack.push(WasmStackValue::bool(a > b));
                 }
                 WasmOpcode::I64GeS => {
-                    let b = self.pop().and_then(|v| v.get_i64())?;
-                    let a = self.pop().and_then(|v| v.get_i64())?;
-                    self.push((a >= b).into())?;
+                    let b = value_stack.pop().unwrap().get_i64();
+                    let a = value_stack.pop().unwrap().get_i64();
+                    value_stack.push(WasmStackValue::bool(a >= b));
                 }
                 WasmOpcode::I64GeU => {
-                    let b = self.pop().and_then(|v| v.get_u64())?;
-                    let a = self.pop().and_then(|v| v.get_u64())?;
-                    self.push((a >= b).into())?;
+                    let b = value_stack.pop().unwrap().get_u64();
+                    let a = value_stack.pop().unwrap().get_u64();
+                    value_stack.push(WasmStackValue::bool(a >= b));
                 }
 
                 WasmOpcode::I32Clz => {
-                    let a = self.pop().and_then(|v| v.get_i32())?;
-                    self.push(a.leading_zeros().into())?;
+                    let last = value_stack.last_mut().unwrap();
+                    *last = WasmStackValue::u32(last.get_i32().leading_zeros());
                 }
                 WasmOpcode::I32Ctz => {
-                    let a = self.pop().and_then(|v| v.get_i32())?;
-                    self.push(a.trailing_zeros().into())?;
+                    let last = value_stack.last_mut().unwrap();
+                    *last = WasmStackValue::u32(last.get_i32().trailing_zeros());
                 }
                 WasmOpcode::I32Popcnt => {
-                    let a = self.pop().and_then(|v| v.get_i32())?;
-                    self.push(a.count_ones().into())?;
+                    let last = value_stack.last_mut().unwrap();
+                    *last = WasmStackValue::u32(last.get_i32().count_ones());
                 }
+
                 WasmOpcode::I32Add => {
-                    let b = self.pop().and_then(|v| v.get_i32())?;
-                    let a = self.pop().and_then(|v| v.get_i32())?;
-                    self.push(a.wrapping_add(b).into())?;
+                    let b = value_stack.pop().unwrap().get_u32();
+                    let a = value_stack.pop().unwrap().get_u32();
+                    value_stack.push(WasmStackValue::u32(a.wrapping_add(b)));
                 }
                 WasmOpcode::I32Sub => {
-                    let b = self.pop().and_then(|v| v.get_i32())?;
-                    let a = self.pop().and_then(|v| v.get_i32())?;
-                    self.push(a.wrapping_sub(b).into())?;
+                    let b = value_stack.pop().unwrap().get_u32();
+                    let a = value_stack.pop().unwrap().get_u32();
+                    value_stack.push(WasmStackValue::u32(a.wrapping_sub(b)));
                 }
                 WasmOpcode::I32Mul => {
-                    let b = self.pop().and_then(|v| v.get_i32())?;
-                    let a = self.pop().and_then(|v| v.get_i32())?;
-                    self.push(a.wrapping_mul(b).into())?;
+                    let b = value_stack.pop().unwrap().get_u32();
+                    let a = value_stack.pop().unwrap().get_u32();
+                    value_stack.push(WasmStackValue::u32(a.wrapping_mul(b)));
                 }
                 WasmOpcode::I32DivS => {
-                    let b = self.pop().and_then(|v| v.get_i32())?;
-                    let a = self.pop().and_then(|v| v.get_i32())?;
+                    let b = value_stack.pop().unwrap().get_i32();
+                    let a = value_stack.pop().unwrap().get_i32();
                     if b == 0 {
                         return Err(WasmRuntimeError::DivideByZero);
                     }
-                    self.push(a.wrapping_div(b).into())?;
+                    value_stack.push(WasmStackValue::i32(a.wrapping_div(b)));
                 }
                 WasmOpcode::I32DivU => {
-                    let b = self.pop().and_then(|v| v.get_u32())?;
-                    let a = self.pop().and_then(|v| v.get_u32())?;
+                    let b = value_stack.pop().unwrap().get_u32();
+                    let a = value_stack.pop().unwrap().get_u32();
                     if b == 0 {
                         return Err(WasmRuntimeError::DivideByZero);
                     }
-                    self.push((a.wrapping_div(b)).into())?;
+                    value_stack.push(WasmStackValue::u32(a.wrapping_div(b)));
                 }
                 WasmOpcode::I32RemS => {
-                    let b = self.pop().and_then(|v| v.get_i32())?;
-                    let a = self.pop().and_then(|v| v.get_i32())?;
+                    let b = value_stack.pop().unwrap().get_i32();
+                    let a = value_stack.pop().unwrap().get_i32();
                     if b == 0 {
                         return Err(WasmRuntimeError::DivideByZero);
                     }
-                    self.push(a.wrapping_rem(b).into())?;
+                    value_stack.push(WasmStackValue::i32(a.wrapping_rem(b)));
                 }
                 WasmOpcode::I32RemU => {
-                    let b = self.pop().and_then(|v| v.get_u32())?;
-                    let a = self.pop().and_then(|v| v.get_u32())?;
+                    let b = value_stack.pop().unwrap().get_u32();
+                    let a = value_stack.pop().unwrap().get_u32();
                     if b == 0 {
                         return Err(WasmRuntimeError::DivideByZero);
                     }
-                    self.push((a.wrapping_rem(b)).into())?;
+                    value_stack.push(WasmStackValue::u32(a.wrapping_rem(b)));
                 }
+
                 WasmOpcode::I32And => {
-                    let b = self.pop().and_then(|v| v.get_i32())?;
-                    let a = self.pop().and_then(|v| v.get_i32())?;
-                    self.push((a & b).into())?;
+                    let b = value_stack.pop().unwrap().get_u32();
+                    let a = value_stack.pop().unwrap().get_u32();
+                    value_stack.push(WasmStackValue::u32(a & b));
                 }
                 WasmOpcode::I32Or => {
-                    let b = self.pop().and_then(|v| v.get_i32())?;
-                    let a = self.pop().and_then(|v| v.get_i32())?;
-                    self.push((a | b).into())?;
+                    let b = value_stack.pop().unwrap().get_u32();
+                    let a = value_stack.pop().unwrap().get_u32();
+                    value_stack.push(WasmStackValue::u32(a | b));
                 }
                 WasmOpcode::I32Xor => {
-                    let b = self.pop().and_then(|v| v.get_i32())?;
-                    let a = self.pop().and_then(|v| v.get_i32())?;
-                    self.push((a ^ b).into())?;
+                    let b = value_stack.pop().unwrap().get_u32();
+                    let a = value_stack.pop().unwrap().get_u32();
+                    value_stack.push(WasmStackValue::u32(a ^ b));
                 }
 
                 WasmOpcode::I32Shl => {
-                    let b = self.pop().and_then(|v| v.get_i32())?;
-                    let a = self.pop().and_then(|v| v.get_i32())?;
-                    self.push((a << b).into())?;
+                    let b = value_stack.pop().unwrap().get_u32();
+                    let a = value_stack.pop().unwrap().get_u32();
+                    value_stack.push(WasmStackValue::u32(a << b));
                 }
                 WasmOpcode::I32ShrS => {
-                    let b = self.pop().and_then(|v| v.get_i32())?;
-                    let a = self.pop().and_then(|v| v.get_i32())?;
-                    self.push((a >> b).into())?;
+                    let b = value_stack.pop().unwrap().get_i32();
+                    let a = value_stack.pop().unwrap().get_i32();
+                    value_stack.push(WasmStackValue::i32(a >> b));
                 }
                 WasmOpcode::I32ShrU => {
-                    let b = self.pop().and_then(|v| v.get_u32())?;
-                    let a = self.pop().and_then(|v| v.get_u32())?;
-                    self.push((a >> b).into())?;
+                    let b = value_stack.pop().unwrap().get_u32();
+                    let a = value_stack.pop().unwrap().get_u32();
+                    value_stack.push(WasmStackValue::u32(a >> b));
                 }
                 WasmOpcode::I32Rotl => {
-                    let b = self.pop().and_then(|v| v.get_u32())?;
-                    let a = self.pop().and_then(|v| v.get_u32())?;
-                    self.push(a.rotate_left(b).into())?;
+                    let b = value_stack.pop().unwrap().get_u32();
+                    let a = value_stack.pop().unwrap().get_u32();
+                    value_stack.push(WasmStackValue::u32(a.rotate_left(b)));
                 }
                 WasmOpcode::I32Rotr => {
-                    let b = self.pop().and_then(|v| v.get_u32())?;
-                    let a = self.pop().and_then(|v| v.get_u32())?;
-                    self.push(a.rotate_right(b).into())?;
+                    let b = value_stack.pop().unwrap().get_u32();
+                    let a = value_stack.pop().unwrap().get_u32();
+                    value_stack.push(WasmStackValue::u32(a.rotate_right(b)));
                 }
 
                 WasmOpcode::I64Clz => {
-                    let a = self.pop().and_then(|v| v.get_i64())?;
-                    self.push(a.leading_zeros().into())?;
+                    let last = value_stack.last_mut().unwrap();
+                    *last = WasmStackValue::i64(last.get_i64().leading_zeros() as i64);
                 }
                 WasmOpcode::I64Ctz => {
-                    let a = self.pop().and_then(|v| v.get_i64())?;
-                    self.push(a.trailing_zeros().into())?;
+                    let last = value_stack.last_mut().unwrap();
+                    *last = WasmStackValue::i64(last.get_i64().trailing_zeros() as i64);
                 }
                 WasmOpcode::I64Popcnt => {
-                    let a = self.pop().and_then(|v| v.get_i64())?;
-                    self.push(a.count_ones().into())?;
+                    let last = value_stack.last_mut().unwrap();
+                    *last = WasmStackValue::i64(last.get_i64().count_ones() as i64);
                 }
+
                 WasmOpcode::I64Add => {
-                    let b = self.pop().and_then(|v| v.get_i64())?;
-                    let a = self.pop().and_then(|v| v.get_i64())?;
-                    self.push(a.wrapping_add(b).into())?;
+                    let b = value_stack.pop().unwrap().get_u64();
+                    let a = value_stack.pop().unwrap().get_u64();
+                    value_stack.push(WasmStackValue::u64(a.wrapping_add(b)));
                 }
                 WasmOpcode::I64Sub => {
-                    let b = self.pop().and_then(|v| v.get_i64())?;
-                    let a = self.pop().and_then(|v| v.get_i64())?;
-                    self.push(a.wrapping_sub(b).into())?;
+                    let b = value_stack.pop().unwrap().get_u64();
+                    let a = value_stack.pop().unwrap().get_u64();
+                    value_stack.push(WasmStackValue::u64(a.wrapping_sub(b)));
                 }
                 WasmOpcode::I64Mul => {
-                    let b = self.pop().and_then(|v| v.get_i64())?;
-                    let a = self.pop().and_then(|v| v.get_i64())?;
-                    self.push(a.wrapping_mul(b).into())?;
+                    let b = value_stack.pop().unwrap().get_u64();
+                    let a = value_stack.pop().unwrap().get_u64();
+                    value_stack.push(WasmStackValue::u64(a.wrapping_mul(b)));
                 }
                 WasmOpcode::I64DivS => {
-                    let b = self.pop().and_then(|v| v.get_i64())?;
-                    let a = self.pop().and_then(|v| v.get_i64())?;
+                    let b = value_stack.pop().unwrap().get_i64();
+                    let a = value_stack.pop().unwrap().get_i64();
                     if b == 0 {
                         return Err(WasmRuntimeError::DivideByZero);
                     }
-                    self.push(a.wrapping_div(b).into())?;
+                    value_stack.push(WasmStackValue::i64(a.wrapping_div(b)));
                 }
                 WasmOpcode::I64DivU => {
-                    let b = self.pop().and_then(|v| v.get_u64())?;
-                    let a = self.pop().and_then(|v| v.get_u64())?;
+                    let b = value_stack.pop().unwrap().get_u64();
+                    let a = value_stack.pop().unwrap().get_u64();
                     if b == 0 {
                         return Err(WasmRuntimeError::DivideByZero);
                     }
-                    self.push((a.wrapping_div(b)).into())?;
+                    value_stack.push(WasmStackValue::u64(a.wrapping_div(b)));
                 }
                 WasmOpcode::I64RemS => {
-                    let b = self.pop().and_then(|v| v.get_i64())?;
-                    let a = self.pop().and_then(|v| v.get_i64())?;
+                    let b = value_stack.pop().unwrap().get_i64();
+                    let a = value_stack.pop().unwrap().get_i64();
                     if b == 0 {
                         return Err(WasmRuntimeError::DivideByZero);
                     }
-                    self.push(a.wrapping_rem(b).into())?;
+                    value_stack.push(WasmStackValue::i64(a.wrapping_rem(b)));
                 }
                 WasmOpcode::I64RemU => {
-                    let b = self.pop().and_then(|v| v.get_u64())?;
-                    let a = self.pop().and_then(|v| v.get_u64())?;
+                    let b = value_stack.pop().unwrap().get_u64();
+                    let a = value_stack.pop().unwrap().get_u64();
                     if b == 0 {
                         return Err(WasmRuntimeError::DivideByZero);
                     }
-                    self.push((a.wrapping_rem(b)).into())?;
+                    value_stack.push(WasmStackValue::u64(a.wrapping_rem(b)));
                 }
+
                 WasmOpcode::I64And => {
-                    let b = self.pop().and_then(|v| v.get_i64())?;
-                    let a = self.pop().and_then(|v| v.get_i64())?;
-                    self.push((a & b).into())?;
+                    let b = value_stack.pop().unwrap().get_u64();
+                    let a = value_stack.pop().unwrap().get_u64();
+                    value_stack.push(WasmStackValue::u64(a & b));
                 }
                 WasmOpcode::I64Or => {
-                    let b = self.pop().and_then(|v| v.get_i64())?;
-                    let a = self.pop().and_then(|v| v.get_i64())?;
-                    self.push((a | b).into())?;
+                    let b = value_stack.pop().unwrap().get_u64();
+                    let a = value_stack.pop().unwrap().get_u64();
+                    value_stack.push(WasmStackValue::u64(a | b));
                 }
                 WasmOpcode::I64Xor => {
-                    let b = self.pop().and_then(|v| v.get_i64())?;
-                    let a = self.pop().and_then(|v| v.get_i64())?;
-                    self.push((a ^ b).into())?;
+                    let b = value_stack.pop().unwrap().get_u64();
+                    let a = value_stack.pop().unwrap().get_u64();
+                    value_stack.push(WasmStackValue::u64(a ^ b));
                 }
 
                 WasmOpcode::I64Shl => {
-                    let b = self.pop().and_then(|v| v.get_i64())?;
-                    let a = self.pop().and_then(|v| v.get_i64())?;
-                    self.push((a << b).into())?;
+                    let b = value_stack.pop().unwrap().get_u64();
+                    let a = value_stack.pop().unwrap().get_u64();
+                    value_stack.push(WasmStackValue::u64(a << b));
                 }
                 WasmOpcode::I64ShrS => {
-                    let b = self.pop().and_then(|v| v.get_i64())?;
-                    let a = self.pop().and_then(|v| v.get_i64())?;
-                    self.push((a >> b).into())?;
+                    let b = value_stack.pop().unwrap().get_i64();
+                    let a = value_stack.pop().unwrap().get_i64();
+                    value_stack.push(WasmStackValue::i64(a >> b));
                 }
                 WasmOpcode::I64ShrU => {
-                    let b = self.pop().and_then(|v| v.get_u64())?;
-                    let a = self.pop().and_then(|v| v.get_u64())?;
-                    self.push((a >> b).into())?;
+                    let b = value_stack.pop().unwrap().get_u64();
+                    let a = value_stack.pop().unwrap().get_u64();
+                    value_stack.push(WasmStackValue::u64(a >> b));
                 }
                 WasmOpcode::I64Rotl => {
-                    let b = self.pop().and_then(|v| v.get_u64())? as u32;
-                    let a = self.pop().and_then(|v| v.get_u64())?;
-                    self.push(a.rotate_left(b).into())?;
+                    let b = value_stack.pop().unwrap().get_u64();
+                    let a = value_stack.pop().unwrap().get_u64();
+                    value_stack.push(WasmStackValue::u64(a.rotate_left(b as u32)));
                 }
                 WasmOpcode::I64Rotr => {
-                    let b = self.pop().and_then(|v| v.get_u64())? as u32;
-                    let a = self.pop().and_then(|v| v.get_u64())?;
-                    self.push(a.rotate_right(b).into())?;
+                    let b = value_stack.pop().unwrap().get_u64();
+                    let a = value_stack.pop().unwrap().get_u64();
+                    value_stack.push(WasmStackValue::u64(a.rotate_right(b as u32)));
                 }
 
                 WasmOpcode::I32WrapI64 => {
-                    let a = self.pop().and_then(|v| v.get_i64())?;
-                    let c = a as i32;
-                    self.push(c.into())?;
+                    // NOP
                 }
                 WasmOpcode::I64ExtendI32S => {
-                    let a = self.pop().and_then(|v| v.get_i32())?;
-                    let c = a as i64;
-                    self.push(c.into())?;
+                    let last = value_stack.last_mut().unwrap();
+                    *last = WasmStackValue::i64(last.get_i32() as i64);
                 }
                 WasmOpcode::I64ExtendI32U => {
-                    let a = self.pop().and_then(|v| v.get_u32())?;
-                    let c = a as u64;
-                    self.push(c.into())?;
+                    let last = value_stack.last_mut().unwrap();
+                    *last = WasmStackValue::u64(last.get_u32() as u64);
                 }
+
                 WasmOpcode::I32Extend8S => {
-                    let a = self.pop().and_then(|v| v.get_i32())? as i8;
-                    let c = a as i32;
-                    self.push(c.into())?;
+                    let last = value_stack.last_mut().unwrap();
+                    *last = WasmStackValue::i32((last.get_i32() as i8) as i32);
                 }
                 WasmOpcode::I32Extend16S => {
-                    let a = self.pop().and_then(|v| v.get_i32())? as i16;
-                    let c = a as i32;
-                    self.push(c.into())?;
+                    let last = value_stack.last_mut().unwrap();
+                    *last = WasmStackValue::i32((last.get_i32() as i16) as i32);
                 }
+
                 WasmOpcode::I64Extend8S => {
-                    let a = self.pop().and_then(|v| v.get_i64())? as i8;
-                    let c = a as i64;
-                    self.push(c.into())?;
+                    let last = value_stack.last_mut().unwrap();
+                    *last = WasmStackValue::i64((last.get_i64() as i8) as i64);
                 }
                 WasmOpcode::I64Extend16S => {
-                    let a = self.pop().and_then(|v| v.get_i64())? as i16;
-                    let c = a as i64;
-                    self.push(c.into())?;
+                    let last = value_stack.last_mut().unwrap();
+                    *last = WasmStackValue::i64((last.get_i64() as i16) as i64);
                 }
                 WasmOpcode::I64Extend32S => {
-                    let a = self.pop().and_then(|v| v.get_i64())? as i32;
-                    let c = a as i64;
-                    self.push(c.into())?;
+                    let last = value_stack.last_mut().unwrap();
+                    *last = WasmStackValue::i64((last.get_i64() as i32) as i64);
                 }
 
                 _ => return Err(WasmRuntimeError::InvalidBytecode),
             }
         }
-        if result_types.len() > 0 {
-            let val = self.pop()?;
-            Ok(val)
-        } else {
-            if self.value_stack.first().is_none() {
-                Ok(WasmValue::Empty)
-            } else {
-                Err(WasmRuntimeError::InvalidStackLevel)
+        if let Some(result_type) = result_types.first() {
+            let val = value_stack.pop().unwrap();
+            match result_type {
+                WasmValType::I32 => Ok(WasmValue::I32(val.get_i32())),
+                WasmValType::I64 => Ok(WasmValue::I64(val.get_i64())),
+                // WasmValType::F32 => {}
+                // WasmValType::F64 => {}
+                _ => Err(WasmRuntimeError::InvalidParameter),
             }
+        } else {
+            Ok(WasmValue::Empty)
+        }
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Copy, Clone)]
+union WasmStackValue {
+    i32: i32,
+    u32: u32,
+    i64: i64,
+    u64: u64,
+    f32: f32,
+    f64: f64,
+}
+
+impl WasmStackValue {
+    pub const fn bool(v: bool) -> Self {
+        if v {
+            Self::i64(1)
+        } else {
+            Self::i64(0)
         }
     }
 
-    #[inline]
-    pub fn push(&mut self, value: WasmValue) -> Result<(), WasmRuntimeError> {
-        Ok(self.value_stack.push(value))
+    pub fn get_i32(&self) -> i32 {
+        unsafe { self.i32 }
     }
 
-    #[inline]
-    pub fn pop(&mut self) -> Result<WasmValue, WasmRuntimeError> {
-        self.value_stack.pop().ok_or(WasmRuntimeError::OutOfStack)
+    pub fn get_u32(&self) -> u32 {
+        unsafe { self.u32 }
+    }
+
+    pub fn get_i64(&self) -> i64 {
+        unsafe { self.i64 }
+    }
+
+    pub fn get_u64(&self) -> u64 {
+        unsafe { self.u64 }
+    }
+
+    pub const fn i32(v: i32) -> Self {
+        Self { i64: v as i64 }
+    }
+
+    pub const fn u32(v: u32) -> Self {
+        Self { u64: v as u64 }
+    }
+
+    pub const fn i64(v: i64) -> Self {
+        Self { i64: v }
+    }
+
+    pub const fn u64(v: u64) -> Self {
+        Self { u64: v }
     }
 }
 
-#[allow(dead_code)]
-#[derive(Debug, Copy, Clone)]
-enum BlockInstType {
-    Block,
-    Loop,
-    If,
-    Else,
-    End,
-}
-
-#[allow(dead_code)]
-struct BlockContext {
-    inst_type: BlockInstType,
-    expr_type: WasmBlockType,
-    stack_level: usize,
-    start_position: usize,
-    end_position: usize,
+impl From<WasmValue> for WasmStackValue {
+    fn from(v: WasmValue) -> Self {
+        match v {
+            WasmValue::Empty => Self::i64(0),
+            WasmValue::I32(v) => Self::i64(v as i64),
+            WasmValue::I64(v) => Self::i64(v),
+            _ => todo!(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -503,26 +532,34 @@ mod tests {
             .unwrap();
         assert_eq!(result, 6912);
 
-        let mut params = [0xdeadbeefu32.into(), 0x55555555.into()];
+        let mut params = [0xDEADBEEFu32.into(), 0x55555555.into()];
         let result = code_block
             .invoke(&mut params, &[crate::wasm::WasmValType::I32])
             .unwrap()
             .get_i32()
             .unwrap();
         assert_eq!(result, 0x34031444);
+    }
+
+    #[test]
+    fn sub() {
+        let slice = [0x20, 0, 0x20, 1, 0x6B, 0x0B];
+        let mut code_block = super::WasmCodeBlock::from_slice(&slice);
 
         let mut params = [1234.into(), 5678.into()];
-        match code_block.invoke(&mut params, &[]) {
-            Err(super::WasmRuntimeError::InvalidStackLevel) => (),
-            Ok(v) => panic!("expected: Err, actual: Ok({})", v),
-            Err(err) => panic!("unexpected: {:?}", err),
-        }
+        let result = code_block
+            .invoke(&mut params, &[crate::wasm::WasmValType::I32])
+            .unwrap()
+            .get_i32()
+            .unwrap();
+        assert_eq!(result, -4444);
 
-        let mut params = [0.into(), 0u64.into()];
-        match code_block.invoke(&mut params, &[crate::wasm::WasmValType::I32]) {
-            Err(super::WasmRuntimeError::TypeMismatch) => (),
-            Ok(v) => panic!("expected: Err, actual: Ok({})", v),
-            Err(err) => panic!("unexpected: {:?}", err),
-        }
+        let mut params = [0x55555555.into(), 0xDEADBEEFu32.into()];
+        let result = code_block
+            .invoke(&mut params, &[crate::wasm::WasmValType::I32])
+            .unwrap()
+            .get_i32()
+            .unwrap();
+        assert_eq!(result, 0x76a79666);
     }
 }
