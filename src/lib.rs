@@ -2,6 +2,6 @@
 
 pub mod opcode;
 pub mod wasm;
-pub mod wasmrt;
+pub mod wasmintr;
 
 extern crate alloc;

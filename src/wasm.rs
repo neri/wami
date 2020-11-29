@@ -1,11 +1,13 @@
 // WebAssembly Loader
 
 use super::opcode::*;
-use super::wasmrt::*;
+use super::wasmintr::*;
 use crate::*;
+use alloc::collections::BTreeMap;
 use alloc::string::*;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use bitflags::*;
 use byteorder::*;
 use core::cell::{RefCell, UnsafeCell};
 use core::fmt;
@@ -51,6 +53,7 @@ impl WasmLoader {
     pub(super) fn load(&mut self, blob: &[u8]) -> Result<(), WasmDecodeError> {
         let mut blob = Leb128Stream::from_slice(&blob[8..]);
         while let Some(mut section) = blob.next_section()? {
+            // println!("parse section {:?}", section.section_type);
             match section.section_type {
                 WasmSectionType::Custom => Ok(()),
                 WasmSectionType::Type => self.parse_sec_type(&mut section),
@@ -74,7 +77,8 @@ impl WasmLoader {
         self.module.print_stat();
     }
 
-    pub fn module(&mut self) -> &WasmModule {
+    #[inline]
+    pub const fn module(&self) -> &WasmModule {
         &self.module
     }
 
@@ -92,12 +96,20 @@ impl WasmLoader {
     fn parse_sec_import(&mut self, section: &mut WasmSection) -> Result<(), WasmDecodeError> {
         let n_items = section.stream.read_uint()? as usize;
         for _ in 0..n_items {
-            let import = WasmImport::from_stream(&mut section.stream)?;
-            if let WasmImportIndex::Type(index) = import.index {
-                self.module
-                    .functions
-                    .push(WasmFunction::from_import(index, self.module.n_ext_func));
-                self.module.n_ext_func += 1;
+            let mut import = WasmImport::from_stream(&mut section.stream)?;
+            match import.index {
+                WasmImportIndex::Type(index) => {
+                    import.func_ref = self.module.n_ext_func;
+                    self.module
+                        .functions
+                        .push(WasmFunction::from_import(index, self.module.n_ext_func));
+                    self.module.n_ext_func += 1;
+                }
+                WasmImportIndex::Memory(memtype) => {
+                    // TODO: import memory
+                    self.module.memories.push(WasmMemory::new(memtype));
+                }
+                _ => (),
             }
             self.module.imports.push(import);
         }
@@ -222,9 +234,7 @@ impl WasmLoader {
                 .read_byte()
                 .and_then(|v| WasmValType::from_u64(v as u64))?;
             let is_mutable = section.stream.read_byte()? == 1;
-            let value = self
-                .eval_offset(&mut section.stream)
-                .map(|v| WasmValue::I32(v as i32))?;
+            let value = self.eval_expr(&mut section.stream)?;
 
             let global = WasmGlobal {
                 val_type,
@@ -236,13 +246,25 @@ impl WasmLoader {
         Ok(())
     }
 
-    fn eval_offset(&mut self, stream: &mut Leb128Stream) -> Result<usize, WasmDecodeError> {
+    fn eval_offset(&self, mut stream: &mut Leb128Stream) -> Result<usize, WasmDecodeError> {
+        self.eval_expr(&mut stream)
+            .and_then(|v| v.get_i32().map_err(|_| WasmDecodeError::InvalidParameter))
+            .map(|v| v as usize)
+    }
+
+    fn eval_expr(&self, stream: &mut Leb128Stream) -> Result<WasmValue, WasmDecodeError> {
         stream
             .read_byte()
             .and_then(|opc| match WasmOpcode::from_u8(opc) {
                 WasmOpcode::I32Const => stream.read_sint().and_then(|r| {
                     match stream.read_byte().map(|v| WasmOpcode::from_u8(v)) {
-                        Ok(WasmOpcode::End) => Ok((r as u32) as usize),
+                        Ok(WasmOpcode::End) => Ok(WasmValue::I32(r as i32)),
+                        _ => Err(WasmDecodeError::UnexpectedToken),
+                    }
+                }),
+                WasmOpcode::I64Const => stream.read_sint().and_then(|r| {
+                    match stream.read_byte().map(|v| WasmOpcode::from_u8(v)) {
+                        Ok(WasmOpcode::End) => Ok(WasmValue::I64(r)),
                         _ => Err(WasmDecodeError::UnexpectedToken),
                     }
                 }),
@@ -264,7 +286,7 @@ pub struct WasmModule {
 }
 
 impl WasmModule {
-    const fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             types: Vec::new(),
             memories: Vec::new(),
@@ -278,42 +300,64 @@ impl WasmModule {
         }
     }
 
+    #[inline]
     pub fn types(&self) -> &[WasmType] {
         self.types.as_slice()
     }
 
+    #[inline]
     pub fn type_by_ref(&self, index: usize) -> Option<&WasmType> {
         self.types.get(index)
     }
 
-    pub fn imports(&self) -> &[WasmImport] {
-        self.imports.as_slice()
-    }
+    // #[inline]
+    // pub fn imports(&self) -> &[WasmImport] {
+    //     self.imports.as_slice()
+    // }
 
+    #[inline]
     pub fn exports(&self) -> &[WasmExport] {
         self.exports.as_slice()
     }
 
+    #[inline]
     pub fn memories(&mut self) -> &mut [WasmMemory] {
         self.memories.as_mut_slice()
     }
 
+    #[inline]
+    pub fn memory(&self, index: usize) -> Option<&WasmMemory> {
+        self.memories.get(index)
+    }
+
+    #[inline]
     pub fn tables(&mut self) -> &mut [WasmTable] {
         self.tables.as_mut_slice()
     }
 
-    pub fn func_by_ref(&self, index: usize) -> Result<&WasmFunction, WasmRuntimeError> {
-        self.functions.get(index).ok_or(WasmRuntimeError::NoMethod)
+    #[inline]
+    pub fn functions(&self) -> &[WasmFunction] {
+        self.functions.as_slice()
     }
 
-    pub fn entry_point(&self) -> Result<&WasmFunction, WasmRuntimeError> {
+    #[inline]
+    pub fn func_by_ref(&self, index: usize) -> Result<WasmRunnable, WasmRuntimeError> {
+        self.functions
+            .get(index)
+            .map(|v| WasmRunnable::from_function(v, self))
+            .ok_or(WasmRuntimeError::NoMethod)
+    }
+
+    #[inline]
+    pub fn entry_point(&self) -> Result<WasmRunnable, WasmRuntimeError> {
         self.start
             .ok_or(WasmRuntimeError::NoMethod)
             .and_then(|v| self.func_by_ref(v))
     }
 
     /// Get a reference to the exported function with the specified name
-    pub fn function(&self, name: &str) -> Result<&WasmFunction, WasmRuntimeError> {
+    #[inline]
+    pub fn function(&self, name: &str) -> Result<WasmRunnable, WasmRuntimeError> {
         for export in &self.exports {
             if let WasmExportIndex::Function(v) = export.index {
                 if export.name == name {
@@ -363,7 +407,7 @@ impl WasmModule {
         if locals.len() > 0 {
             let mut local_index = type_ref.params.len();
             for local in locals {
-                println!(" (local ${}, {})", local_index, local);
+                println!("  (local ${}, {})", local_index, local);
                 local_index += 1;
             }
         }
@@ -491,6 +535,11 @@ impl Leb128Stream<'_> {
     }
 
     #[inline]
+    pub fn set_position(&mut self, val: usize) {
+        self.position = val;
+    }
+
+    #[inline]
     pub const fn fetch_position(&self) -> usize {
         self.fetch_position
     }
@@ -591,10 +640,10 @@ impl Leb128Stream<'_> {
     }
 
     #[inline]
-    pub fn read_memarg(&mut self) -> Result<(u32, u32), WasmDecodeError> {
+    pub fn read_memarg(&mut self) -> Result<WasmMemArg, WasmDecodeError> {
         let a = self.read_uint()? as u32;
         let o = self.read_uint()? as u32;
-        Ok((o, a))
+        Ok(WasmMemArg::new(o, a))
     }
 
     fn next_section(&mut self) -> Result<Option<WasmSection>, WasmDecodeError> {
@@ -609,6 +658,23 @@ impl Leb128Stream<'_> {
             section_type: section_type.into(),
             stream,
         }))
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct WasmMemArg {
+    pub align: u32,
+    pub offset: u32,
+}
+
+impl WasmMemArg {
+    #[inline]
+    pub const fn new(offset: u32, align: u32) -> Self {
+        Self { offset, align }
+    }
+
+    pub const fn offset_by(&self, base: u32) -> usize {
+        (self.offset as u64 + base as u64) as usize
     }
 }
 
@@ -764,35 +830,46 @@ impl WasmMemory {
         }
     }
 
-    pub fn limit(&self) -> WasmLimit {
+    #[inline]
+    pub const fn limit(&self) -> WasmLimit {
         self.limit
     }
 
-    pub fn memory_arc(&mut self) -> Arc<UnsafeCell<Vec<u8>>> {
-        self.memory.clone()
-    }
+    // fn memory_arc(&self) -> Arc<UnsafeCell<Vec<u8>>> {
+    //     self.memory.clone()
+    // }
 
-    pub fn memory(&self) -> &[u8] {
+    #[inline]
+    fn memory(&self) -> &[u8] {
         unsafe { self.memory.get().as_ref().unwrap() }
     }
 
-    pub fn memory_mut(&mut self) -> &mut [u8] {
+    #[inline]
+    fn memory_mut(&self) -> &mut [u8] {
         unsafe { self.memory.get().as_mut().unwrap() }
     }
 
+    // pub fn grow(&mut self, delta: usize)
+
+    #[inline]
+    pub fn size(&self) -> usize {
+        let memory = self.memory();
+        memory.len() / Self::PAGE_SIZE
+    }
+
     /// Read the specified range of memory
-    pub fn read_bytes(&self, offset: usize, size: usize) -> Result<&[u8], WasmMemoryError> {
+    pub fn read_bytes(&self, offset: usize, size: usize) -> Result<&[u8], WasmRuntimeError> {
         let memory = self.memory();
         let limit = memory.len();
         if offset < limit && size < limit && offset + size < limit {
             unsafe { Ok(slice::from_raw_parts(&memory[offset] as *const _, size)) }
         } else {
-            Err(WasmMemoryError::OutOfBounds)
+            Err(WasmRuntimeError::OutOfBounds)
         }
     }
 
     /// Write slice to memory
-    pub fn write_bytes(&mut self, offset: usize, src: &[u8]) -> Result<(), WasmMemoryError> {
+    pub fn write_bytes(&mut self, offset: usize, src: &[u8]) -> Result<(), WasmRuntimeError> {
         let memory = self.memory_mut();
         let size = src.len();
         let limit = memory.len();
@@ -804,19 +881,93 @@ impl WasmMemory {
             }
             Ok(())
         } else {
-            Err(WasmMemoryError::OutOfBounds)
+            Err(WasmRuntimeError::OutOfBounds)
         }
     }
 
-    // pub fn grow(&mut self, delta: usize)
-}
+    pub fn read_u8(&self, offset: usize) -> Result<u8, WasmRuntimeError> {
+        let slice = self.memory();
+        let limit = slice.len();
+        if offset < limit {
+            Ok(slice[offset])
+        } else {
+            Err(WasmRuntimeError::OutOfBounds)
+        }
+    }
 
-#[allow(dead_code)]
-#[derive(Debug, Copy, Clone)]
-pub enum WasmMemoryError {
-    NullPointerException,
-    OutOfBounds,
-    OutOfMemory,
+    pub fn write_u8(&self, offset: usize, val: u8) -> Result<(), WasmRuntimeError> {
+        let slice = self.memory_mut();
+        let limit = slice.len();
+        if offset < limit {
+            slice[offset] = val;
+            Ok(())
+        } else {
+            Err(WasmRuntimeError::OutOfBounds)
+        }
+    }
+
+    pub fn read_u16(&self, offset: usize) -> Result<u16, WasmRuntimeError> {
+        let slice = self.memory();
+        let limit = slice.len();
+        if offset + 1 < limit {
+            Ok(LE::read_u16(&slice[offset..offset + 2]))
+        } else {
+            Err(WasmRuntimeError::OutOfBounds)
+        }
+    }
+
+    pub fn write_u16(&self, offset: usize, val: u16) -> Result<(), WasmRuntimeError> {
+        let slice = self.memory_mut();
+        let limit = slice.len();
+        if offset + 1 < limit {
+            LE::write_u16(&mut slice[offset..offset + 2], val);
+            Ok(())
+        } else {
+            Err(WasmRuntimeError::OutOfBounds)
+        }
+    }
+
+    pub fn read_u32(&self, offset: usize) -> Result<u32, WasmRuntimeError> {
+        let slice = self.memory();
+        let limit = slice.len();
+        if offset + 3 < limit {
+            Ok(LE::read_u32(&slice[offset..offset + 4]))
+        } else {
+            Err(WasmRuntimeError::OutOfBounds)
+        }
+    }
+
+    pub fn write_u32(&self, offset: usize, val: u32) -> Result<(), WasmRuntimeError> {
+        let slice = self.memory_mut();
+        let limit = slice.len();
+        if offset + 3 < limit {
+            LE::write_u32(&mut slice[offset..offset + 4], val);
+            Ok(())
+        } else {
+            Err(WasmRuntimeError::OutOfBounds)
+        }
+    }
+
+    pub fn read_u64(&self, offset: usize) -> Result<u64, WasmRuntimeError> {
+        let slice = self.memory();
+        let limit = slice.len();
+        if offset + 7 < limit {
+            Ok(LE::read_u64(&slice[offset..offset + 8]))
+        } else {
+            Err(WasmRuntimeError::OutOfBounds)
+        }
+    }
+
+    pub fn write_u64(&self, offset: usize, val: u64) -> Result<(), WasmRuntimeError> {
+        let slice = self.memory_mut();
+        let limit = slice.len();
+        if offset + 7 < limit {
+            LE::write_u64(&mut slice[offset..offset + 8], val);
+            Ok(())
+        } else {
+            Err(WasmRuntimeError::OutOfBounds)
+        }
+    }
 }
 
 pub struct WasmTable {
@@ -881,24 +1032,6 @@ impl WasmFunction {
 
     pub fn body(&self) -> Option<&WasmFunctionBody> {
         self.body.as_ref()
-    }
-
-    pub fn invoke(&self, params: &[WasmValue]) -> Result<WasmValue, WasmRuntimeError> {
-        let body = self.body.as_ref().ok_or(WasmRuntimeError::NoMethod)?;
-
-        let mut locals = Vec::new();
-        for param in params {
-            locals.push(*param);
-        }
-        for local in &body.local_types {
-            locals.push(WasmValue::default_for(*local));
-        }
-
-        let result_types = body.result_types.as_slice();
-
-        let code_ref = body.code_block.borrow();
-        let mut code_block = WasmCodeBlock::from_slice(&code_ref);
-        code_block.invoke(locals.as_mut_slice(), result_types)
     }
 }
 
@@ -970,10 +1103,12 @@ impl fmt::Display for WasmType {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct WasmImport {
     mod_name: String,
     name: String,
     index: WasmImportIndex,
+    func_ref: usize,
 }
 
 impl WasmImport {
@@ -986,6 +1121,7 @@ impl WasmImport {
             mod_name,
             name,
             index,
+            func_ref: 0,
         })
     }
 
@@ -1006,16 +1142,16 @@ impl WasmImport {
 pub enum WasmImportIndex {
     Type(usize),
     Table(usize),
-    Memory(usize),
+    Memory(WasmLimit),
     Global(usize),
 }
 
 impl WasmImportIndex {
-    fn from_stream(stream: &mut Leb128Stream) -> Result<Self, WasmDecodeError> {
+    fn from_stream(mut stream: &mut Leb128Stream) -> Result<Self, WasmDecodeError> {
         stream.read_uint().and_then(|v| match v {
             0 => stream.read_uint().map(|v| Self::Type(v as usize)),
             1 => stream.read_uint().map(|v| Self::Table(v as usize)),
-            2 => stream.read_uint().map(|v| Self::Memory(v as usize)),
+            2 => WasmLimit::from_stream(&mut stream).map(|v| Self::Memory(v)),
             3 => stream.read_uint().map(|v| Self::Global(v as usize)),
             _ => Err(WasmDecodeError::UnexpectedToken),
         })
@@ -1102,7 +1238,12 @@ impl WasmFunctionBody {
             }
             let code_ref = code_block.borrow();
             let mut code_block = Leb128Stream::from_slice(&code_ref);
-            WasmBlockInfo::analyze(&mut code_block, &local_types, &result_types, module)
+            WasmBlockInfo::analyze(&mut code_block, &local_types, &result_types, module).map_err(
+                |err| {
+                    println!("analyze error {:?} ad {}", err, code_block.fetch_position());
+                    err
+                },
+            )
         }?;
 
         Ok(Self {
@@ -1152,6 +1293,7 @@ pub enum WasmDecodeError {
     InvalidGlobal,
     InvalidLocal,
     OutOfStack,
+    OutOfBranch,
     TypeMismatch,
     BlockMismatch,
     ElseWithoutIf,
@@ -1170,6 +1312,7 @@ pub enum WasmRuntimeError {
     NoMethod,
     DivideByZero,
     TypeMismatch,
+    InternalInconsistency,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -1188,6 +1331,24 @@ impl WasmValue {
             WasmValType::I64 => Self::I64(0),
             WasmValType::F32 => Self::F32(0.0),
             WasmValType::F64 => Self::F64(0.0),
+        }
+    }
+
+    pub fn is_valid_type(&self, val_type: WasmValType) -> bool {
+        match *self {
+            WasmValue::Empty => false,
+            WasmValue::I32(_) => val_type == WasmValType::I32,
+            WasmValue::I64(_) => val_type == WasmValType::I64,
+            WasmValue::F32(_) => val_type == WasmValType::F32,
+            WasmValue::F64(_) => val_type == WasmValType::F64,
+        }
+    }
+
+    #[inline]
+    pub const fn is_empty(&self) -> bool {
+        match *self {
+            Self::Empty => true,
+            _ => false,
         }
     }
 
@@ -1302,74 +1463,94 @@ impl fmt::Display for WasmValue {
 
 pub struct WasmCodeBlock<'a> {
     code: Leb128Stream<'a>,
+    info: &'a WasmBlockInfo,
 }
 
 impl<'a> WasmCodeBlock<'a> {
-    pub fn from_slice(slice: &'a [u8]) -> Self {
+    #[inline]
+    pub fn from_slice(slice: &'a [u8], info: &'a WasmBlockInfo) -> Self {
         Self {
             code: Leb128Stream::from_slice(slice),
+            info,
         }
     }
 
+    #[inline]
+    pub const fn info(&self) -> &WasmBlockInfo {
+        self.info
+    }
+
+    #[inline]
     pub fn reset(&mut self) {
         self.code.reset();
     }
 
+    #[inline]
     pub const fn position(&self) -> usize {
         self.code.position()
     }
 
+    #[inline]
+    pub fn set_position(&mut self, val: usize) {
+        self.code.set_position(val);
+    }
+
+    #[inline]
     pub const fn fetch_position(&self) -> usize {
         self.code.fetch_position
     }
 
+    #[inline]
     pub fn read_opcode(&mut self) -> Result<WasmOpcode, WasmRuntimeError> {
         self.code.read_opcode().map_err(|err| Self::map_err(err))
     }
 
+    #[inline]
     pub fn read_sint(&mut self) -> Result<i64, WasmRuntimeError> {
         self.code.read_sint().map_err(|err| Self::map_err(err))
     }
 
+    #[inline]
     pub fn read_uint(&mut self) -> Result<u64, WasmRuntimeError> {
         self.code.read_uint().map_err(|err| Self::map_err(err))
     }
 
+    #[inline]
     pub fn read_byte(&mut self) -> Result<u8, WasmRuntimeError> {
         self.code.read_byte().map_err(|err| Self::map_err(err))
     }
 
-    pub fn read_memarg(&mut self) -> Result<(u32, u32), WasmRuntimeError> {
+    #[inline]
+    pub fn read_memarg(&mut self) -> Result<WasmMemArg, WasmRuntimeError> {
         self.code.read_memarg().map_err(|err| Self::map_err(err))
     }
 
+    #[inline]
     fn map_err(err: WasmDecodeError) -> WasmRuntimeError {
         match err {
             WasmDecodeError::UnexpectedEof => WasmRuntimeError::UnexpectedEof,
             _ => WasmRuntimeError::UnexpectedToken,
         }
     }
-
-    #[inline]
-    pub fn invoke(
-        &mut self,
-        locals: &mut [WasmValue],
-        result_types: &[WasmValType],
-    ) -> Result<WasmValue, WasmRuntimeError> {
-        let mut ctx = WasmRuntimeContext::new();
-        ctx.run(self, locals, result_types)
-    }
 }
 
 #[derive(Debug)]
 pub struct WasmBlockInfo {
     max_stack: usize,
-    blocks: Vec<WasmBlockContext>,
+    max_block_level: usize,
+    flags: WasmBlockFlag,
+    blocks: BTreeMap<usize, WasmBlockContext>,
+}
+
+bitflags! {
+    pub struct WasmBlockFlag: usize {
+        const LEAF_FUNCTION     = 0b0000_0000_0000_0001;
+    }
 }
 
 impl WasmBlockInfo {
     /// Analyze block info
-    pub fn analyze<'a>(
+    pub fn analyze(
         code_block: &mut Leb128Stream,
         local_types: &[WasmValType],
         result_types: &[WasmValType],
@@ -1379,12 +1560,15 @@ impl WasmBlockInfo {
         let mut block_stack = Vec::new();
         let mut value_stack = Vec::new();
         let mut max_stack = 0;
+        let mut max_block_level = 0;
+        let mut flags = WasmBlockFlag::LEAF_FUNCTION;
 
         loop {
             max_stack = usize::max(max_stack, value_stack.len());
+            max_block_level = usize::max(max_block_level, block_stack.len());
             let position = code_block.position();
             let opcode = code_block.read_opcode()?;
-            let old_values = value_stack.clone();
+            // let old_values = value_stack.clone();
 
             match opcode {
                 WasmOpcode::Unreachable => (),
@@ -1471,35 +1655,50 @@ impl WasmBlockInfo {
                 }
 
                 WasmOpcode::Br => {
-                    let _br = code_block.read_uint()?;
+                    let br = code_block.read_uint()? as usize;
+                    if block_stack.len() < br {
+                        return Err(WasmDecodeError::OutOfBranch);
+                    }
                 }
                 WasmOpcode::BrIf => {
-                    let _br = code_block.read_uint()?;
+                    let br = code_block.read_uint()? as usize;
                     let cc = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
                     if cc != WasmValType::I32 {
                         return Err(WasmDecodeError::TypeMismatch);
                     }
+                    if block_stack.len() < br {
+                        return Err(WasmDecodeError::OutOfBranch);
+                    }
                 }
                 WasmOpcode::BrTable => {
-                    let table_len = code_block.read_uint()?;
+                    let table_len = code_block.read_uint()? as usize;
                     for _ in 0..table_len {
-                        let _br = code_block.read_uint()?;
+                        let br = code_block.read_uint()? as usize;
+                        if block_stack.len() < br {
+                            return Err(WasmDecodeError::OutOfBranch);
+                        }
                     }
-                    let _br = code_block.read_uint()?;
+                    let br = code_block.read_uint()? as usize;
+                    if block_stack.len() < br {
+                        return Err(WasmDecodeError::OutOfBranch);
+                    }
                 }
 
                 WasmOpcode::Return => {
                     // TODO: type check
                 }
 
-                WasmOpcode::Call | WasmOpcode::ReturnCall => {
+                WasmOpcode::Call => {
+                    flags.remove(WasmBlockFlag::LEAF_FUNCTION);
                     let func_index = code_block.read_uint()? as usize;
                     let function = module
-                        .func_by_ref(func_index)
-                        .map_err(|_| WasmDecodeError::InvalidParameter)?;
+                        .functions
+                        .get(func_index)
+                        .ok_or(WasmDecodeError::InvalidParameter)?;
                     let func_type = module
                         .type_by_ref(function.type_ref)
                         .ok_or(WasmDecodeError::InvalidParameter)?;
+                    // TODO: type check
                     for _param in func_type.param_types() {
                         value_stack.pop();
                     }
@@ -1507,14 +1706,27 @@ impl WasmBlockInfo {
                         value_stack.push(result.clone());
                     }
                 }
-                WasmOpcode::CallIndirect | WasmOpcode::ReturnCallIndirect => {
-                    let _br = code_block.read_uint()?;
+                WasmOpcode::CallIndirect => {
+                    flags.remove(WasmBlockFlag::LEAF_FUNCTION);
+                    let type_ref = code_block.read_uint()? as usize;
+                    let func_type = module
+                        .type_by_ref(type_ref)
+                        .ok_or(WasmDecodeError::InvalidParameter)?;
                     let cc = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
                     if cc != WasmValType::I32 {
                         return Err(WasmDecodeError::TypeMismatch);
                     }
+                    // TODO: type check
+                    for _param in func_type.param_types() {
+                        value_stack.pop();
+                    }
+                    for result in func_type.result_types() {
+                        value_stack.push(result.clone());
+                    }
                 }
 
+                // WasmOpcode::ReturnCall
+                // WasmOpcode::ReturnCallIndirect
                 WasmOpcode::Drop => {
                     value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
                 }
@@ -1678,6 +1890,14 @@ impl WasmBlockInfo {
                     let _ = code_block.read_sint()?;
                     value_stack.push(WasmValType::I64);
                 }
+                WasmOpcode::F32Const => {
+                    let _ = code_block.get_bytes(4)?;
+                    value_stack.push(WasmValType::F32);
+                }
+                WasmOpcode::F64Const => {
+                    let _ = code_block.get_bytes(8)?;
+                    value_stack.push(WasmValType::F64);
+                }
 
                 // [i32] -> [i32]
                 WasmOpcode::I32Eqz
@@ -1797,11 +2017,6 @@ impl WasmBlockInfo {
                     }
                     value_stack.push(WasmValType::I64);
                 }
-
-                // WasmOpcode::F32Const => {}
-                // WasmOpcode::F64Const => {}
-
-                // float
 
                 // [f32] -> [i32]
                 WasmOpcode::I32TruncF32S
@@ -1982,19 +2197,20 @@ impl WasmBlockInfo {
                     value_stack.push(WasmValType::F64);
                 }
 
+                #[allow(unreachable_patterns)]
                 _ => return Err(WasmDecodeError::UnreachableTrap),
             }
 
-            println!(
-                "{}[{}]> {:04x} {:02x} {} {:?} -> {:?}",
-                block_stack.len(),
-                value_stack.len(),
-                position,
-                opcode as u8,
-                opcode.to_str(),
-                old_values,
-                value_stack
-            );
+            // println!(
+            //     "{}[{}]> {:04x} {:02x} {} {:?} -> {:?}",
+            //     block_stack.len(),
+            //     value_stack.len(),
+            //     position,
+            //     opcode as u8,
+            //     opcode.to_str(),
+            //     old_values,
+            //     value_stack
+            // );
         }
 
         if result_types.len() > 0 {
@@ -2014,21 +2230,41 @@ impl WasmBlockInfo {
             }
         }
 
-        let mut blocks2 = Vec::new();
-        for block in blocks {
-            blocks2.push(block.borrow().clone());
-        }
-        let blocks = blocks2;
+        let blocks = {
+            let mut output = BTreeMap::new();
+            for block in blocks {
+                let block = block.borrow();
+                output.insert(block.start_position, block.clone());
+            }
+            output
+        };
 
-        Ok(Self { max_stack, blocks })
+        Ok(Self {
+            max_stack,
+            max_block_level,
+            blocks,
+            flags,
+        })
     }
 
+    #[inline]
     pub const fn max_stack(&self) -> usize {
         self.max_stack
     }
 
-    pub fn blocks(&self) -> &[WasmBlockContext] {
-        self.blocks.as_slice()
+    #[inline]
+    pub const fn max_block_level(&self) -> usize {
+        self.max_block_level
+    }
+
+    #[inline]
+    pub fn block_info(&self, at: usize) -> Option<&WasmBlockContext> {
+        self.blocks.get(&at)
+    }
+
+    #[inline]
+    pub fn is_leaf(&self) -> bool {
+        self.flags.contains(WasmBlockFlag::LEAF_FUNCTION)
     }
 }
 
@@ -2047,6 +2283,76 @@ pub struct WasmBlockContext {
     pub start_position: usize,
     pub end_position: usize,
     pub else_position: usize,
+}
+
+impl WasmBlockContext {
+    #[inline]
+    pub fn preferred_target(&self) -> usize {
+        if self.inst_type == BlockInstType::Loop {
+            self.start_position
+        } else {
+            self.end_position
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+pub struct WasmRunnable<'a> {
+    function: &'a WasmFunction,
+    module: &'a WasmModule,
+}
+
+impl<'a> WasmRunnable<'a> {
+    fn from_function(function: &'a WasmFunction, module: &'a WasmModule) -> Self {
+        Self { function, module }
+    }
+}
+
+impl WasmRunnable<'_> {
+    pub fn invoke(&self, params: &[WasmValue]) -> Result<WasmValue, WasmRuntimeError> {
+        let body = self
+            .function
+            .body
+            .as_ref()
+            .ok_or(WasmRuntimeError::NoMethod)?;
+
+        let mut locals = Vec::new();
+        for (index, param_type) in body.param_types().iter().enumerate() {
+            let param = params
+                .get(index)
+                .ok_or(WasmRuntimeError::InvalidParameter)?;
+            if !param.is_valid_type(*param_type) {
+                return Err(WasmRuntimeError::InvalidParameter);
+            }
+            locals.push(param.clone());
+        }
+        for local in &body.local_types {
+            locals.push(WasmValue::default_for(*local));
+        }
+
+        let result_types = body.result_types.as_slice();
+
+        let code_ref = body.code_block.borrow();
+        let mut code_block = WasmCodeBlock::from_slice(&code_ref, body.block_info());
+        WasmInterpreter::run(
+            &mut code_block,
+            locals.as_mut_slice(),
+            result_types,
+            self.module,
+        )
+        .map_err(|err| {
+            println!("err {:?} at {}", err, code_block.fetch_position());
+            err
+        })
+    }
+}
+
+pub trait WasmInvocation {
+    fn invoke(
+        &self,
+        module: &WasmModule,
+        params: &[WasmValue],
+    ) -> Result<WasmValue, WasmRuntimeError>;
 }
 
 #[cfg(test)]
@@ -2073,19 +2379,25 @@ mod tests {
 
     #[test]
     fn leb128() {
-        let data = [0x7F, 0xFF, 0x00];
+        let data = [0x7F, 0xFF, 0x00, 0xEF, 0xFD, 0xB6, 0xF5, 0x0D];
         let mut stream = super::Leb128Stream::from_slice(&data);
 
         stream.reset();
+        assert_eq!(stream.position(), 0);
         let test = stream.read_uint().unwrap();
         assert_eq!(test, 127);
         let test = stream.read_uint().unwrap();
         assert_eq!(test, 127);
+        let test = stream.read_uint().unwrap();
+        assert_eq!(test, 0xdeadbeef);
 
         stream.reset();
+        assert_eq!(stream.position(), 0);
         let test = stream.read_sint().unwrap();
         assert_eq!(test, -1);
         let test = stream.read_sint().unwrap();
         assert_eq!(test, 127);
+        let test = stream.read_sint().unwrap();
+        assert_eq!(test, 0xdeadbeef);
     }
 }

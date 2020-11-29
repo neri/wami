@@ -50,8 +50,8 @@ fn main() {
         module.print_stat();
     } else {
         match module
-            .function(function_name.as_ref())
-            .and_then(|v| v.invoke(&[123.into(), 456.into()]))
+            .function(&function_name)
+            .and_then(|v| v.invoke(&[7.into(), 1.into()]))
         {
             Ok(v) => {
                 println!("result: {}", v);
@@ -60,5 +60,44 @@ fn main() {
                 println!("error: {:?}", err);
             }
         }
+    }
+}
+
+struct FdWrite {}
+
+impl FdWrite {
+    #[allow(dead_code)]
+    const fn new() -> Self {
+        Self {}
+    }
+}
+
+impl WasmInvocation for FdWrite {
+    fn invoke(
+        &self,
+        module: &WasmModule,
+        params: &[WasmValue],
+    ) -> Result<WasmValue, WasmRuntimeError> {
+        // fd_write (i32 i32 i32 i32) -> i32
+
+        let memory = module.memory(0).unwrap();
+
+        let iovs = params
+            .get(1)
+            .ok_or(WasmRuntimeError::InvalidParameter)
+            .and_then(|v| v.get_u32())? as usize;
+        // let iovs_len = params
+        //     .get(2)
+        //     .ok_or(WasmRuntimeError::InvalidParameter)
+        //     .and_then(|v| v.get_i32())?;
+
+        let iov_base = memory.read_u32(iovs)? as usize;
+        let iov_len = memory.read_u32(iovs + 4)? as usize;
+
+        let slice = memory.read_bytes(iov_base, iov_len)?;
+        let s = core::str::from_utf8(slice).map_err(|_| WasmRuntimeError::InvalidParameter)?;
+        print!("{}", s);
+
+        Ok(WasmValue::I32(s.len() as i32))
     }
 }
