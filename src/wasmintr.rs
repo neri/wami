@@ -97,9 +97,9 @@ impl WasmInterpreter {
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let n_vec = code_block.read_uint()? as usize;
                     if index >= n_vec {
-                        index = n_vec + 1;
+                        index = n_vec;
                     }
-                    for _ in 0..=index {
+                    for _ in 1..=index {
                         let _ = code_block.read_uint()?;
                     }
                     let target = code_block.read_uint()? as usize;
@@ -117,31 +117,43 @@ impl WasmInterpreter {
                         .get(index)
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
 
-                    let body = func.body().unwrap();
+                    let result_types = func.result_types();
 
                     let mut locals = Vec::new();
-                    let param_len = body.param_types().len();
+                    let param_len = func.param_types().len();
                     if value_stack.len() < param_len {
                         return Err(WasmRuntimeError::InternalInconsistency);
                     }
                     let new_stack_len = value_stack.len() - param_len;
                     let params = &value_stack[new_stack_len..];
-                    for (index, val_type) in body.param_types().iter().enumerate() {
+                    for (index, val_type) in func.param_types().iter().enumerate() {
                         locals.push(params[index].get_by_type(*val_type));
                     }
                     value_stack.resize(new_stack_len, WasmStackValue::from_usize(0));
-                    for local in body.local_types() {
-                        locals.push(WasmValue::default_for(*local));
-                    }
 
-                    let result_types = body.result_types();
-                    let cb = body.code_block();
-                    let cb_ref = cb.borrow();
-                    let slice = cb_ref.as_slice();
-                    let mut code_block = WasmCodeBlock::from_slice(slice, body.block_info());
-                    let result = Self::run(&mut code_block, &mut locals, result_types, module)?;
-                    if !result.is_empty() {
-                        value_stack.push(WasmStackValue::from(result));
+                    if let Some(body) = func.body() {
+                        for local in body.local_types() {
+                            locals.push(WasmValue::default_for(*local));
+                        }
+                        let cb = body.code_block();
+                        let cb_ref = cb.borrow();
+                        let slice = cb_ref.as_slice();
+                        let mut code_block = WasmCodeBlock::from_slice(slice, body.block_info());
+                        let result = Self::run(&mut code_block, &mut locals, result_types, module)?;
+                        if !result.is_empty() {
+                            value_stack.push(WasmStackValue::from(result));
+                        }
+                    } else if let Some(dlink) = func.dlink() {
+                        let result = dlink.invoke(module, &locals)?;
+                        if let Some(t) = result_types.first() {
+                            if result.is_valid_type(*t) {
+                                value_stack.push(WasmStackValue::from(result));
+                            } else {
+                                return Err(WasmRuntimeError::TypeMismatch);
+                            }
+                        }
+                    } else {
+                        return Err(WasmRuntimeError::NoMethod);
                     }
                 }
 
@@ -1145,7 +1157,6 @@ impl WasmInterpreter {
             let top_val = value_stack
                 .pop()
                 .ok_or(WasmRuntimeError::InternalInconsistency)?;
-
             value_stack.resize(new_len, WasmStackValue::from_usize(0));
             value_stack.push(top_val);
         }
@@ -1361,10 +1372,11 @@ mod tests {
     }
 
     #[test]
-    fn loop_test() {
+    fn fact_loop() {
         let slice = [
-            0x41, 0x00, 0x21, 0x01, 0x03, 0x40, 0x20, 0x01, 0x41, 0x01, 0x6a, 0x21, 0x01, 0x20,
-            0x00, 0x41, 0x01, 0x6b, 0x22, 0x00, 0x0d, 0x00, 0x0b, 0x20, 0x01, 0x0b,
+            0x41, 0x01, 0x21, 0x01, 0x02, 0x40, 0x03, 0x40, 0x20, 0x00, 0x45, 0x0d, 0x01, 0x20,
+            0x01, 0x20, 0x00, 0x6c, 0x21, 0x01, 0x20, 0x00, 0x41, 0x01, 0x6b, 0x21, 0x00, 0x0c,
+            0x00, 0x0b, 0x0b, 0x20, 0x01, 0x0b,
         ];
         let local_types = [WasmValType::I32, WasmValType::I32];
         let result_types = [WasmValType::I32];
@@ -1374,11 +1386,75 @@ mod tests {
             WasmBlockInfo::analyze(&mut stream, &local_types, &result_types, &module).unwrap();
         let mut code_block = super::WasmCodeBlock::from_slice(&slice, &block_info);
 
-        let mut params = [42.into(), 0.into()];
+        let mut params = [6.into(), 0.into()];
         let result = WasmInterpreter::run(&mut code_block, &mut params, &result_types, &module)
             .unwrap()
             .get_i32()
             .unwrap();
-        assert_eq!(result, 42);
+        assert_eq!(result, 720);
+    }
+
+    #[test]
+    fn br_table() {
+        let slice = [
+            0x02, 0x40, 0x02, 0x40, 0x02, 0x40, 0x20, 0x00, 0x0e, 0x02, 0x00, 0x01, 0x02, 0x0b,
+            0x41, 0xfb, 0x00, 0x0f, 0x0b, 0x41, 0xc8, 0x03, 0x0f, 0x0b, 0x41, 0x95, 0x06, 0x0b,
+        ];
+        let local_types = [WasmValType::I32];
+        let result_types = [WasmValType::I32];
+        let mut stream = Leb128Stream::from_slice(&slice);
+        let module = WasmModule::new();
+        let block_info =
+            WasmBlockInfo::analyze(&mut stream, &local_types, &result_types, &module).unwrap();
+        let mut code_block = super::WasmCodeBlock::from_slice(&slice, &block_info);
+
+        let mut params = [0.into()];
+        let result = WasmInterpreter::run(&mut code_block, &mut params, &result_types, &module)
+            .unwrap()
+            .get_i32()
+            .unwrap();
+        assert_eq!(result, 123);
+
+        let mut params = [1.into()];
+        let result = WasmInterpreter::run(&mut code_block, &mut params, &result_types, &module)
+            .unwrap()
+            .get_i32()
+            .unwrap();
+        assert_eq!(result, 456);
+
+        let mut params = [2.into()];
+        let result = WasmInterpreter::run(&mut code_block, &mut params, &result_types, &module)
+            .unwrap()
+            .get_i32()
+            .unwrap();
+        assert_eq!(result, 789);
+
+        let mut params = [3.into()];
+        let result = WasmInterpreter::run(&mut code_block, &mut params, &result_types, &module)
+            .unwrap()
+            .get_i32()
+            .unwrap();
+        assert_eq!(result, 789);
+
+        let mut params = [4.into()];
+        let result = WasmInterpreter::run(&mut code_block, &mut params, &result_types, &module)
+            .unwrap()
+            .get_i32()
+            .unwrap();
+        assert_eq!(result, 789);
+
+        let mut params = [5.into()];
+        let result = WasmInterpreter::run(&mut code_block, &mut params, &result_types, &module)
+            .unwrap()
+            .get_i32()
+            .unwrap();
+        assert_eq!(result, 789);
+
+        let mut params = [(-1).into()];
+        let result = WasmInterpreter::run(&mut code_block, &mut params, &result_types, &module)
+            .unwrap()
+            .get_i32()
+            .unwrap();
+        assert_eq!(result, 789);
     }
 }

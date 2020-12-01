@@ -44,7 +44,12 @@ fn main() {
     let mut blob = Vec::new();
     let _ = is.read_to_end(&mut blob).unwrap();
 
-    let mut module = WasmLoader::instantiate(blob.as_slice()).unwrap();
+    let mut module =
+        WasmLoader::instantiate(blob.as_slice(), &|_mod_name, name, _type_ref| match name {
+            "fd_write" => Ok(Box::new(FdWrite::new()) as Box<dyn WasmInvocation>),
+            _ => Err(WasmDecodeError::DynamicLinkError),
+        })
+        .unwrap();
 
     if option_d {
         module.print_stat();
@@ -66,7 +71,6 @@ fn main() {
 struct FdWrite {}
 
 impl FdWrite {
-    #[allow(dead_code)]
     const fn new() -> Self {
         Self {}
     }
