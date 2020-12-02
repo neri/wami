@@ -12,7 +12,7 @@ impl WasmInterpreter {
     /// Interpret WebAssembly code blocks
     pub fn run(
         mut code_block: &mut WasmCodeBlock,
-        locals: &mut [WasmValue],
+        locals: &[WasmValue],
         result_types: &[WasmValType],
         module: &WasmModule,
     ) -> Result<WasmValue, WasmRuntimeError> {
@@ -139,7 +139,7 @@ impl WasmInterpreter {
                         let cb_ref = cb.borrow();
                         let slice = cb_ref.as_slice();
                         let mut code_block = WasmCodeBlock::from_slice(slice, body.block_info());
-                        let result = Self::run(&mut code_block, &mut locals, result_types, module)?;
+                        let result = Self::run(&mut code_block, &locals, result_types, module)?;
                         if !result.is_empty() {
                             value_stack.push(WasmStackValue::from(result));
                         }
@@ -423,6 +423,17 @@ impl WasmInterpreter {
                     let _ = code_block.read_uint()?;
                     let memory = module.memory(0).ok_or(WasmRuntimeError::OutOfMemory)?;
                     value_stack.push(WasmStackValue::from(memory.size()));
+                }
+
+                WasmOpcode::MemoryGrow => {
+                    let _ = code_block.read_uint()?;
+                    let val = value_stack
+                        .pop()
+                        .map(|v| v.get_u32())
+                        .ok_or(WasmRuntimeError::InternalInconsistency)?;
+                    let memory = module.memory(0).ok_or(WasmRuntimeError::OutOfMemory)?;
+                    let result = memory.grow(val as usize);
+                    value_stack.push(WasmStackValue { i32: result as i32 });
                 }
 
                 WasmOpcode::I32Const => {
@@ -1174,6 +1185,7 @@ pub union WasmStackValue {
     f32: f32,
     f64: f64,
     usize: usize,
+    isize: isize,
 }
 
 impl WasmStackValue {
@@ -1188,17 +1200,22 @@ impl WasmStackValue {
 
     #[inline]
     pub const fn from_usize(v: usize) -> Self {
-        Self { usize: v as usize }
+        Self { usize: v }
+    }
+
+    #[inline]
+    pub const fn from_isize(v: isize) -> Self {
+        Self { isize: v }
     }
 
     #[inline]
     pub const fn from_i32(v: i32) -> Self {
-        Self { i64: v as i64 }
+        Self { i32: v }
     }
 
     #[inline]
     pub const fn from_u32(v: u32) -> Self {
-        Self { u64: v as u64 }
+        Self { u32: v }
     }
 
     #[inline]
@@ -1330,15 +1347,15 @@ mod tests {
             WasmBlockInfo::analyze(&mut stream, &local_types, &result_types, &module).unwrap();
         let mut code_block = super::WasmCodeBlock::from_slice(&slice, &block_info);
 
-        let mut params = [1234.into(), 5678.into()];
-        let result = WasmInterpreter::run(&mut code_block, &mut params, &result_types, &module)
+        let params = [1234.into(), 5678.into()];
+        let result = WasmInterpreter::run(&mut code_block, &params, &result_types, &module)
             .unwrap()
             .get_i32()
             .unwrap();
         assert_eq!(result, 6912);
 
-        let mut params = [0xDEADBEEFu32.into(), 0x55555555.into()];
-        let result = WasmInterpreter::run(&mut code_block, &mut params, &result_types, &module)
+        let params = [0xDEADBEEFu32.into(), 0x55555555.into()];
+        let result = WasmInterpreter::run(&mut code_block, &params, &result_types, &module)
             .unwrap()
             .get_i32()
             .unwrap();
@@ -1356,15 +1373,15 @@ mod tests {
             WasmBlockInfo::analyze(&mut stream, &local_types, &result_types, &module).unwrap();
         let mut code_block = super::WasmCodeBlock::from_slice(&slice, &block_info);
 
-        let mut params = [1234.into(), 5678.into()];
-        let result = WasmInterpreter::run(&mut code_block, &mut params, &result_types, &module)
+        let params = [1234.into(), 5678.into()];
+        let result = WasmInterpreter::run(&mut code_block, &params, &result_types, &module)
             .unwrap()
             .get_i32()
             .unwrap();
         assert_eq!(result, -4444);
 
-        let mut params = [0x55555555.into(), 0xDEADBEEFu32.into()];
-        let result = WasmInterpreter::run(&mut code_block, &mut params, &result_types, &module)
+        let params = [0x55555555.into(), 0xDEADBEEFu32.into()];
+        let result = WasmInterpreter::run(&mut code_block, &params, &result_types, &module)
             .unwrap()
             .get_i32()
             .unwrap();
@@ -1386,8 +1403,8 @@ mod tests {
             WasmBlockInfo::analyze(&mut stream, &local_types, &result_types, &module).unwrap();
         let mut code_block = super::WasmCodeBlock::from_slice(&slice, &block_info);
 
-        let mut params = [6.into(), 0.into()];
-        let result = WasmInterpreter::run(&mut code_block, &mut params, &result_types, &module)
+        let params = [6.into(), 0.into()];
+        let result = WasmInterpreter::run(&mut code_block, &params, &result_types, &module)
             .unwrap()
             .get_i32()
             .unwrap();
@@ -1408,50 +1425,50 @@ mod tests {
             WasmBlockInfo::analyze(&mut stream, &local_types, &result_types, &module).unwrap();
         let mut code_block = super::WasmCodeBlock::from_slice(&slice, &block_info);
 
-        let mut params = [0.into()];
-        let result = WasmInterpreter::run(&mut code_block, &mut params, &result_types, &module)
+        let params = [0.into()];
+        let result = WasmInterpreter::run(&mut code_block, &params, &result_types, &module)
             .unwrap()
             .get_i32()
             .unwrap();
         assert_eq!(result, 123);
 
-        let mut params = [1.into()];
-        let result = WasmInterpreter::run(&mut code_block, &mut params, &result_types, &module)
+        let params = [1.into()];
+        let result = WasmInterpreter::run(&mut code_block, &params, &result_types, &module)
             .unwrap()
             .get_i32()
             .unwrap();
         assert_eq!(result, 456);
 
-        let mut params = [2.into()];
-        let result = WasmInterpreter::run(&mut code_block, &mut params, &result_types, &module)
+        let params = [2.into()];
+        let result = WasmInterpreter::run(&mut code_block, &params, &result_types, &module)
             .unwrap()
             .get_i32()
             .unwrap();
         assert_eq!(result, 789);
 
-        let mut params = [3.into()];
-        let result = WasmInterpreter::run(&mut code_block, &mut params, &result_types, &module)
+        let params = [3.into()];
+        let result = WasmInterpreter::run(&mut code_block, &params, &result_types, &module)
             .unwrap()
             .get_i32()
             .unwrap();
         assert_eq!(result, 789);
 
-        let mut params = [4.into()];
-        let result = WasmInterpreter::run(&mut code_block, &mut params, &result_types, &module)
+        let params = [4.into()];
+        let result = WasmInterpreter::run(&mut code_block, &params, &result_types, &module)
             .unwrap()
             .get_i32()
             .unwrap();
         assert_eq!(result, 789);
 
-        let mut params = [5.into()];
-        let result = WasmInterpreter::run(&mut code_block, &mut params, &result_types, &module)
+        let params = [5.into()];
+        let result = WasmInterpreter::run(&mut code_block, &params, &result_types, &module)
             .unwrap()
             .get_i32()
             .unwrap();
         assert_eq!(result, 789);
 
-        let mut params = [(-1).into()];
-        let result = WasmInterpreter::run(&mut code_block, &mut params, &result_types, &module)
+        let params = [(-1).into()];
+        let result = WasmInterpreter::run(&mut code_block, &params, &result_types, &module)
             .unwrap()
             .get_i32()
             .unwrap();

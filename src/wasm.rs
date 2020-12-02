@@ -884,7 +884,19 @@ impl WasmMemory {
         unsafe { self.memory.get().as_mut().unwrap() }
     }
 
-    // pub fn grow(&mut self, delta: usize)
+    pub fn grow(&self, delta: usize) -> isize {
+        if Arc::strong_count(&self.memory) > 1 {
+            return -1;
+        }
+        let memory = unsafe { self.memory.get().as_mut().unwrap() };
+        let old_size = memory.len();
+        let additional = delta * Self::PAGE_SIZE;
+        if memory.try_reserve_exact(additional).is_err() {
+            return -1;
+        }
+        memory.resize(old_size + additional, 0);
+        (old_size / Self::PAGE_SIZE) as isize
+    }
 
     #[inline]
     pub fn size(&self) -> usize {
@@ -1336,6 +1348,7 @@ pub enum WasmDecodeError {
     ElseWithoutIf,
     UnreachableTrap,
     DynamicLinkError,
+    NotSupprted,
 }
 
 #[allow(dead_code)]
@@ -1607,6 +1620,14 @@ impl WasmBlockInfo {
             let position = code_block.position();
             let opcode = code_block.read_opcode()?;
             // let old_values = value_stack.clone();
+
+            match opcode.proposal_type() {
+                WasmProposalType::Mvp | WasmProposalType::MvpI32 | WasmProposalType::MvpI64 => {}
+                WasmProposalType::SignExtend => {}
+                // WasmProposalType::MvpF32 => {}
+                // WasmProposalType::MvpF64 => {}
+                _ => return Err(WasmDecodeError::NotSupprted),
+            }
 
             match opcode {
                 WasmOpcode::Unreachable => (),
@@ -2374,7 +2395,7 @@ impl WasmRunnable<'_> {
         let mut code_block = WasmCodeBlock::from_slice(&code_ref, body.block_info());
         WasmInterpreter::run(
             &mut code_block,
-            locals.as_mut_slice(),
+            locals.as_slice(),
             result_types,
             self.module,
         )
@@ -2408,6 +2429,7 @@ mod tests {
         let too_small = [0, 97, 115, 109, 1, 0, 0];
         super::WasmLoader::instantiate(&too_small, &|_, _, _| unreachable!()).unwrap();
     }
+
     #[test]
     #[should_panic(expected = "UnexpectedEof")]
     fn instantiate_3() {

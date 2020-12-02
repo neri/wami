@@ -1,4 +1,5 @@
 // Wasm-O
+#![feature(try_reserve)]
 
 pub mod opcode;
 pub mod wasm;
