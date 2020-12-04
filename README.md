@@ -1,8 +1,9 @@
 
 WebAssembly Runtime Test
 
-## implementation
+## features
 
+- Support for no_std
 - A subset of WebAssembly MVP
   - Floating point operations are not yet supported.
 
@@ -21,3 +22,9 @@ WebAssembly Runtime Test
 ```
 # cargo test
 ```
+
+## License
+
+MIT License
+
+(C) 2020 Nerry

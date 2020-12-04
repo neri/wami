@@ -5,7 +5,6 @@ use super::wasm::*;
 use crate::*;
 use alloc::vec::Vec;
 
-#[allow(dead_code)]
 pub struct WasmInterpreter {}
 
 impl WasmInterpreter {

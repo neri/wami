@@ -38,7 +38,7 @@ fn main() {
         }
     };
 
-    let function_name = args.next().unwrap_or("start".to_string());
+    let function_name = args.next().unwrap_or("_start".to_string());
 
     let mut is = File::open(in_file).unwrap();
     let mut blob = Vec::new();
