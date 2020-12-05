@@ -1,9 +1,9 @@
 
-WebAssembly Runtime Test
+A WebAssembly Runtime written in Rust
 
 ## features
 
-- Support for no_std
+- Support for `no_std`
 - A subset of WebAssembly MVP
   - Floating point operations are not yet supported.
 

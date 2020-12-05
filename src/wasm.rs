@@ -374,7 +374,7 @@ impl WasmModule {
     }
 
     #[inline]
-    pub fn func_by_ref(&self, index: usize) -> Result<WasmRunnable, WasmRuntimeError> {
+    pub fn func_by_index(&self, index: usize) -> Result<WasmRunnable, WasmRuntimeError> {
         self.functions
             .get(index)
             .map(|v| WasmRunnable::from_function(v, self))
@@ -385,16 +385,16 @@ impl WasmModule {
     pub fn entry_point(&self) -> Result<WasmRunnable, WasmRuntimeError> {
         self.start
             .ok_or(WasmRuntimeError::NoMethod)
-            .and_then(|v| self.func_by_ref(v))
+            .and_then(|v| self.func_by_index(v))
     }
 
     /// Get a reference to the exported function with the specified name
     #[inline]
-    pub fn function(&self, name: &str) -> Result<WasmRunnable, WasmRuntimeError> {
+    pub fn func(&self, name: &str) -> Result<WasmRunnable, WasmRuntimeError> {
         for export in &self.exports {
             if let WasmExportIndex::Function(v) = export.index {
                 if export.name == name {
-                    return self.func_by_ref(v);
+                    return self.func_by_index(v);
                 }
             }
         }
@@ -1768,8 +1768,8 @@ impl WasmBlockInfo {
                     let func_type = module
                         .type_by_ref(type_ref)
                         .ok_or(WasmDecodeError::InvalidParameter)?;
-                    let cc = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
-                    if cc != WasmValType::I32 {
+                    let index = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
+                    if index != WasmValType::I32 {
                         return Err(WasmDecodeError::TypeMismatch);
                     }
                     // TODO: type check

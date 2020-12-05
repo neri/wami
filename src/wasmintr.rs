@@ -196,10 +196,10 @@ impl WasmInterpreter {
                     let var = locals
                         .get_mut(local_ref)
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    let val = value_stack
+                    let val = *value_stack
                         .last()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    *var = *val;
+                    *var = val;
                 }
 
                 WasmOpcode::I32Load => {
@@ -456,10 +456,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_i32())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_i32())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from(a == b));
+                    *a = WasmStackValue::from(a.get_i32() == b);
                 }
                 WasmOpcode::I32Ne => {
                     let b = value_stack
@@ -467,10 +466,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_i32())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_i32())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from(a != b));
+                    *a = WasmStackValue::from(a.get_i32() == b);
                 }
                 WasmOpcode::I32LtS => {
                     let b = value_stack
@@ -478,10 +476,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_i32())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_i32())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from(a < b));
+                    *a = WasmStackValue::from(a.get_i32() < b);
                 }
                 WasmOpcode::I32LtU => {
                     let b = value_stack
@@ -489,10 +486,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_u32())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_u32())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from(a < b));
+                    *a = WasmStackValue::from(a.get_u32() < b);
                 }
                 WasmOpcode::I32LeS => {
                     let b = value_stack
@@ -500,10 +496,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_i32())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_i32())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from(a <= b));
+                    *a = WasmStackValue::from(a.get_i32() <= b);
                 }
                 WasmOpcode::I32LeU => {
                     let b = value_stack
@@ -511,10 +506,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_u32())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_u32())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from(a <= b));
+                    *a = WasmStackValue::from(a.get_u32() <= b);
                 }
                 WasmOpcode::I32GtS => {
                     let b = value_stack
@@ -522,10 +516,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_i32())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_i32())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from(a > b));
+                    *a = WasmStackValue::from(a.get_i32() > b);
                 }
                 WasmOpcode::I32GtU => {
                     let b = value_stack
@@ -533,10 +526,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_u32())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_u32())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from(a > b));
+                    *a = WasmStackValue::from(a.get_u32() > b);
                 }
                 WasmOpcode::I32GeS => {
                     let b = value_stack
@@ -544,10 +536,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_i32())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_i32())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from(a >= b));
+                    *a = WasmStackValue::from(a.get_i32() >= b);
                 }
                 WasmOpcode::I32GeU => {
                     let b = value_stack
@@ -555,10 +546,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_u32())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_u32())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from(a >= b));
+                    *a = WasmStackValue::from(a.get_u32() >= b);
                 }
 
                 WasmOpcode::I64Eqz => {
@@ -573,10 +563,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_i64())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_i64())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from(a == b));
+                    *a = WasmStackValue::from(a.get_i64() == b);
                 }
                 WasmOpcode::I64Ne => {
                     let b = value_stack
@@ -584,10 +573,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_i64())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_i64())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from(a != b));
+                    *a = WasmStackValue::from(a.get_i64() == b);
                 }
                 WasmOpcode::I64LtS => {
                     let b = value_stack
@@ -595,10 +583,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_i64())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_i64())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from(a < b));
+                    *a = WasmStackValue::from(a.get_i64() < b);
                 }
                 WasmOpcode::I64LtU => {
                     let b = value_stack
@@ -606,10 +593,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_u64())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_u64())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from(a < b));
+                    *a = WasmStackValue::from(a.get_u64() < b);
                 }
                 WasmOpcode::I64LeS => {
                     let b = value_stack
@@ -617,10 +603,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_i64())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_i64())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from(a <= b));
+                    *a = WasmStackValue::from(a.get_i64() <= b);
                 }
                 WasmOpcode::I64LeU => {
                     let b = value_stack
@@ -628,10 +613,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_u64())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_u64())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from(a <= b));
+                    *a = WasmStackValue::from(a.get_u64() <= b);
                 }
                 WasmOpcode::I64GtS => {
                     let b = value_stack
@@ -639,10 +623,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_i64())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_i64())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from(a > b));
+                    *a = WasmStackValue::from(a.get_i64() > b);
                 }
                 WasmOpcode::I64GtU => {
                     let b = value_stack
@@ -650,10 +633,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_u64())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_u64())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from(a > b));
+                    *a = WasmStackValue::from(a.get_u64() > b);
                 }
                 WasmOpcode::I64GeS => {
                     let b = value_stack
@@ -661,10 +643,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_i64())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_i64())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from(a >= b));
+                    *a = WasmStackValue::from(a.get_i64() >= b);
                 }
                 WasmOpcode::I64GeU => {
                     let b = value_stack
@@ -672,29 +653,28 @@ impl WasmInterpreter {
                         .map(|v| v.get_u64())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_u64())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from(a >= b));
+                    *a = WasmStackValue::from(a.get_u64() >= b);
                 }
 
                 WasmOpcode::I32Clz => {
                     let last = value_stack
                         .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    *last = WasmStackValue::from_u32(last.get_i32().leading_zeros());
+                    last.map_u32(|v| v.leading_zeros());
                 }
                 WasmOpcode::I32Ctz => {
                     let last = value_stack
                         .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    *last = WasmStackValue::from_u32(last.get_i32().trailing_zeros());
+                    last.map_u32(|v| v.trailing_zeros());
                 }
                 WasmOpcode::I32Popcnt => {
                     let last = value_stack
                         .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    *last = WasmStackValue::from_u32(last.get_i32().count_ones());
+                    last.map_u32(|v| v.count_ones());
                 }
 
                 WasmOpcode::I32Add => {
@@ -703,10 +683,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_u32())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_u32())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from_u32(a.wrapping_add(b)));
+                    a.map_u32(|v| v.wrapping_add(b));
                 }
                 WasmOpcode::I32Sub => {
                     let b = value_stack
@@ -714,10 +693,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_u32())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_u32())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from_u32(a.wrapping_sub(b)));
+                    a.map_u32(|v| v.wrapping_sub(b));
                 }
                 WasmOpcode::I32Mul => {
                     let b = value_stack
@@ -725,10 +703,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_u32())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_u32())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from_u32(a.wrapping_mul(b)));
+                    a.map_u32(|v| v.wrapping_mul(b));
                 }
                 WasmOpcode::I32DivS => {
                     let b = value_stack
@@ -736,13 +713,12 @@ impl WasmInterpreter {
                         .map(|v| v.get_i32())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_i32())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     if b == 0 {
                         return Err(WasmRuntimeError::DivideByZero);
                     }
-                    value_stack.push(WasmStackValue::from_i32(a.wrapping_div(b)));
+                    a.map_i32(|v| v.wrapping_div(b));
                 }
                 WasmOpcode::I32DivU => {
                     let b = value_stack
@@ -750,13 +726,12 @@ impl WasmInterpreter {
                         .map(|v| v.get_u32())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_u32())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     if b == 0 {
                         return Err(WasmRuntimeError::DivideByZero);
                     }
-                    value_stack.push(WasmStackValue::from_u32(a.wrapping_div(b)));
+                    a.map_u32(|v| v.wrapping_div(b));
                 }
                 WasmOpcode::I32RemS => {
                     let b = value_stack
@@ -764,13 +739,12 @@ impl WasmInterpreter {
                         .map(|v| v.get_i32())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_i32())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     if b == 0 {
                         return Err(WasmRuntimeError::DivideByZero);
                     }
-                    value_stack.push(WasmStackValue::from_i32(a.wrapping_rem(b)));
+                    a.map_i32(|v| v.wrapping_rem(b));
                 }
                 WasmOpcode::I32RemU => {
                     let b = value_stack
@@ -778,13 +752,12 @@ impl WasmInterpreter {
                         .map(|v| v.get_u32())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_u32())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     if b == 0 {
                         return Err(WasmRuntimeError::DivideByZero);
                     }
-                    value_stack.push(WasmStackValue::from_u32(a.wrapping_rem(b)));
+                    a.map_u32(|v| v.wrapping_rem(b));
                 }
 
                 WasmOpcode::I32And => {
@@ -793,10 +766,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_u32())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_u32())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from_u32(a & b));
+                    a.map_u32(|v| v & b);
                 }
                 WasmOpcode::I32Or => {
                     let b = value_stack
@@ -804,10 +776,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_u32())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_u32())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from_u32(a | b));
+                    a.map_u32(|v| v | b);
                 }
                 WasmOpcode::I32Xor => {
                     let b = value_stack
@@ -815,10 +786,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_u32())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_u32())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from_u32(a ^ b));
+                    a.map_u32(|v| v ^ b);
                 }
 
                 WasmOpcode::I32Shl => {
@@ -827,32 +797,29 @@ impl WasmInterpreter {
                         .map(|v| v.get_u32())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_u32())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from_u32(a << b));
+                    a.map_u32(|v| v << b);
                 }
                 WasmOpcode::I32ShrS => {
                     let b = value_stack
                         .pop()
-                        .map(|v| v.get_i32())
+                        .map(|v| v.get_u32())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_i32())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from_i32(a >> b));
+                    a.map_u32(|v| v >> b);
                 }
                 WasmOpcode::I32ShrU => {
                     let b = value_stack
                         .pop()
-                        .map(|v| v.get_u32())
+                        .map(|v| v.get_i32())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_u32())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from_u32(a >> b));
+                    a.map_i32(|v| v >> b);
                 }
                 WasmOpcode::I32Rotl => {
                     let b = value_stack
@@ -860,10 +827,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_u32())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_u32())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from_u32(a.rotate_left(b)));
+                    a.map_u32(|v| v.rotate_left(b));
                 }
                 WasmOpcode::I32Rotr => {
                     let b = value_stack
@@ -871,29 +837,28 @@ impl WasmInterpreter {
                         .map(|v| v.get_u32())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_u32())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from_u32(a.rotate_right(b)));
+                    a.map_u32(|v| v.rotate_right(b));
                 }
 
                 WasmOpcode::I64Clz => {
                     let last = value_stack
                         .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    *last = WasmStackValue::from_i64(last.get_i64().leading_zeros() as i64);
+                    last.map_u64(|v| v.leading_zeros() as u64);
                 }
                 WasmOpcode::I64Ctz => {
                     let last = value_stack
                         .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    *last = WasmStackValue::from_i64(last.get_i64().trailing_zeros() as i64);
+                    last.map_u64(|v| v.trailing_zeros() as u64);
                 }
                 WasmOpcode::I64Popcnt => {
                     let last = value_stack
                         .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    *last = WasmStackValue::from_i64(last.get_i64().count_ones() as i64);
+                    last.map_u64(|v| v.count_ones() as u64);
                 }
 
                 WasmOpcode::I64Add => {
@@ -902,10 +867,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_u64())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_u64())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from_u64(a.wrapping_add(b)));
+                    a.map_u64(|v| v.wrapping_add(b));
                 }
                 WasmOpcode::I64Sub => {
                     let b = value_stack
@@ -913,10 +877,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_u64())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_u64())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from_u64(a.wrapping_sub(b)));
+                    a.map_u64(|v| v.wrapping_sub(b));
                 }
                 WasmOpcode::I64Mul => {
                     let b = value_stack
@@ -924,10 +887,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_u64())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_u64())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from_u64(a.wrapping_mul(b)));
+                    a.map_u64(|v| v.wrapping_mul(b));
                 }
                 WasmOpcode::I64DivS => {
                     let b = value_stack
@@ -935,13 +897,12 @@ impl WasmInterpreter {
                         .map(|v| v.get_i64())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_i64())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     if b == 0 {
                         return Err(WasmRuntimeError::DivideByZero);
                     }
-                    value_stack.push(WasmStackValue::from_i64(a.wrapping_div(b)));
+                    a.map_i64(|v| v.wrapping_div(b));
                 }
                 WasmOpcode::I64DivU => {
                     let b = value_stack
@@ -949,13 +910,12 @@ impl WasmInterpreter {
                         .map(|v| v.get_u64())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_u64())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     if b == 0 {
                         return Err(WasmRuntimeError::DivideByZero);
                     }
-                    value_stack.push(WasmStackValue::from_u64(a.wrapping_div(b)));
+                    a.map_u64(|v| v.wrapping_div(b));
                 }
                 WasmOpcode::I64RemS => {
                     let b = value_stack
@@ -963,13 +923,12 @@ impl WasmInterpreter {
                         .map(|v| v.get_i64())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_i64())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     if b == 0 {
                         return Err(WasmRuntimeError::DivideByZero);
                     }
-                    value_stack.push(WasmStackValue::from_i64(a.wrapping_rem(b)));
+                    a.map_i64(|v| v.wrapping_rem(b));
                 }
                 WasmOpcode::I64RemU => {
                     let b = value_stack
@@ -977,13 +936,12 @@ impl WasmInterpreter {
                         .map(|v| v.get_u64())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_u64())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     if b == 0 {
                         return Err(WasmRuntimeError::DivideByZero);
                     }
-                    value_stack.push(WasmStackValue::from_u64(a.wrapping_rem(b)));
+                    a.map_u64(|v| v.wrapping_rem(b));
                 }
 
                 WasmOpcode::I64And => {
@@ -992,10 +950,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_u64())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_u64())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from_u64(a & b));
+                    a.map_u64(|v| v & b);
                 }
                 WasmOpcode::I64Or => {
                     let b = value_stack
@@ -1003,10 +960,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_u64())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_u64())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from_u64(a | b));
+                    a.map_u64(|v| v | b);
                 }
                 WasmOpcode::I64Xor => {
                     let b = value_stack
@@ -1014,10 +970,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_u64())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_u64())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from_u64(a ^ b));
+                    a.map_u64(|v| v ^ b);
                 }
 
                 WasmOpcode::I64Shl => {
@@ -1026,10 +981,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_u64())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_u64())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from_u64(a << b));
+                    a.map_u64(|v| v << b);
                 }
                 WasmOpcode::I64ShrS => {
                     let b = value_stack
@@ -1037,10 +991,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_i64())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_i64())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from_i64(a >> b));
+                    a.map_i64(|v| v >> b);
                 }
                 WasmOpcode::I64ShrU => {
                     let b = value_stack
@@ -1048,10 +1001,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_u64())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_u64())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from_u64(a >> b));
+                    a.map_u64(|v| v >> b);
                 }
                 WasmOpcode::I64Rotl => {
                     let b = value_stack
@@ -1059,10 +1011,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_u64())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_u64())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from_u64(a.rotate_left(b as u32)));
+                    a.map_u64(|v| v.rotate_left(b as u32));
                 }
                 WasmOpcode::I64Rotr => {
                     let b = value_stack
@@ -1070,10 +1021,9 @@ impl WasmInterpreter {
                         .map(|v| v.get_u64())
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
                     let a = value_stack
-                        .pop()
-                        .map(|v| v.get_u64())
+                        .last_mut()
                         .ok_or(WasmRuntimeError::InternalInconsistency)?;
-                    value_stack.push(WasmStackValue::from_u64(a.rotate_right(b as u32)));
+                    a.map_u64(|v| v.rotate_right(b as u32));
                 }
 
                 WasmOpcode::I32WrapI64 => {
@@ -1270,6 +1220,42 @@ impl WasmStackValue {
     #[inline]
     pub fn get_u16(&self) -> u16 {
         unsafe { self.usize as u16 }
+    }
+
+    #[inline]
+    pub fn map_i32<F>(&mut self, f: F)
+    where
+        F: FnOnce(i32) -> i32,
+    {
+        let val = unsafe { self.i32 };
+        self.i32 = f(val);
+    }
+
+    #[inline]
+    pub fn map_u32<F>(&mut self, f: F)
+    where
+        F: FnOnce(u32) -> u32,
+    {
+        let val = unsafe { self.u32 };
+        self.u32 = f(val);
+    }
+
+    #[inline]
+    pub fn map_i64<F>(&mut self, f: F)
+    where
+        F: FnOnce(i64) -> i64,
+    {
+        let val = unsafe { self.i64 };
+        self.i64 = f(val);
+    }
+
+    #[inline]
+    pub fn map_u64<F>(&mut self, f: F)
+    where
+        F: FnOnce(u64) -> u64,
+    {
+        let val = unsafe { self.u64 };
+        self.u64 = f(val);
     }
 
     pub fn get_by_type(&self, val_type: WasmValType) -> WasmValue {

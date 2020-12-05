@@ -38,7 +38,7 @@ fn main() {
         }
     };
 
-    let function_name = args.next().unwrap_or("_start".to_string());
+    let func_name = args.next().unwrap_or("_start".to_string());
 
     let mut is = File::open(in_file).unwrap();
     let mut blob = Vec::new();
@@ -55,7 +55,7 @@ fn main() {
         module.print_stat();
     } else {
         match module
-            .function(&function_name)
+            .func(&func_name)
             .and_then(|v| v.invoke(&[7.into(), 1.into()]))
         {
             Ok(v) => {
