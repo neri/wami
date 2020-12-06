@@ -48,7 +48,7 @@ pub enum WasmOpcode {
     GlobalGet = 0x23,
     /// 24 (mvp) global.set globalidx
     GlobalSet = 0x24,
-    /// 28 (mvp_i32) i32.load align offset
+    /// 28 (mvp) i32.load align offset
     I32Load = 0x28,
     /// 29 (mvp_i64) i64.load align offset
     I64Load = 0x29,
@@ -56,13 +56,13 @@ pub enum WasmOpcode {
     F32Load = 0x2A,
     /// 2B (mvp_f64) f64.load align offset
     F64Load = 0x2B,
-    /// 2C (mvp_i32) i32.load8_s align offset
+    /// 2C (mvp) i32.load8_s align offset
     I32Load8S = 0x2C,
-    /// 2D (mvp_i32) i32.load8_u align offset
+    /// 2D (mvp) i32.load8_u align offset
     I32Load8U = 0x2D,
-    /// 2E (mvp_i32) i32.load16_s align offset
+    /// 2E (mvp) i32.load16_s align offset
     I32Load16S = 0x2E,
-    /// 2F (mvp_i32) i32.load16_u align offset
+    /// 2F (mvp) i32.load16_u align offset
     I32Load16U = 0x2F,
     /// 30 (mvp_i64) i64.load8_s align offset
     I64Load8S = 0x30,
@@ -76,7 +76,7 @@ pub enum WasmOpcode {
     I64Load32S = 0x34,
     /// 35 (mvp_i64) i64.load32_u align offset
     I64Load32U = 0x35,
-    /// 36 (mvp_i32) i32.store align offset
+    /// 36 (mvp) i32.store align offset
     I32Store = 0x36,
     /// 37 (mvp_i64) i64.store align offset
     I64Store = 0x37,
@@ -84,9 +84,9 @@ pub enum WasmOpcode {
     F32Store = 0x38,
     /// 39 (mvp_f64) f64.store align offset
     F64Store = 0x39,
-    /// 3A (mvp_i32) i32.store8 align offset
+    /// 3A (mvp) i32.store8 align offset
     I32Store8 = 0x3A,
-    /// 3B (mvp_i32) i32.store16 align offset
+    /// 3B (mvp) i32.store16 align offset
     I32Store16 = 0x3B,
     /// 3C (mvp_i64) i64.store8 align offset
     I64Store8 = 0x3C,
@@ -98,7 +98,7 @@ pub enum WasmOpcode {
     MemorySize = 0x3F,
     /// 40 (mvp) memory.grow 0x00
     MemoryGrow = 0x40,
-    /// 41 (mvp_i32) i32.const n
+    /// 41 (mvp) i32.const n
     I32Const = 0x41,
     /// 42 (mvp_i64) i64.const n
     I64Const = 0x42,
@@ -106,27 +106,27 @@ pub enum WasmOpcode {
     F32Const = 0x43,
     /// 44 (mvp_f64) f64.const z
     F64Const = 0x44,
-    /// 45 (mvp_i32) i32.eqz
+    /// 45 (mvp) i32.eqz
     I32Eqz = 0x45,
-    /// 46 (mvp_i32) i32.eq
+    /// 46 (mvp) i32.eq
     I32Eq = 0x46,
-    /// 47 (mvp_i32) i32.ne
+    /// 47 (mvp) i32.ne
     I32Ne = 0x47,
-    /// 48 (mvp_i32) i32.lt_s
+    /// 48 (mvp) i32.lt_s
     I32LtS = 0x48,
-    /// 49 (mvp_i32) i32.lt_u
+    /// 49 (mvp) i32.lt_u
     I32LtU = 0x49,
-    /// 4A (mvp_i32) i32.gt_s
+    /// 4A (mvp) i32.gt_s
     I32GtS = 0x4A,
-    /// 4B (mvp_i32) i32.gt_u
+    /// 4B (mvp) i32.gt_u
     I32GtU = 0x4B,
-    /// 4C (mvp_i32) i32.le_s
+    /// 4C (mvp) i32.le_s
     I32LeS = 0x4C,
-    /// 4D (mvp_i32) i32.le_u
+    /// 4D (mvp) i32.le_u
     I32LeU = 0x4D,
-    /// 4E (mvp_i32) i32.ge_s
+    /// 4E (mvp) i32.ge_s
     I32GeS = 0x4E,
-    /// 4F (mvp_i32) i32.ge_u
+    /// 4F (mvp) i32.ge_u
     I32GeU = 0x4F,
     /// 50 (mvp_i64) i64.eqz
     I64Eqz = 0x50,
@@ -174,41 +174,41 @@ pub enum WasmOpcode {
     F64Le = 0x65,
     /// 66 (mvp_f64) f64.ge
     F64Ge = 0x66,
-    /// 67 (mvp_i32) i32.clz
+    /// 67 (mvp) i32.clz
     I32Clz = 0x67,
-    /// 68 (mvp_i32) i32.ctz
+    /// 68 (mvp) i32.ctz
     I32Ctz = 0x68,
-    /// 69 (mvp_i32) i32.popcnt
+    /// 69 (mvp) i32.popcnt
     I32Popcnt = 0x69,
-    /// 6A (mvp_i32) i32.add
+    /// 6A (mvp) i32.add
     I32Add = 0x6A,
-    /// 6B (mvp_i32) i32.sub
+    /// 6B (mvp) i32.sub
     I32Sub = 0x6B,
-    /// 6C (mvp_i32) i32.mul
+    /// 6C (mvp) i32.mul
     I32Mul = 0x6C,
-    /// 6D (mvp_i32) i32.div_s
+    /// 6D (mvp) i32.div_s
     I32DivS = 0x6D,
-    /// 6E (mvp_i32) i32.div_u
+    /// 6E (mvp) i32.div_u
     I32DivU = 0x6E,
-    /// 6F (mvp_i32) i32.rem_s
+    /// 6F (mvp) i32.rem_s
     I32RemS = 0x6F,
-    /// 70 (mvp_i32) i32.rem_u
+    /// 70 (mvp) i32.rem_u
     I32RemU = 0x70,
-    /// 71 (mvp_i32) i32.and
+    /// 71 (mvp) i32.and
     I32And = 0x71,
-    /// 72 (mvp_i32) i32.or
+    /// 72 (mvp) i32.or
     I32Or = 0x72,
-    /// 73 (mvp_i32) i32.xor
+    /// 73 (mvp) i32.xor
     I32Xor = 0x73,
-    /// 74 (mvp_i32) i32.shl
+    /// 74 (mvp) i32.shl
     I32Shl = 0x74,
-    /// 75 (mvp_i32) i32.shr_s
+    /// 75 (mvp) i32.shr_s
     I32ShrS = 0x75,
-    /// 76 (mvp_i32) i32.shr_u
+    /// 76 (mvp) i32.shr_u
     I32ShrU = 0x76,
-    /// 77 (mvp_i32) i32.rotl
+    /// 77 (mvp) i32.rotl
     I32Rotl = 0x77,
-    /// 78 (mvp_i32) i32.rotr
+    /// 78 (mvp) i32.rotr
     I32Rotr = 0x78,
     /// 79 (mvp_i64) i64.clz
     I64Clz = 0x79,
@@ -366,7 +366,7 @@ pub enum WasmOpcode {
 
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone)]
-pub enum WasmMnemonicType {
+pub enum WasmOperandType {
     Implied,
     Block,
     Else,
@@ -385,11 +385,11 @@ pub enum WasmMnemonicType {
     F64,
 }
 
+#[non_exhaustive]
 #[derive(Debug, Copy, Clone)]
 pub enum WasmProposalType {
     Mvp,
     TailCall,
-    MvpI32,
     MvpI64,
     MvpF32,
     MvpF64,
@@ -585,55 +585,55 @@ impl WasmOpcode {
         }
     }
 
-    pub fn mnemonic_type(&self) -> WasmMnemonicType {
+    pub fn operand_type(&self) -> WasmOperandType {
         match *self {
-            Self::Block => WasmMnemonicType::Block,
-            Self::Loop => WasmMnemonicType::Block,
-            Self::If => WasmMnemonicType::Block,
-            Self::Else => WasmMnemonicType::Else,
-            Self::End => WasmMnemonicType::End,
-            Self::Br => WasmMnemonicType::Br,
-            Self::BrIf => WasmMnemonicType::Br,
-            Self::BrTable => WasmMnemonicType::BrTable,
-            Self::Call => WasmMnemonicType::Call,
-            Self::CallIndirect => WasmMnemonicType::CallIndirect,
-            Self::ReturnCall => WasmMnemonicType::Call,
-            Self::ReturnCallIndirect => WasmMnemonicType::CallIndirect,
-            Self::LocalGet => WasmMnemonicType::Local,
-            Self::LocalSet => WasmMnemonicType::Local,
-            Self::LocalTee => WasmMnemonicType::Local,
-            Self::GlobalGet => WasmMnemonicType::Global,
-            Self::GlobalSet => WasmMnemonicType::Global,
-            Self::I32Load => WasmMnemonicType::Memory,
-            Self::I64Load => WasmMnemonicType::Memory,
-            Self::F32Load => WasmMnemonicType::Memory,
-            Self::F64Load => WasmMnemonicType::Memory,
-            Self::I32Load8S => WasmMnemonicType::Memory,
-            Self::I32Load8U => WasmMnemonicType::Memory,
-            Self::I32Load16S => WasmMnemonicType::Memory,
-            Self::I32Load16U => WasmMnemonicType::Memory,
-            Self::I64Load8S => WasmMnemonicType::Memory,
-            Self::I64Load8U => WasmMnemonicType::Memory,
-            Self::I64Load16S => WasmMnemonicType::Memory,
-            Self::I64Load16U => WasmMnemonicType::Memory,
-            Self::I64Load32S => WasmMnemonicType::Memory,
-            Self::I64Load32U => WasmMnemonicType::Memory,
-            Self::I32Store => WasmMnemonicType::Memory,
-            Self::I64Store => WasmMnemonicType::Memory,
-            Self::F32Store => WasmMnemonicType::Memory,
-            Self::F64Store => WasmMnemonicType::Memory,
-            Self::I32Store8 => WasmMnemonicType::Memory,
-            Self::I32Store16 => WasmMnemonicType::Memory,
-            Self::I64Store8 => WasmMnemonicType::Memory,
-            Self::I64Store16 => WasmMnemonicType::Memory,
-            Self::I64Store32 => WasmMnemonicType::Memory,
-            Self::MemorySize => WasmMnemonicType::MemSize,
-            Self::MemoryGrow => WasmMnemonicType::MemSize,
-            Self::I32Const => WasmMnemonicType::I32,
-            Self::I64Const => WasmMnemonicType::I64,
-            Self::F32Const => WasmMnemonicType::F32,
-            Self::F64Const => WasmMnemonicType::F64,
-            _ => WasmMnemonicType::Implied,
+            Self::Block => WasmOperandType::Block,
+            Self::Loop => WasmOperandType::Block,
+            Self::If => WasmOperandType::Block,
+            Self::Else => WasmOperandType::Else,
+            Self::End => WasmOperandType::End,
+            Self::Br => WasmOperandType::Br,
+            Self::BrIf => WasmOperandType::Br,
+            Self::BrTable => WasmOperandType::BrTable,
+            Self::Call => WasmOperandType::Call,
+            Self::CallIndirect => WasmOperandType::CallIndirect,
+            Self::ReturnCall => WasmOperandType::Call,
+            Self::ReturnCallIndirect => WasmOperandType::CallIndirect,
+            Self::LocalGet => WasmOperandType::Local,
+            Self::LocalSet => WasmOperandType::Local,
+            Self::LocalTee => WasmOperandType::Local,
+            Self::GlobalGet => WasmOperandType::Global,
+            Self::GlobalSet => WasmOperandType::Global,
+            Self::I32Load => WasmOperandType::Memory,
+            Self::I64Load => WasmOperandType::Memory,
+            Self::F32Load => WasmOperandType::Memory,
+            Self::F64Load => WasmOperandType::Memory,
+            Self::I32Load8S => WasmOperandType::Memory,
+            Self::I32Load8U => WasmOperandType::Memory,
+            Self::I32Load16S => WasmOperandType::Memory,
+            Self::I32Load16U => WasmOperandType::Memory,
+            Self::I64Load8S => WasmOperandType::Memory,
+            Self::I64Load8U => WasmOperandType::Memory,
+            Self::I64Load16S => WasmOperandType::Memory,
+            Self::I64Load16U => WasmOperandType::Memory,
+            Self::I64Load32S => WasmOperandType::Memory,
+            Self::I64Load32U => WasmOperandType::Memory,
+            Self::I32Store => WasmOperandType::Memory,
+            Self::I64Store => WasmOperandType::Memory,
+            Self::F32Store => WasmOperandType::Memory,
+            Self::F64Store => WasmOperandType::Memory,
+            Self::I32Store8 => WasmOperandType::Memory,
+            Self::I32Store16 => WasmOperandType::Memory,
+            Self::I64Store8 => WasmOperandType::Memory,
+            Self::I64Store16 => WasmOperandType::Memory,
+            Self::I64Store32 => WasmOperandType::Memory,
+            Self::MemorySize => WasmOperandType::MemSize,
+            Self::MemoryGrow => WasmOperandType::MemSize,
+            Self::I32Const => WasmOperandType::I32,
+            Self::I64Const => WasmOperandType::I64,
+            Self::F32Const => WasmOperandType::F32,
+            Self::F64Const => WasmOperandType::F64,
+            _ => WasmOperandType::Implied,
         }
     }
 
@@ -641,44 +641,24 @@ impl WasmOpcode {
         match *self {
             Self::ReturnCall => WasmProposalType::TailCall,
             Self::ReturnCallIndirect => WasmProposalType::TailCall,
-            Self::I32Load => WasmProposalType::MvpI32,
             Self::I64Load => WasmProposalType::MvpI64,
             Self::F32Load => WasmProposalType::MvpF32,
             Self::F64Load => WasmProposalType::MvpF64,
-            Self::I32Load8S => WasmProposalType::MvpI32,
-            Self::I32Load8U => WasmProposalType::MvpI32,
-            Self::I32Load16S => WasmProposalType::MvpI32,
-            Self::I32Load16U => WasmProposalType::MvpI32,
             Self::I64Load8S => WasmProposalType::MvpI64,
             Self::I64Load8U => WasmProposalType::MvpI64,
             Self::I64Load16S => WasmProposalType::MvpI64,
             Self::I64Load16U => WasmProposalType::MvpI64,
             Self::I64Load32S => WasmProposalType::MvpI64,
             Self::I64Load32U => WasmProposalType::MvpI64,
-            Self::I32Store => WasmProposalType::MvpI32,
             Self::I64Store => WasmProposalType::MvpI64,
             Self::F32Store => WasmProposalType::MvpF32,
             Self::F64Store => WasmProposalType::MvpF64,
-            Self::I32Store8 => WasmProposalType::MvpI32,
-            Self::I32Store16 => WasmProposalType::MvpI32,
             Self::I64Store8 => WasmProposalType::MvpI64,
             Self::I64Store16 => WasmProposalType::MvpI64,
             Self::I64Store32 => WasmProposalType::MvpI64,
-            Self::I32Const => WasmProposalType::MvpI32,
             Self::I64Const => WasmProposalType::MvpI64,
             Self::F32Const => WasmProposalType::MvpF32,
             Self::F64Const => WasmProposalType::MvpF64,
-            Self::I32Eqz => WasmProposalType::MvpI32,
-            Self::I32Eq => WasmProposalType::MvpI32,
-            Self::I32Ne => WasmProposalType::MvpI32,
-            Self::I32LtS => WasmProposalType::MvpI32,
-            Self::I32LtU => WasmProposalType::MvpI32,
-            Self::I32GtS => WasmProposalType::MvpI32,
-            Self::I32GtU => WasmProposalType::MvpI32,
-            Self::I32LeS => WasmProposalType::MvpI32,
-            Self::I32LeU => WasmProposalType::MvpI32,
-            Self::I32GeS => WasmProposalType::MvpI32,
-            Self::I32GeU => WasmProposalType::MvpI32,
             Self::I64Eqz => WasmProposalType::MvpI64,
             Self::I64Eq => WasmProposalType::MvpI64,
             Self::I64Ne => WasmProposalType::MvpI64,
@@ -702,24 +682,6 @@ impl WasmOpcode {
             Self::F64Gt => WasmProposalType::MvpF64,
             Self::F64Le => WasmProposalType::MvpF64,
             Self::F64Ge => WasmProposalType::MvpF64,
-            Self::I32Clz => WasmProposalType::MvpI32,
-            Self::I32Ctz => WasmProposalType::MvpI32,
-            Self::I32Popcnt => WasmProposalType::MvpI32,
-            Self::I32Add => WasmProposalType::MvpI32,
-            Self::I32Sub => WasmProposalType::MvpI32,
-            Self::I32Mul => WasmProposalType::MvpI32,
-            Self::I32DivS => WasmProposalType::MvpI32,
-            Self::I32DivU => WasmProposalType::MvpI32,
-            Self::I32RemS => WasmProposalType::MvpI32,
-            Self::I32RemU => WasmProposalType::MvpI32,
-            Self::I32And => WasmProposalType::MvpI32,
-            Self::I32Or => WasmProposalType::MvpI32,
-            Self::I32Xor => WasmProposalType::MvpI32,
-            Self::I32Shl => WasmProposalType::MvpI32,
-            Self::I32ShrS => WasmProposalType::MvpI32,
-            Self::I32ShrU => WasmProposalType::MvpI32,
-            Self::I32Rotl => WasmProposalType::MvpI32,
-            Self::I32Rotr => WasmProposalType::MvpI32,
             Self::I64Clz => WasmProposalType::MvpI64,
             Self::I64Ctz => WasmProposalType::MvpI64,
             Self::I64Popcnt => WasmProposalType::MvpI64,

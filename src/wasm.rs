@@ -94,7 +94,7 @@ impl WasmLoader {
 
     /// Parse "type" section
     fn parse_sec_type(&mut self, section: &mut WasmSection) -> Result<(), WasmDecodeError> {
-        let n_items = section.stream.read_uint()? as usize;
+        let n_items = section.stream.read_unsigned()? as usize;
         for _ in 0..n_items {
             let ft = WasmType::from_stream(&mut section.stream)?;
             self.module.types.push(ft);
@@ -108,7 +108,7 @@ impl WasmLoader {
         section: &mut WasmSection,
         resolver: &WasmImportResolver,
     ) -> Result<(), WasmDecodeError> {
-        let n_items = section.stream.read_uint()? as usize;
+        let n_items = section.stream.read_unsigned()? as usize;
         for _ in 0..n_items {
             let mut import = WasmImport::from_stream(&mut section.stream)?;
             match import.index {
@@ -142,9 +142,9 @@ impl WasmLoader {
 
     /// Parse "func" section
     fn parse_sec_func(&mut self, section: &mut WasmSection) -> Result<(), WasmDecodeError> {
-        let n_items = section.stream.read_uint()?;
+        let n_items = section.stream.read_unsigned()?;
         for _ in 0..n_items {
-            let index = section.stream.read_uint()? as usize;
+            let index = section.stream.read_unsigned()? as usize;
             let func_type = self
                 .module
                 .types
@@ -159,7 +159,7 @@ impl WasmLoader {
 
     /// Parse "export" section
     fn parse_sec_export(&mut self, section: &mut WasmSection) -> Result<(), WasmDecodeError> {
-        let n_items = section.stream.read_uint()? as usize;
+        let n_items = section.stream.read_unsigned()? as usize;
         for i in 0..n_items {
             let export = WasmExport::from_stream(&mut section.stream)?;
             if let WasmExportIndex::Function(index) = export.index {
@@ -175,7 +175,7 @@ impl WasmLoader {
 
     /// Parse "memory" section
     fn parse_sec_memory(&mut self, section: &mut WasmSection) -> Result<(), WasmDecodeError> {
-        let n_items = section.stream.read_uint()?;
+        let n_items = section.stream.read_unsigned()?;
         for _ in 0..n_items {
             let limit = WasmLimit::from_stream(&mut section.stream)?;
             self.module.memories.push(WasmMemory::new(limit));
@@ -185,7 +185,7 @@ impl WasmLoader {
 
     /// Parse "table" section
     fn parse_sec_table(&mut self, section: &mut WasmSection) -> Result<(), WasmDecodeError> {
-        let n_items = section.stream.read_uint()?;
+        let n_items = section.stream.read_unsigned()?;
         for _ in 0..n_items {
             let table = WasmTable::from_stream(&mut section.stream)?;
             self.module.tables.push(table);
@@ -195,18 +195,18 @@ impl WasmLoader {
 
     /// Parse "elem" section
     fn parse_sec_elem(&mut self, section: &mut WasmSection) -> Result<(), WasmDecodeError> {
-        let n_items = section.stream.read_uint()?;
+        let n_items = section.stream.read_unsigned()?;
         for _ in 0..n_items {
-            let tabidx = section.stream.read_uint()? as usize;
+            let tabidx = section.stream.read_unsigned()? as usize;
             let offset = self.eval_offset(&mut section.stream)? as usize;
-            let n_elements = section.stream.read_uint()? as usize;
+            let n_elements = section.stream.read_unsigned()? as usize;
             let table = self
                 .module
                 .tables
                 .get_mut(tabidx)
                 .ok_or(WasmDecodeError::InvalidParameter)?;
             for i in offset..offset + n_elements {
-                let elem = section.stream.read_uint()? as usize;
+                let elem = section.stream.read_unsigned()? as usize;
                 table.table.get_mut(i).map(|v| *v = elem);
             }
         }
@@ -215,7 +215,7 @@ impl WasmLoader {
 
     /// Parse "code" section
     fn parse_sec_code(&mut self, section: &mut WasmSection) -> Result<(), WasmDecodeError> {
-        let n_items = section.stream.read_uint()? as usize;
+        let n_items = section.stream.read_unsigned()? as usize;
         for i in 0..n_items {
             let index = i + self.module.n_ext_func;
             let module = &mut self.module;
@@ -236,9 +236,9 @@ impl WasmLoader {
 
     /// Parse "data" section
     fn parse_sec_data(&mut self, section: &mut WasmSection) -> Result<(), WasmDecodeError> {
-        let n_items = section.stream.read_uint()?;
+        let n_items = section.stream.read_unsigned()?;
         for _ in 0..n_items {
-            let memidx = section.stream.read_uint()? as usize;
+            let memidx = section.stream.read_unsigned()? as usize;
             let offset = self.eval_offset(&mut section.stream)?;
             let src = section.stream.read_bytes()?;
             let memory = self
@@ -253,14 +253,14 @@ impl WasmLoader {
 
     /// Parse "start" section
     fn parse_sec_start(&mut self, section: &mut WasmSection) -> Result<(), WasmDecodeError> {
-        let index = section.stream.read_uint()? as usize;
+        let index = section.stream.read_unsigned()? as usize;
         self.module.start = Some(index);
         Ok(())
     }
 
     /// Parse "global" section
     fn parse_sec_global(&mut self, section: &mut WasmSection) -> Result<(), WasmDecodeError> {
-        let n_items = section.stream.read_uint()? as usize;
+        let n_items = section.stream.read_unsigned()? as usize;
         for _ in 0..n_items {
             let val_type = section
                 .stream
@@ -269,10 +269,14 @@ impl WasmLoader {
             let is_mutable = section.stream.read_byte()? == 1;
             let value = self.eval_expr(&mut section.stream)?;
 
+            if !value.is_valid_type(val_type) {
+                return Err(WasmDecodeError::InvalidGlobal);
+            }
+
             let global = WasmGlobal {
                 val_type,
                 is_mutable,
-                value,
+                value: RefCell::new(value),
             };
             self.module.globals.push(global);
         }
@@ -289,13 +293,13 @@ impl WasmLoader {
         stream
             .read_byte()
             .and_then(|opc| match WasmOpcode::from_u8(opc) {
-                WasmOpcode::I32Const => stream.read_sint().and_then(|r| {
+                WasmOpcode::I32Const => stream.read_signed().and_then(|r| {
                     match stream.read_byte().map(|v| WasmOpcode::from_u8(v)) {
                         Ok(WasmOpcode::End) => Ok(WasmValue::I32(r as i32)),
                         _ => Err(WasmDecodeError::UnexpectedToken),
                     }
                 }),
-                WasmOpcode::I64Const => stream.read_sint().and_then(|r| {
+                WasmOpcode::I64Const => stream.read_signed().and_then(|r| {
                     match stream.read_byte().map(|v| WasmOpcode::from_u8(v)) {
                         Ok(WasmOpcode::End) => Ok(WasmValue::I64(r)),
                         _ => Err(WasmDecodeError::UnexpectedToken),
@@ -401,6 +405,11 @@ impl WasmModule {
         Err(WasmRuntimeError::NoMethod)
     }
 
+    #[inline]
+    pub fn global(&self, index: usize) -> Option<&WasmGlobal> {
+        self.globals.get(index)
+    }
+
     pub fn print_stat(&mut self) {
         for (func_idx, function) in self.functions.iter().enumerate() {
             let func_type = &function.func_type;
@@ -452,14 +461,14 @@ impl WasmModule {
         while let Ok(opcode) = stream.read_byte() {
             let op = WasmOpcode::from_u8(opcode);
 
-            match op.mnemonic_type() {
-                WasmMnemonicType::Else => {
+            match op.operand_type() {
+                WasmOperandType::Else => {
                     block_level -= 1;
                     Self::nest(block_level);
                     println!("else");
                     block_level += 1;
                 }
-                WasmMnemonicType::End => {
+                WasmOperandType::End => {
                     if block_level > 1 {
                         block_level -= 1;
                         Self::nest(block_level);
@@ -473,13 +482,13 @@ impl WasmModule {
                 }
             }
 
-            match op.mnemonic_type() {
-                WasmMnemonicType::Else | WasmMnemonicType::End => (),
+            match op.operand_type() {
+                WasmOperandType::Else | WasmOperandType::End => (),
 
-                WasmMnemonicType::Implied => println!("{}", op.to_str()),
+                WasmOperandType::Implied => println!("{}", op.to_str()),
 
-                WasmMnemonicType::Block => {
-                    let type_ref = stream.read_byte().and_then(|v| {
+                WasmOperandType::Block => {
+                    let type_ref = stream.read_signed().and_then(|v| {
                         WasmBlockType::from_i64(v as i64)
                             .map_err(|_| WasmDecodeError::UnexpectedToken)
                     })?;
@@ -489,41 +498,41 @@ impl WasmModule {
                     }
                     block_level += 1;
                 }
-                WasmMnemonicType::Br
-                | WasmMnemonicType::Call
-                | WasmMnemonicType::CallIndirect
-                | WasmMnemonicType::Local
-                | WasmMnemonicType::Global
-                | WasmMnemonicType::MemSize => {
-                    let opr = stream.read_uint()?;
+                WasmOperandType::Br
+                | WasmOperandType::Call
+                | WasmOperandType::CallIndirect
+                | WasmOperandType::Local
+                | WasmOperandType::Global
+                | WasmOperandType::MemSize => {
+                    let opr = stream.read_unsigned()?;
                     println!("{} {}", op.to_str(), opr);
                 }
-                WasmMnemonicType::BrTable => {
-                    let n_vec = stream.read_uint()?;
+                WasmOperandType::BrTable => {
+                    let n_vec = stream.read_unsigned()?;
                     print!("{} ", op.to_str());
                     for _ in 0..n_vec {
-                        let target = stream.read_uint()?;
+                        let target = stream.read_unsigned()?;
                         print!(" {}", target);
                     }
-                    let target = stream.read_uint()?;
+                    let target = stream.read_unsigned()?;
                     println!(" {}", target);
                 }
-                WasmMnemonicType::Memory => {
-                    let a = stream.read_uint()?;
-                    let o = stream.read_uint()?;
+                WasmOperandType::Memory => {
+                    let a = stream.read_unsigned()?;
+                    let o = stream.read_unsigned()?;
                     println!("{} offset={} align={}", op.to_str(), o, a);
                 }
-                WasmMnemonicType::I32 => {
-                    let opr = stream.read_sint()? as i32;
+                WasmOperandType::I32 => {
+                    let opr = stream.read_signed()? as i32;
                     println!("{} {} ;; 0x{:x}", op.to_str(), opr, opr);
                 }
-                WasmMnemonicType::I64 => {
-                    let opr = stream.read_sint()?;
+                WasmOperandType::I64 => {
+                    let opr = stream.read_signed()?;
                     println!("{} {} ;; 0x{:x}", op.to_str(), opr, opr);
                 }
 
-                WasmMnemonicType::F32 => todo!(),
-                WasmMnemonicType::F64 => todo!(),
+                WasmOperandType::F32 => todo!(),
+                WasmOperandType::F64 => todo!(),
             }
         }
         Ok(())
@@ -610,12 +619,12 @@ impl Leb128Stream<'_> {
     /// Reads multiple bytes from the stream
     #[inline]
     pub fn read_bytes(&mut self) -> Result<&[u8], WasmDecodeError> {
-        self.read_uint()
+        self.read_unsigned()
             .and_then(move |size| self.get_bytes(size as usize))
     }
 
     /// Reads an unsigned integer from a stream
-    pub fn read_uint(&mut self) -> Result<u64, WasmDecodeError> {
+    pub fn read_unsigned(&mut self) -> Result<u64, WasmDecodeError> {
         let mut value: u64 = 0;
         let mut scale = 0;
         let mut cursor = self.position;
@@ -636,7 +645,7 @@ impl Leb128Stream<'_> {
     }
 
     /// Reads a signed integer from a stream
-    pub fn read_sint(&mut self) -> Result<i64, WasmDecodeError> {
+    pub fn read_signed(&mut self) -> Result<i64, WasmDecodeError> {
         let mut value: u64 = 0;
         let mut scale = 0;
         let mut cursor = self.position;
@@ -676,8 +685,8 @@ impl Leb128Stream<'_> {
 
     #[inline]
     pub fn read_memarg(&mut self) -> Result<WasmMemArg, WasmDecodeError> {
-        let a = self.read_uint()? as u32;
-        let o = self.read_uint()? as u32;
+        let a = self.read_unsigned()? as u32;
+        let o = self.read_unsigned()? as u32;
         Ok(WasmMemArg::new(o, a))
     }
 
@@ -790,34 +799,35 @@ impl fmt::Display for WasmValType {
     }
 }
 
+#[repr(isize)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum WasmBlockType {
-    Empty = 0x40,
-    I32 = 0x7F,
-    I64 = 0x7E,
-    F32 = 0x7D,
-    F64 = 0x7C,
+    Empty = -64,
+    I32 = -1,
+    I64 = -2,
+    F32 = -3,
+    F64 = -4,
 }
 
 impl WasmBlockType {
     pub const fn from_i64(v: i64) -> Result<Self, WasmDecodeError> {
         match v {
-            0x40 => Ok(Self::Empty),
-            0x7F => Ok(Self::I32),
-            0x7E => Ok(Self::I64),
-            0x7D => Ok(Self::F32),
-            0x7C => Ok(Self::F64),
+            -64 => Ok(Self::Empty),
+            -1 => Ok(Self::I32),
+            -2 => Ok(Self::I64),
+            -3 => Ok(Self::F32),
+            -4 => Ok(Self::F64),
             _ => Err(WasmDecodeError::InvalidParameter),
         }
     }
 
-    pub const fn into_type<'a>(self) -> &'a [WasmValType] {
+    pub const fn into_type(self) -> Option<WasmValType> {
         match self {
-            WasmBlockType::Empty => &[],
-            WasmBlockType::I32 => &[WasmValType::I32],
-            WasmBlockType::I64 => &[WasmValType::I64],
-            WasmBlockType::F32 => &[WasmValType::F32],
-            WasmBlockType::F64 => &[WasmValType::F64],
+            WasmBlockType::Empty => None,
+            WasmBlockType::I32 => Some(WasmValType::I32),
+            WasmBlockType::I64 => Some(WasmValType::I64),
+            WasmBlockType::F32 => Some(WasmValType::F32),
+            WasmBlockType::F64 => Some(WasmValType::F64),
         }
     }
 }
@@ -830,14 +840,14 @@ pub struct WasmLimit {
 
 impl WasmLimit {
     fn from_stream(stream: &mut Leb128Stream) -> Result<Self, WasmDecodeError> {
-        match stream.read_uint() {
-            Ok(0) => stream.read_uint().map(|min| Self {
+        match stream.read_unsigned() {
+            Ok(0) => stream.read_unsigned().map(|min| Self {
                 min: min as u32,
                 max: min as u32,
             }),
             Ok(1) => {
-                let min = stream.read_uint()? as u32;
-                let max = stream.read_uint()? as u32;
+                let min = stream.read_unsigned()? as u32;
+                let max = stream.read_unsigned()? as u32;
                 Ok(Self { min, max })
             }
             Err(err) => Err(err),
@@ -1024,7 +1034,7 @@ pub struct WasmTable {
 
 impl WasmTable {
     fn from_stream(stream: &mut Leb128Stream) -> Result<Self, WasmDecodeError> {
-        match stream.read_uint() {
+        match stream.read_unsigned() {
             Ok(0x70) => (),
             Err(err) => return Err(err),
             _ => return Err(WasmDecodeError::UnexpectedToken),
@@ -1108,24 +1118,24 @@ pub struct WasmType {
 
 impl WasmType {
     fn from_stream(stream: &mut Leb128Stream) -> Result<Self, WasmDecodeError> {
-        match stream.read_uint() {
+        match stream.read_unsigned() {
             Ok(0x60) => (),
             Err(err) => return Err(err),
             _ => return Err(WasmDecodeError::UnexpectedToken),
         };
-        let n_params = stream.read_uint()? as usize;
+        let n_params = stream.read_unsigned()? as usize;
         let mut params = Vec::with_capacity(n_params);
         for _ in 0..n_params {
             stream
-                .read_uint()
+                .read_unsigned()
                 .and_then(|v| WasmValType::from_u64(v))
                 .map(|v| params.push(v))?;
         }
-        let n_result = stream.read_uint()? as usize;
+        let n_result = stream.read_unsigned()? as usize;
         let mut result = Vec::with_capacity(n_result);
         for _ in 0..n_result {
             stream
-                .read_uint()
+                .read_unsigned()
                 .and_then(|v| WasmValType::from_u64(v))
                 .map(|v| result.push(v))?;
         }
@@ -1209,11 +1219,11 @@ pub enum WasmImportIndex {
 
 impl WasmImportIndex {
     fn from_stream(mut stream: &mut Leb128Stream) -> Result<Self, WasmDecodeError> {
-        stream.read_uint().and_then(|v| match v {
-            0 => stream.read_uint().map(|v| Self::Type(v as usize)),
-            // 1 => stream.read_uint().map(|v| Self::Table(v as usize)),
+        stream.read_unsigned().and_then(|v| match v {
+            0 => stream.read_unsigned().map(|v| Self::Type(v as usize)),
+            // 1 => stream.read_unsigned().map(|v| Self::Table(v as usize)),
             2 => WasmLimit::from_stream(&mut stream).map(|v| Self::Memory(v)),
-            // 3 => stream.read_uint().map(|v| Self::Global(v as usize)),
+            // 3 => stream.read_unsigned().map(|v| Self::Global(v as usize)),
             _ => Err(WasmDecodeError::UnexpectedToken),
         })
     }
@@ -1250,11 +1260,11 @@ pub enum WasmExportIndex {
 
 impl WasmExportIndex {
     fn from_stream(stream: &mut Leb128Stream) -> Result<Self, WasmDecodeError> {
-        stream.read_uint().and_then(|v| match v {
-            0 => stream.read_uint().map(|v| Self::Function(v as usize)),
-            1 => stream.read_uint().map(|v| Self::Table(v as usize)),
-            2 => stream.read_uint().map(|v| Self::Memory(v as usize)),
-            3 => stream.read_uint().map(|v| Self::Global(v as usize)),
+        stream.read_unsigned().and_then(|v| match v {
+            0 => stream.read_unsigned().map(|v| Self::Function(v as usize)),
+            1 => stream.read_unsigned().map(|v| Self::Table(v as usize)),
+            2 => stream.read_unsigned().map(|v| Self::Memory(v as usize)),
+            3 => stream.read_unsigned().map(|v| Self::Global(v as usize)),
             _ => Err(WasmDecodeError::UnexpectedToken),
         })
     }
@@ -1275,11 +1285,13 @@ impl WasmFunctionBody {
     ) -> Result<Self, WasmDecodeError> {
         let blob = stream.read_bytes()?;
         let mut stream = Leb128Stream::from_slice(blob);
-        let n_locals = stream.read_uint()? as usize;
+        let n_locals = stream.read_unsigned()? as usize;
         let mut locals = Vec::new();
         for _ in 0..n_locals {
-            let repeat = stream.read_uint()?;
-            let val = stream.read_uint().and_then(|v| WasmValType::from_u64(v))?;
+            let repeat = stream.read_unsigned()?;
+            let val = stream
+                .read_unsigned()
+                .and_then(|v| WasmValType::from_u64(v))?;
             for _ in 0..repeat {
                 locals.push(val);
             }
@@ -1328,7 +1340,24 @@ impl WasmFunctionBody {
 pub struct WasmGlobal {
     val_type: WasmValType,
     is_mutable: bool,
-    value: WasmValue,
+    value: RefCell<WasmValue>,
+}
+
+impl WasmGlobal {
+    #[inline]
+    pub const fn val_type(&self) -> WasmValType {
+        self.val_type
+    }
+
+    #[inline]
+    pub const fn is_mutable(&self) -> bool {
+        self.is_mutable
+    }
+
+    #[inline]
+    pub const fn value(&self) -> &RefCell<WasmValue> {
+        &self.value
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -1364,6 +1393,7 @@ pub enum WasmRuntimeError {
     DivideByZero,
     TypeMismatch,
     InternalInconsistency,
+    WriteProtected,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -1557,13 +1587,13 @@ impl<'a> WasmCodeBlock<'a> {
     }
 
     #[inline]
-    pub fn read_sint(&mut self) -> Result<i64, WasmRuntimeError> {
-        self.code.read_sint().map_err(|err| Self::map_err(err))
+    pub fn read_signed(&mut self) -> Result<i64, WasmRuntimeError> {
+        self.code.read_signed().map_err(|err| Self::map_err(err))
     }
 
     #[inline]
-    pub fn read_uint(&mut self) -> Result<u64, WasmRuntimeError> {
-        self.code.read_uint().map_err(|err| Self::map_err(err))
+    pub fn read_unsigned(&mut self) -> Result<u64, WasmRuntimeError> {
+        self.code.read_unsigned().map_err(|err| Self::map_err(err))
     }
 
     #[inline]
@@ -1622,10 +1652,10 @@ impl WasmBlockInfo {
             // let old_values = value_stack.clone();
 
             match opcode.proposal_type() {
-                WasmProposalType::Mvp | WasmProposalType::MvpI32 | WasmProposalType::MvpI64 => {}
+                WasmProposalType::Mvp | WasmProposalType::MvpI64 => {}
                 WasmProposalType::SignExtend => {}
-                // WasmProposalType::MvpF32 => {}
-                // WasmProposalType::MvpF64 => {}
+                #[cfg(feature = "float")]
+                WasmProposalType::MvpF32 | WasmProposalType::MvpF64 => {}
                 _ => return Err(WasmDecodeError::NotSupprted),
             }
 
@@ -1636,8 +1666,8 @@ impl WasmBlockInfo {
 
                 WasmOpcode::Block => {
                     let block_type = code_block
-                        .read_byte()
-                        .and_then(|v| WasmBlockType::from_i64(v as i64))?;
+                        .read_signed()
+                        .and_then(|v| WasmBlockType::from_i64(v))?;
                     let block = RefCell::new(WasmBlockContext {
                         inst_type: BlockInstType::Block,
                         block_type,
@@ -1651,8 +1681,8 @@ impl WasmBlockInfo {
                 }
                 WasmOpcode::Loop => {
                     let block_type = code_block
-                        .read_byte()
-                        .and_then(|v| WasmBlockType::from_i64(v as i64))?;
+                        .read_signed()
+                        .and_then(|v| WasmBlockType::from_i64(v))?;
                     let block = RefCell::new(WasmBlockContext {
                         inst_type: BlockInstType::Loop,
                         block_type,
@@ -1670,8 +1700,8 @@ impl WasmBlockInfo {
                         return Err(WasmDecodeError::TypeMismatch);
                     }
                     let block_type = code_block
-                        .read_byte()
-                        .and_then(|v| WasmBlockType::from_i64(v as i64))?;
+                        .read_signed()
+                        .and_then(|v| WasmBlockType::from_i64(v))?;
                     let block = RefCell::new(WasmBlockContext {
                         inst_type: BlockInstType::If,
                         block_type,
@@ -1704,8 +1734,8 @@ impl WasmBlockInfo {
                         for _ in 0..n_drops {
                             value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
                         }
-                        block.block_type.into_type().first().map(|v| {
-                            value_stack.push(v.clone());
+                        block.block_type.into_type().map(|v| {
+                            value_stack.push(v);
                         });
                     // TODO: type check
                     } else {
@@ -1714,13 +1744,13 @@ impl WasmBlockInfo {
                 }
 
                 WasmOpcode::Br => {
-                    let br = code_block.read_uint()? as usize;
+                    let br = code_block.read_unsigned()? as usize;
                     if block_stack.len() < br {
                         return Err(WasmDecodeError::OutOfBranch);
                     }
                 }
                 WasmOpcode::BrIf => {
-                    let br = code_block.read_uint()? as usize;
+                    let br = code_block.read_unsigned()? as usize;
                     let cc = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
                     if cc != WasmValType::I32 {
                         return Err(WasmDecodeError::TypeMismatch);
@@ -1730,14 +1760,14 @@ impl WasmBlockInfo {
                     }
                 }
                 WasmOpcode::BrTable => {
-                    let table_len = code_block.read_uint()? as usize;
+                    let table_len = code_block.read_unsigned()? as usize;
                     for _ in 0..table_len {
-                        let br = code_block.read_uint()? as usize;
+                        let br = code_block.read_unsigned()? as usize;
                         if block_stack.len() < br {
                             return Err(WasmDecodeError::OutOfBranch);
                         }
                     }
-                    let br = code_block.read_uint()? as usize;
+                    let br = code_block.read_unsigned()? as usize;
                     if block_stack.len() < br {
                         return Err(WasmDecodeError::OutOfBranch);
                     }
@@ -1749,7 +1779,7 @@ impl WasmBlockInfo {
 
                 WasmOpcode::Call => {
                     flags.remove(WasmBlockFlag::LEAF_FUNCTION);
-                    let func_index = code_block.read_uint()? as usize;
+                    let func_index = code_block.read_unsigned()? as usize;
                     let function = module
                         .functions
                         .get(func_index)
@@ -1764,7 +1794,7 @@ impl WasmBlockInfo {
                 }
                 WasmOpcode::CallIndirect => {
                     flags.remove(WasmBlockFlag::LEAF_FUNCTION);
-                    let type_ref = code_block.read_uint()? as usize;
+                    let type_ref = code_block.read_unsigned()? as usize;
                     let func_type = module
                         .type_by_ref(type_ref)
                         .ok_or(WasmDecodeError::InvalidParameter)?;
@@ -1797,14 +1827,14 @@ impl WasmBlockInfo {
                 }
 
                 WasmOpcode::LocalGet => {
-                    let local_ref = code_block.read_uint()? as usize;
+                    let local_ref = code_block.read_unsigned()? as usize;
                     let val = *local_types
                         .get(local_ref)
                         .ok_or(WasmDecodeError::InvalidLocal)?;
                     value_stack.push(val);
                 }
                 WasmOpcode::LocalSet => {
-                    let local_ref = code_block.read_uint()? as usize;
+                    let local_ref = code_block.read_unsigned()? as usize;
                     let val = *local_types
                         .get(local_ref)
                         .ok_or(WasmDecodeError::InvalidLocal)?;
@@ -1814,7 +1844,7 @@ impl WasmBlockInfo {
                     }
                 }
                 WasmOpcode::LocalTee => {
-                    let local_ref = code_block.read_uint()? as usize;
+                    let local_ref = code_block.read_unsigned()? as usize;
                     let val = *local_types
                         .get(local_ref)
                         .ok_or(WasmDecodeError::InvalidLocal)?;
@@ -1825,19 +1855,20 @@ impl WasmBlockInfo {
                 }
 
                 WasmOpcode::GlobalGet => {
-                    let global_ref = code_block.read_uint()? as usize;
+                    let global_ref = code_block.read_unsigned()? as usize;
                     let global = module
-                        .globals
-                        .get(global_ref)
+                        .global(global_ref)
                         .ok_or(WasmDecodeError::InvalidGlobal)?;
                     value_stack.push(global.val_type);
                 }
                 WasmOpcode::GlobalSet => {
-                    let global_ref = code_block.read_uint()? as usize;
+                    let global_ref = code_block.read_unsigned()? as usize;
                     let global = module
-                        .globals
-                        .get(global_ref)
+                        .global(global_ref)
                         .ok_or(WasmDecodeError::InvalidGlobal)?;
+                    if !global.is_mutable() {
+                        return Err(WasmDecodeError::InvalidGlobal);
+                    }
                     let stack = value_stack.pop().ok_or(WasmDecodeError::OutOfStack)?;
                     if stack != global.val_type {
                         return Err(WasmDecodeError::TypeMismatch);
@@ -1926,12 +1957,12 @@ impl WasmBlockInfo {
                 }
 
                 WasmOpcode::MemorySize => {
-                    let _ = code_block.read_uint()?;
+                    let _ = code_block.read_unsigned()?;
                     value_stack.push(WasmValType::I32);
                 }
 
                 WasmOpcode::MemoryGrow => {
-                    let _ = code_block.read_uint()?;
+                    let _ = code_block.read_unsigned()?;
                     let a = *value_stack.last().ok_or(WasmDecodeError::OutOfStack)?;
                     if a != WasmValType::I32 {
                         return Err(WasmDecodeError::TypeMismatch);
@@ -1939,14 +1970,14 @@ impl WasmBlockInfo {
                 }
 
                 WasmOpcode::I32Const => {
-                    let val = code_block.read_sint()?;
+                    let val = code_block.read_signed()?;
                     if val < (i32::MIN as i64) || val > (i32::MAX as i64) {
                         return Err(WasmDecodeError::InvalidParameter);
                     }
                     value_stack.push(WasmValType::I32);
                 }
                 WasmOpcode::I64Const => {
-                    let _ = code_block.read_sint()?;
+                    let _ = code_block.read_signed()?;
                     value_stack.push(WasmValType::I64);
                 }
                 WasmOpcode::F32Const => {
@@ -2425,39 +2456,45 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "BadExecutable")]
-    fn instantiate_2() {
+    fn instantiate_bad_exec() {
         let too_small = [0, 97, 115, 109, 1, 0, 0];
         super::WasmLoader::instantiate(&too_small, &|_, _, _| unreachable!()).unwrap();
     }
 
     #[test]
     #[should_panic(expected = "UnexpectedEof")]
-    fn instantiate_3() {
+    fn instantiate_unexpected_eof() {
         let minimal_bad = [0, 97, 115, 109, 1, 0, 0, 0, 1];
         super::WasmLoader::instantiate(&minimal_bad, &|_, _, _| unreachable!()).unwrap();
     }
 
     #[test]
     fn leb128() {
-        let data = [0x7F, 0xFF, 0x00, 0xEF, 0xFD, 0xB6, 0xF5, 0x0D];
+        let data = [
+            0x7F, 0xFF, 0x00, 0xEF, 0xFD, 0xB6, 0xF5, 0x0D, 0xEF, 0xFD, 0xB6, 0xF5, 0x7D,
+        ];
         let mut stream = super::Leb128Stream::from_slice(&data);
 
         stream.reset();
         assert_eq!(stream.position(), 0);
-        let test = stream.read_uint().unwrap();
+        let test = stream.read_unsigned().unwrap();
         assert_eq!(test, 127);
-        let test = stream.read_uint().unwrap();
+        let test = stream.read_unsigned().unwrap();
         assert_eq!(test, 127);
-        let test = stream.read_uint().unwrap();
+        let test = stream.read_unsigned().unwrap();
         assert_eq!(test, 0xdeadbeef);
+        let test = stream.read_unsigned().unwrap();
+        assert_eq!(test, 0x7deadbeef);
 
         stream.reset();
         assert_eq!(stream.position(), 0);
-        let test = stream.read_sint().unwrap();
+        let test = stream.read_signed().unwrap();
         assert_eq!(test, -1);
-        let test = stream.read_sint().unwrap();
+        let test = stream.read_signed().unwrap();
         assert_eq!(test, 127);
-        let test = stream.read_sint().unwrap();
+        let test = stream.read_signed().unwrap();
         assert_eq!(test, 0xdeadbeef);
+        let test = stream.read_signed().unwrap();
+        assert_eq!(test, -559038737);
     }
 }

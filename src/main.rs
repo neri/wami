@@ -47,6 +47,7 @@ fn main() {
     let mut module =
         WasmLoader::instantiate(blob.as_slice(), &|_mod_name, name, _type_ref| match name {
             "fd_write" => Ok(Box::new(FdWrite::new()) as Box<dyn WasmInvocation>),
+            "println" => Ok(Box::new(WasmPrintLn::new()) as Box<dyn WasmInvocation>),
             _ => Err(WasmDecodeError::DynamicLinkError),
         })
         .unwrap();
@@ -68,6 +69,39 @@ fn main() {
     }
 }
 
+struct WasmPrintLn {}
+
+impl WasmPrintLn {
+    const fn new() -> Self {
+        Self {}
+    }
+}
+
+impl WasmInvocation for WasmPrintLn {
+    fn invoke(
+        &self,
+        module: &WasmModule,
+        params: &[WasmValue],
+    ) -> Result<WasmValue, WasmRuntimeError> {
+        let memory = module.memory(0).ok_or(WasmRuntimeError::OutOfMemory)?;
+
+        let base = params
+            .get(0)
+            .ok_or(WasmRuntimeError::InvalidParameter)
+            .and_then(|v| v.get_u32())? as usize;
+        let len = params
+            .get(1)
+            .ok_or(WasmRuntimeError::InvalidParameter)
+            .and_then(|v| v.get_u32())? as usize;
+
+        let slice = memory.read_bytes(base, len)?;
+        let s = core::str::from_utf8(slice).map_err(|_| WasmRuntimeError::InvalidParameter)?;
+        println!("{}", s);
+
+        Ok(WasmValue::I32(s.len() as i32))
+    }
+}
+
 struct FdWrite {}
 
 impl FdWrite {
@@ -84,7 +118,7 @@ impl WasmInvocation for FdWrite {
     ) -> Result<WasmValue, WasmRuntimeError> {
         // fd_write (i32 i32 i32 i32) -> i32
 
-        let memory = module.memory(0).unwrap();
+        let memory = module.memory(0).ok_or(WasmRuntimeError::OutOfMemory)?;
 
         let iovs = params
             .get(1)
