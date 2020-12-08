@@ -143,7 +143,7 @@ impl WasmInterpreter {
                             value_stack.push(WasmStackValue::from(result));
                         }
                     } else if let Some(dlink) = func.dlink() {
-                        let result = dlink.invoke(module, &locals)?;
+                        let result = dlink(module, &locals)?;
                         if let Some(t) = result_types.first() {
                             if result.is_valid_type(*t) {
                                 value_stack.push(WasmStackValue::from(result));

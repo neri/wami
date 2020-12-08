@@ -46,8 +46,8 @@ fn main() {
 
     let mut module =
         WasmLoader::instantiate(blob.as_slice(), &|_mod_name, name, _type_ref| match name {
-            "fd_write" => Ok(Box::new(FdWrite::new()) as Box<dyn WasmInvocation>),
-            "println" => Ok(Box::new(WasmPrintLn::new()) as Box<dyn WasmInvocation>),
+            "fd_write" => Ok(WasmLib::wasm_fd_write),
+            "println" => Ok(WasmLib::wasm_println),
             _ => Err(WasmDecodeError::DynamicLinkError),
         })
         .unwrap();
@@ -69,17 +69,10 @@ fn main() {
     }
 }
 
-struct WasmPrintLn {}
+struct WasmLib {}
 
-impl WasmPrintLn {
-    const fn new() -> Self {
-        Self {}
-    }
-}
-
-impl WasmInvocation for WasmPrintLn {
-    fn invoke(
-        &self,
+impl WasmLib {
+    fn wasm_println(
         module: &WasmModule,
         params: &[WasmValue],
     ) -> Result<WasmValue, WasmRuntimeError> {
@@ -100,19 +93,8 @@ impl WasmInvocation for WasmPrintLn {
 
         Ok(WasmValue::I32(s.len() as i32))
     }
-}
 
-struct FdWrite {}
-
-impl FdWrite {
-    const fn new() -> Self {
-        Self {}
-    }
-}
-
-impl WasmInvocation for FdWrite {
-    fn invoke(
-        &self,
+    fn wasm_fd_write(
         module: &WasmModule,
         params: &[WasmValue],
     ) -> Result<WasmValue, WasmRuntimeError> {

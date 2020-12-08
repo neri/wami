@@ -19,8 +19,8 @@ pub struct WasmLoader {
     module: WasmModule,
 }
 
-pub type WasmImportResolver =
-    dyn Fn(&str, &str, &WasmType) -> Result<Box<dyn WasmInvocation>, WasmDecodeError>;
+pub type WasmDynFunc = fn(&WasmModule, &[WasmValue]) -> Result<WasmValue, WasmRuntimeError>;
+pub type WasmImportResolver = dyn Fn(&str, &str, &WasmType) -> Result<WasmDynFunc, WasmDecodeError>;
 
 impl WasmLoader {
     /// Minimal valid module size, Magic(4) + Version(4) + Empty sections(0) = 8
@@ -1060,11 +1060,11 @@ pub struct WasmFunction {
     func_type: WasmType,
     origin: WasmFunctionOrigin,
     body: Option<WasmFunctionBody>,
-    dlink: Option<Box<dyn WasmInvocation>>,
+    dlink: Option<WasmDynFunc>,
 }
 
 impl WasmFunction {
-    fn from_import(func_type: &WasmType, index: usize, dlink: Box<dyn WasmInvocation>) -> Self {
+    fn from_import(func_type: &WasmType, index: usize, dlink: WasmDynFunc) -> Self {
         Self {
             func_type: func_type.clone(),
             origin: WasmFunctionOrigin::Import(index),
@@ -1098,8 +1098,8 @@ impl WasmFunction {
         self.body.as_ref()
     }
 
-    pub fn dlink(&self) -> Option<&dyn WasmInvocation> {
-        self.dlink.as_ref().map(|v| v.as_ref())
+    pub fn dlink(&self) -> Option<WasmDynFunc> {
+        self.dlink
     }
 }
 
@@ -2435,14 +2435,6 @@ impl WasmRunnable<'_> {
             err
         })
     }
-}
-
-pub trait WasmInvocation {
-    fn invoke(
-        &self,
-        module: &WasmModule,
-        params: &[WasmValue],
-    ) -> Result<WasmValue, WasmRuntimeError>;
 }
 
 #[cfg(test)]
