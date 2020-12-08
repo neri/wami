@@ -47,7 +47,11 @@ fn main() {
     let mut module =
         WasmLoader::instantiate(blob.as_slice(), &|_mod_name, name, _type_ref| match name {
             "fd_write" => Ok(WasmLib::wasm_fd_write),
-            "println" => Ok(WasmLib::wasm_println),
+            "syscall0" => Ok(WasmLib::syscall),
+            "syscall1" => Ok(WasmLib::syscall),
+            "syscall2" => Ok(WasmLib::syscall),
+            "syscall3" => Ok(WasmLib::syscall),
+            "syscall4" => Ok(WasmLib::syscall),
             _ => Err(WasmDecodeError::DynamicLinkError),
         })
         .unwrap();
@@ -72,24 +76,28 @@ fn main() {
 struct WasmLib {}
 
 impl WasmLib {
-    fn wasm_println(
-        module: &WasmModule,
-        params: &[WasmValue],
-    ) -> Result<WasmValue, WasmRuntimeError> {
+    fn syscall(module: &WasmModule, params: &[WasmValue]) -> Result<WasmValue, WasmRuntimeError> {
         let memory = module.memory(0).ok_or(WasmRuntimeError::OutOfMemory)?;
 
-        let base = params
+        let func = params
             .get(0)
             .ok_or(WasmRuntimeError::InvalidParameter)
             .and_then(|v| v.get_u32())? as usize;
-        let len = params
+        if func != 1 {
+            return Err(WasmRuntimeError::InvalidParameter);
+        }
+        let base = params
             .get(1)
+            .ok_or(WasmRuntimeError::InvalidParameter)
+            .and_then(|v| v.get_u32())? as usize;
+        let len = params
+            .get(2)
             .ok_or(WasmRuntimeError::InvalidParameter)
             .and_then(|v| v.get_u32())? as usize;
 
         let slice = memory.read_bytes(base, len)?;
         let s = core::str::from_utf8(slice).map_err(|_| WasmRuntimeError::InvalidParameter)?;
-        println!("{}", s);
+        print!("{}", s);
 
         Ok(WasmValue::I32(s.len() as i32))
     }
