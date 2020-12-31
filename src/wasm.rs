@@ -3,7 +3,6 @@
 use super::opcode::*;
 use super::wasmintr::*;
 use crate::*;
-use _core::convert::TryFrom;
 use alloc::collections::BTreeMap;
 use alloc::string::*;
 use alloc::sync::Arc;
@@ -11,6 +10,7 @@ use alloc::vec::Vec;
 use bitflags::*;
 use byteorder::*;
 use core::cell::{RefCell, UnsafeCell};
+use core::convert::TryFrom;
 use core::fmt;
 use core::ops::*;
 use core::slice;
@@ -91,6 +91,11 @@ impl WasmLoader {
     #[inline]
     pub const fn module(&self) -> &WasmModule {
         &self.module
+    }
+
+    #[inline]
+    pub fn into_module(self) -> WasmModule {
+        self.module
     }
 
     /// Parse "type" section
@@ -732,6 +737,7 @@ impl WasmMemArg {
         Self { offset, align }
     }
 
+    #[inline]
     pub const fn offset_by(&self, base: u32) -> usize {
         (self.offset as u64 + base as u64) as usize
     }
@@ -959,23 +965,18 @@ impl WasmMemory {
 
     pub fn read_u8(&self, offset: usize) -> Result<u8, WasmRuntimeError> {
         let slice = self.memory();
-        let limit = slice.len();
-        if offset < limit {
-            Ok(slice[offset])
-        } else {
-            Err(WasmRuntimeError::OutOfBounds)
-        }
+        slice
+            .get(offset)
+            .map(|v| *v)
+            .ok_or(WasmRuntimeError::OutOfBounds)
     }
 
     pub fn write_u8(&self, offset: usize, val: u8) -> Result<(), WasmRuntimeError> {
         let slice = self.memory_mut();
-        let limit = slice.len();
-        if offset < limit {
-            slice[offset] = val;
-            Ok(())
-        } else {
-            Err(WasmRuntimeError::OutOfBounds)
-        }
+        slice
+            .get_mut(offset)
+            .map(|v| *v = val)
+            .ok_or(WasmRuntimeError::OutOfBounds)
     }
 
     pub fn read_u16(&self, offset: usize) -> Result<u16, WasmRuntimeError> {
@@ -1314,7 +1315,7 @@ impl WasmFunctionBody {
         let blob = stream.read_bytes()?;
         let mut stream = Leb128Stream::from_slice(blob);
         let n_locals = stream.read_unsigned()? as usize;
-        let mut locals = Vec::new();
+        let mut locals = Vec::with_capacity(n_locals);
         for _ in 0..n_locals {
             let repeat = stream.read_unsigned()?;
             let val = stream
@@ -1327,7 +1328,7 @@ impl WasmFunctionBody {
         let code_block = Arc::new(RefCell::new(blob[stream.position..].to_vec()));
 
         let block_info = {
-            let mut local_types = Vec::new();
+            let mut local_types = Vec::with_capacity(param_types.len() + locals.len());
             for param_type in param_types {
                 local_types.push(param_type.clone());
             }
@@ -2450,7 +2451,8 @@ impl WasmRunnable<'_> {
             .as_ref()
             .ok_or(WasmRuntimeError::NoMethod)?;
 
-        let mut locals = Vec::new();
+        let mut locals =
+            Vec::with_capacity(self.function.param_types().len() + body.local_types.len());
         for (index, param_type) in self.function.param_types().iter().enumerate() {
             let param = params
                 .get(index)
@@ -2468,16 +2470,13 @@ impl WasmRunnable<'_> {
 
         let code_ref = body.code_block.borrow();
         let mut code_block = WasmCodeBlock::from_slice(&code_ref, body.block_info());
-        WasmInterpreter::run(
-            &mut code_block,
-            locals.as_slice(),
-            result_types,
-            self.module,
-        )
-        .map_err(|err| {
-            println!("err {:?} at {}", err, code_block.fetch_position());
-            err
-        })
+        let mut interp = WasmInterpreter::new(self.module);
+        interp
+            .invoke(&mut code_block, locals.as_slice(), result_types)
+            .map_err(|err| {
+                println!("err {:?} at {}", err, code_block.fetch_position());
+                err
+            })
     }
 }
 
