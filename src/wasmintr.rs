@@ -1,18 +1,24 @@
 // WebAssembly Interpreter
 
-use super::opcode::*;
-use super::wasm::*;
-use crate::*;
+use super::{opcode::*, wasm::*};
 use alloc::vec::Vec;
-use core::{cell::UnsafeCell, mem::align_of, mem::transmute};
+use core::{cell::UnsafeCell, mem::align_of, mem::size_of, slice};
 
 pub struct WasmInterpreter<'a> {
     module: &'a WasmModule,
+    func_index: Option<usize>,
+    last_opcode: WasmOpcode,
+    last_position: usize,
 }
 
 impl<'a> WasmInterpreter<'a> {
     pub const fn new(module: &'a WasmModule) -> Self {
-        Self { module }
+        Self {
+            module,
+            func_index: None,
+            last_opcode: WasmOpcode::Unreachable,
+            last_position: 0,
+        }
     }
 }
 
@@ -20,6 +26,7 @@ impl WasmInterpreter<'_> {
     /// Interpret WebAssembly code blocks
     pub fn invoke(
         &mut self,
+        func_index: usize,
         mut code_block: &mut WasmCodeBlock,
         locals: &[WasmValue],
         result_types: &[WasmValType],
@@ -34,6 +41,7 @@ impl WasmInterpreter<'_> {
             output
         };
         self.run(
+            func_index,
             &mut code_block,
             locals.as_mut_slice(),
             result_types,
@@ -43,12 +51,14 @@ impl WasmInterpreter<'_> {
 
     pub fn run(
         &mut self,
+        func_index: usize,
         mut code_block: &mut WasmCodeBlock,
         locals: &mut [WasmStackValue],
         result_types: &[WasmValType],
         stack: &mut SharedStack,
     ) -> Result<WasmValue, WasmRuntimeError> {
         let module = self.module;
+        self.func_index = Some(func_index);
 
         let mut value_stack: FixedStack<WasmStackValue> =
             stack.alloc_stack(code_block.info().max_stack());
@@ -56,15 +66,9 @@ impl WasmInterpreter<'_> {
 
         code_block.reset();
         loop {
+            self.last_position = code_block.position();
             let opcode = code_block.read_opcode()?;
-
-            // println!(
-            //     "{}:{:04x} {:02x} {}",
-            //     code_block.info().func_index(),
-            //     code_block.fetch_position(),
-            //     opcode as u8,
-            //     opcode.to_str()
-            // );
+            self.last_opcode = opcode;
 
             match opcode {
                 WasmOpcode::Nop => (),
@@ -1170,12 +1174,14 @@ impl WasmInterpreter<'_> {
         }
     }
 
+    #[inline]
     fn call(
         &mut self,
         func: &WasmFunction,
         value_stack: &mut FixedStack<WasmStackValue>,
         stack: &mut SharedStack,
     ) -> Result<(), WasmRuntimeError> {
+        let current_function = self.func_index;
         let module = self.module;
         let result_types = func.result_types();
 
@@ -1202,17 +1208,21 @@ impl WasmInterpreter<'_> {
                 }
                 value_stack.resize(new_stack_len, WasmStackValue::from_usize(0));
 
-                let cb = body.code_block();
-                let cb_ref = cb.borrow();
-                let slice = cb_ref.as_slice();
+                let slice = body.code_block();
                 let mut code_block = WasmCodeBlock::from_slice(slice, body.block_info());
-                let result =
-                    self.run(&mut code_block, locals.as_mut_slice(), result_types, stack)?;
+                let result = self.run(
+                    func.index(),
+                    &mut code_block,
+                    locals.as_mut_slice(),
+                    result_types,
+                    stack,
+                )?;
                 if !result.is_empty() {
                     value_stack
                         .push(WasmStackValue::from(result))
                         .map_err(|_| WasmRuntimeError::InternalInconsistency)?;
                 }
+                self.func_index = current_function;
                 Ok(())
             })
         } else if let Some(dlink) = func.dlink() {
@@ -1612,22 +1622,24 @@ impl SharedStack {
         r
     }
 
-    pub fn alloc<'a, T>(&mut self, size: usize) -> &'a mut [T]
+    pub fn alloc<'a, T>(&mut self, len: usize) -> &'a mut [T]
     where
         T: Sized + Copy + Clone,
     {
-        const PADDING: usize = 16;
-        let item_size = align_of::<T>();
-        let vec_size = item_size * size;
-        let succ = (vec_size + PADDING - 1) & !(PADDING - 1);
-        let new_size = self.stack_pointer + succ;
+        const MIN_PADDING: usize = 16;
+        let align = usize::max(MIN_PADDING, align_of::<T>());
+        let offset = (self.stack_pointer + align - 1) & !(align - 1);
+        let vec_size = size_of::<T>() * len;
+        let new_size = (offset + vec_size + MIN_PADDING - 1) & !(MIN_PADDING - 1);
 
         if self.vec.get_mut().len() < new_size {
             self.vec.get_mut().resize(new_size, 0);
         }
 
-        let raw = self.vec.get_mut()[self.stack_pointer..new_size].as_mut();
-        let slice = unsafe { transmute(raw) };
+        let slice = unsafe {
+            let base = self.vec.get_mut().as_mut_ptr().add(offset) as *const _ as *mut T;
+            slice::from_raw_parts_mut(base, len)
+        };
 
         self.stack_pointer = new_size;
 
@@ -1635,18 +1647,90 @@ impl SharedStack {
     }
 
     #[inline]
-    pub fn alloc_stack<'a, T>(&mut self, size: usize) -> FixedStack<'a, T>
+    pub fn alloc_stack<'a, T>(&mut self, len: usize) -> FixedStack<'a, T>
     where
         T: Sized + Copy + Clone,
     {
-        let slice = self.alloc(size);
+        let slice = self.alloc(len);
         FixedStack::from_slice(slice)
+    }
+}
+
+pub trait WasmInvocation {
+    fn invoke(&self, params: &[WasmValue]) -> Result<WasmValue, WasmIntrError>;
+}
+
+impl WasmInvocation for WasmRunnable<'_> {
+    fn invoke(&self, params: &[WasmValue]) -> Result<WasmValue, WasmIntrError> {
+        let function = self.function();
+        let body = function
+            .body()
+            .ok_or(WasmIntrError::from(WasmRuntimeError::NoMethod))?;
+
+        let mut locals =
+            Vec::with_capacity(function.param_types().len() + body.local_types().len());
+        for (index, param_type) in function.param_types().iter().enumerate() {
+            let param = params
+                .get(index)
+                .ok_or(WasmIntrError::from(WasmRuntimeError::InvalidParameter))?;
+            if !param.is_valid_type(*param_type) {
+                return Err(WasmRuntimeError::InvalidParameter.into());
+            }
+            locals.push(param.clone());
+        }
+        for local in body.local_types() {
+            locals.push(WasmValue::default_for(*local));
+        }
+
+        let result_types = function.result_types();
+
+        let mut code_block = WasmCodeBlock::from_slice(body.code_block(), body.block_info());
+        let mut interp = WasmInterpreter::new(self.module());
+        interp
+            .invoke(
+                function.index(),
+                &mut code_block,
+                locals.as_slice(),
+                result_types,
+            )
+            .map_err(|err| WasmIntrError {
+                kind: err,
+                function: interp.func_index,
+                opcode: interp.last_opcode,
+                position: interp.last_position,
+            })
+    }
+}
+
+#[derive(Debug)]
+pub struct WasmIntrError {
+    kind: WasmRuntimeError,
+    function: Option<usize>,
+    opcode: WasmOpcode,
+    position: usize,
+}
+
+impl WasmIntrError {
+    #[inline]
+    pub const fn kind(&self) -> WasmRuntimeError {
+        self.kind
+    }
+}
+
+impl From<WasmRuntimeError> for WasmIntrError {
+    fn from(kind: WasmRuntimeError) -> Self {
+        Self {
+            kind,
+            function: None,
+            opcode: WasmOpcode::Unreachable,
+            position: 0,
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{FixedStack, SharedStack, WasmInterpreter};
+    use super::{FixedStack, SharedStack, WasmInterpreter, WasmInvocation};
     use crate::wasm::{
         Leb128Stream, WasmBlockInfo, WasmDecodeError, WasmLoader, WasmModule, WasmValType,
     };
@@ -1683,7 +1767,7 @@ mod tests {
 
         let params = [1234.into(), 5678.into()];
         let result = interp
-            .invoke(&mut code_block, &params, &result_types)
+            .invoke(0, &mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
@@ -1691,7 +1775,7 @@ mod tests {
 
         let params = [0xDEADBEEFu32.into(), 0x55555555.into()];
         let result = interp
-            .invoke(&mut code_block, &params, &result_types)
+            .invoke(0, &mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
@@ -1712,7 +1796,7 @@ mod tests {
 
         let params = [1234.into(), 5678.into()];
         let result = interp
-            .invoke(&mut code_block, &params, &result_types)
+            .invoke(0, &mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
@@ -1720,7 +1804,7 @@ mod tests {
 
         let params = [0x55555555.into(), 0xDEADBEEFu32.into()];
         let result = interp
-            .invoke(&mut code_block, &params, &result_types)
+            .invoke(0, &mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
@@ -1741,7 +1825,7 @@ mod tests {
 
         let params = [1234.into(), 5678.into()];
         let result = interp
-            .invoke(&mut code_block, &params, &result_types)
+            .invoke(0, &mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
@@ -1749,7 +1833,7 @@ mod tests {
 
         let params = [0x55555555.into(), 0xDEADBEEFu32.into()];
         let result = interp
-            .invoke(&mut code_block, &params, &result_types)
+            .invoke(0, &mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
@@ -1770,7 +1854,7 @@ mod tests {
 
         let params = [7006652.into(), 5678.into()];
         let result = interp
-            .invoke(&mut code_block, &params, &result_types)
+            .invoke(0, &mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
@@ -1778,7 +1862,7 @@ mod tests {
 
         let params = [42.into(), (-6).into()];
         let result = interp
-            .invoke(&mut code_block, &params, &result_types)
+            .invoke(0, &mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
@@ -1786,7 +1870,7 @@ mod tests {
 
         let params = [(-42).into(), (6).into()];
         let result = interp
-            .invoke(&mut code_block, &params, &result_types)
+            .invoke(0, &mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
@@ -1794,7 +1878,7 @@ mod tests {
 
         let params = [(-42).into(), (-6).into()];
         let result = interp
-            .invoke(&mut code_block, &params, &result_types)
+            .invoke(0, &mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
@@ -1815,7 +1899,7 @@ mod tests {
 
         let params = [7006652.into(), 5678.into()];
         let result = interp
-            .invoke(&mut code_block, &params, &result_types)
+            .invoke(0, &mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
@@ -1823,7 +1907,7 @@ mod tests {
 
         let params = [42.into(), (-6).into()];
         let result = interp
-            .invoke(&mut code_block, &params, &result_types)
+            .invoke(0, &mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
@@ -1831,7 +1915,7 @@ mod tests {
 
         let params = [(-42).into(), (6).into()];
         let result = interp
-            .invoke(&mut code_block, &params, &result_types)
+            .invoke(0, &mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
@@ -1855,7 +1939,7 @@ mod tests {
 
         let params = [0.into()];
         let result = interp
-            .invoke(&mut code_block, &params, &result_types)
+            .invoke(0, &mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
@@ -1863,7 +1947,7 @@ mod tests {
 
         let params = [1.into()];
         let result = interp
-            .invoke(&mut code_block, &params, &result_types)
+            .invoke(0, &mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
@@ -1871,7 +1955,7 @@ mod tests {
 
         let params = [2.into()];
         let result = interp
-            .invoke(&mut code_block, &params, &result_types)
+            .invoke(0, &mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
@@ -1879,7 +1963,7 @@ mod tests {
 
         let params = [3.into()];
         let result = interp
-            .invoke(&mut code_block, &params, &result_types)
+            .invoke(0, &mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
@@ -1887,7 +1971,7 @@ mod tests {
 
         let params = [4.into()];
         let result = interp
-            .invoke(&mut code_block, &params, &result_types)
+            .invoke(0, &mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
@@ -1895,7 +1979,7 @@ mod tests {
 
         let params = [5.into()];
         let result = interp
-            .invoke(&mut code_block, &params, &result_types)
+            .invoke(0, &mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
@@ -1903,7 +1987,7 @@ mod tests {
 
         let params = [(-1).into()];
         let result = interp
-            .invoke(&mut code_block, &params, &result_types)
+            .invoke(0, &mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
@@ -1928,7 +2012,7 @@ mod tests {
 
         let params = [7.into(), 0.into()];
         let result = interp
-            .invoke(&mut code_block, &params, &result_types)
+            .invoke(0, &mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
@@ -1936,7 +2020,7 @@ mod tests {
 
         let params = [10.into(), 0.into()];
         let result = interp
-            .invoke(&mut code_block, &params, &result_types)
+            .invoke(0, &mut code_block, &params, &result_types)
             .unwrap()
             .get_i32()
             .unwrap();
@@ -1955,7 +2039,7 @@ mod tests {
         ];
 
         let module =
-            WasmLoader::instantiate(&slice, &|_, _, _| Err(WasmDecodeError::DynamicLinkError))
+            WasmLoader::instantiate(&slice, |_, _, _| Err(WasmDecodeError::DynamicLinkError))
                 .unwrap();
         let runnable = module.func_by_index(0).unwrap();
 

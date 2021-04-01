@@ -5,17 +5,11 @@ A WebAssembly Runtime written in Rust
 
 - Support for `no_std`
 - A subset of WebAssembly MVP
-  - Floating point operations are not yet supported.
+  - Support for all instructions except floating point operations.
 
 ## requirements
 
 - Rust nightly
-
-## run
-
-```
-# cargo run WASM
-```
 
 ## test
 
