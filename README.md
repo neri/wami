@@ -1,5 +1,6 @@
-
 A WebAssembly Runtime written in Rust
+
+[![Rust](https://github.com/neri/wasm-o/actions/workflows/rust.yml/badge.svg)](https://github.com/neri/wasm-o/actions/workflows/rust.yml)
 
 ## features
 
