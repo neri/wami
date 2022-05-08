@@ -1,7 +1,7 @@
 // test
 
 use crate::{
-    wasmintr::{WasmInterpreter, WasmInvocation},
+    intr::{WasmInterpreter, WasmInvocation},
     Leb128Stream, WasmCodeBlock, WasmLoader, WasmModule, WasmRuntimeErrorKind, WasmValType,
 };
 use alloc::borrow::ToOwned;
@@ -134,6 +134,29 @@ fn fused_add() {
         .get_i32()
         .unwrap();
     assert_eq!(result, 0);
+}
+
+#[test]
+fn const_local() {
+    let slice = [
+        1, 1, 0x7F, 0x41, 0xFB, 0x00, 0x21, 0, 0x41, 0x12, 0x1A, 0x20, 0, 0x0B,
+    ];
+    let param_types = [];
+    let result_types = [WasmValType::I32];
+    let mut stream = Leb128Stream::from_slice(&slice);
+    let module = WasmModule::new();
+    let info =
+        WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
+    let mut interp = WasmInterpreter::new(&module);
+
+    let mut locals = [];
+    let result = interp
+        .invoke(0, &info, &mut locals, &result_types)
+        .unwrap()
+        .unwrap()
+        .get_i32()
+        .unwrap();
+    assert_eq!(result, 123);
 }
 
 #[test]
@@ -659,7 +682,7 @@ fn global() {
     let module = WasmLoader::instantiate(&slice, |_, _, _| unreachable!()).unwrap();
     let runnable = module.func_by_index(0).unwrap();
 
-    assert_eq!(module.global_get(0).unwrap().get_i32().unwrap(), 123);
+    assert_eq!(module.global_get(0).unwrap().value().get_i32(), Ok(123));
 
     let result = runnable
         .invoke(&[456.into()])
@@ -669,7 +692,7 @@ fn global() {
         .unwrap();
     assert_eq!(result, 579);
 
-    assert_eq!(module.global_get(0).unwrap().get_i32().unwrap(), 579);
+    assert_eq!(module.global_get(0).unwrap().value().get_i32(), Ok(579));
 
     let result = runnable
         .invoke(&[789.into()])
@@ -679,7 +702,7 @@ fn global() {
         .unwrap();
     assert_eq!(result, 1368);
 
-    assert_eq!(module.global_get(0).unwrap().get_i32().unwrap(), 1368);
+    assert_eq!(module.global_get(0).unwrap().value().get_i32(), Ok(1368));
 }
 
 #[test]
@@ -692,9 +715,9 @@ fn name() {
     let module = WasmLoader::instantiate(&slice, |_, _, _| unreachable!()).unwrap();
     let names = module.names().unwrap();
 
-    assert_eq!(names.module().unwrap().as_str(), "Hello");
+    assert_eq!(names.module().unwrap(), "Hello");
 
     assert_eq!(names.functions()[0], (1, "wasm".to_owned()));
 
-    assert_eq!(names.func_by_index(0x1234).unwrap().as_str(), "test");
+    assert_eq!(names.func_by_index(0x1234).unwrap(), "test");
 }
