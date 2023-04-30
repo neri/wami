@@ -1,11 +1,12 @@
-//! Intermediate code for Webassembly runtime
-
-use crate::opcode::WasmOpcode;
+use crate::{
+    opcode::{WasmOpcode, WasmSingleOpcode},
+    LocalVarIndex, StackLevel,
+};
 use alloc::{boxed::Box, vec::Vec};
 
 /// Intermediate code for Webassembly runtime
 #[non_exhaustive]
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq)]
 pub enum WasmIntMnemonic {
     /// Undefined
     Undefined,
@@ -35,20 +36,20 @@ pub enum WasmIntMnemonic {
     Select,
 
     /// Gets a value from a local variable
-    LocalGet(usize),
+    LocalGet(LocalVarIndex),
     /// Sets a value to a local variable
-    LocalSet(usize),
-    LocalTee(usize),
+    LocalSet(LocalVarIndex),
+    LocalTee(LocalVarIndex),
 
-    /// Gets a 32-bit value from local variables
-    LocalGet32(usize),
-    /// Sets a 32-bit value value to a local variable
-    LocalSet32(usize),
-    LocalTee32(usize),
+    /// Gets a 32-bit value from a local variable
+    LocalGet32(LocalVarIndex),
+    /// Sets a 32-bit value to a local variable
+    LocalSet32(LocalVarIndex),
+    LocalTee32(LocalVarIndex),
 
-    /// Get a value from a global variable
+    /// Gets a value from a global variable
     GlobalGet(usize),
-    /// Set a value to a global variable
+    /// Sets a value to a global variable
     GlobalSet(usize),
 
     I32Load(u32),
@@ -70,11 +71,27 @@ pub enum WasmIntMnemonic {
     I64Store8(u32),
     I64Store16(u32),
     I64Store32(u32),
+
+    #[cfg(feature = "float")]
+    F32Load(u32),
+    #[cfg(feature = "float")]
+    F32Store(u32),
+    #[cfg(feature = "float64")]
+    F64Load(u32),
+    #[cfg(feature = "float64")]
+    F64Store(u32),
+
     MemorySize,
     MemoryGrow,
+    MemoryCopy,
+    MemoryFill,
 
     I32Const(i32),
     I64Const(i64),
+    #[cfg(feature = "float")]
+    F32Const(f32),
+    #[cfg(feature = "float64")]
+    F64Const(f64),
 
     I32Eqz,
     I32Eq,
@@ -145,8 +162,13 @@ pub enum WasmIntMnemonic {
     I32Extend8S,
     I32Extend16S,
 
+    I32ReinterpretF32,
+    I64ReinterpretF64,
+    F32ReinterpretI32,
+    F64ReinterpretI64,
+
     // Fused Instructions
-    FusedI32SetConst(usize, i32),
+    FusedI32SetConst(LocalVarIndex, i32),
     FusedI32AddI(i32),
     FusedI32SubI(i32),
     FusedI32AndI(i32),
@@ -156,26 +178,34 @@ pub enum WasmIntMnemonic {
     FusedI32ShrSI(i32),
     FusedI32ShrUI(i32),
 
-    FusedI64SetConst(usize, i64),
+    FusedI64SetConst(LocalVarIndex, i64),
     FusedI64AddI(i64),
     FusedI64SubI(i64),
 
     FusedI32BrZ(usize),
     FusedI32BrEq(usize),
     FusedI32BrNe(usize),
+    FusedI32BrLtS(usize),
+    FusedI32BrLtU(usize),
+    FusedI32BrGtS(usize),
+    FusedI32BrGtU(usize),
+    FusedI32BrLeS(usize),
+    FusedI32BrLeU(usize),
+    FusedI32BrGeS(usize),
+    FusedI32BrGeU(usize),
+
     FusedI64BrZ(usize),
     FusedI64BrEq(usize),
     FusedI64BrNe(usize),
 }
 
-type StackType = usize;
-
 /// Wasm Intermediate Code
 #[derive(Debug)]
 pub struct WasmImc {
-    pub source: u32,
+    pub position: u32,
+    pub opcode: WasmOpcode,
     pub mnemonic: WasmIntMnemonic,
-    pub stack_level: StackType,
+    pub stack_level: StackLevel,
 }
 
 impl WasmImc {
@@ -183,11 +213,12 @@ impl WasmImc {
     pub const MAX_SOURCE_SIZE: usize = 0xFF_FF_FF;
 
     #[inline]
-    pub fn from_mnemonic(mnemonic: WasmIntMnemonic) -> Self {
+    pub const fn from_mnemonic(mnemonic: WasmIntMnemonic) -> Self {
         Self {
-            source: 0,
+            position: 0,
+            opcode: WasmOpcode::UNREACHABLE,
             mnemonic,
-            stack_level: StackType::default(),
+            stack_level: StackLevel::zero(),
         }
     }
 
@@ -196,24 +227,24 @@ impl WasmImc {
         source_position: usize,
         opcode: WasmOpcode,
         mnemonic: WasmIntMnemonic,
-        stack_level: usize,
+        stack_level: StackLevel,
     ) -> Self {
-        let source = ((source_position as u32) << 8) | (opcode as u32);
         Self {
-            source,
+            position: source_position as u32,
+            opcode,
             mnemonic,
-            stack_level: stack_level as StackType,
+            stack_level,
         }
     }
 
     #[inline]
     pub const fn source_position(&self) -> usize {
-        (self.source >> 8) as usize
+        self.position as usize
     }
 
     #[inline]
-    pub const fn opcode(&self) -> Option<WasmOpcode> {
-        WasmOpcode::new(self.source as u8)
+    pub const fn opcode(&self) -> WasmOpcode {
+        self.opcode
     }
 
     #[inline]
@@ -222,8 +253,13 @@ impl WasmImc {
     }
 
     #[inline]
-    pub const fn stack_level(&self) -> usize {
-        self.stack_level as usize
+    pub const fn mnemonic_mut(&mut self) -> &mut WasmIntMnemonic {
+        &mut self.mnemonic
+    }
+
+    #[inline]
+    pub const fn base_stack_level(&self) -> StackLevel {
+        self.stack_level
     }
 
     pub fn adjust_branch_target<F, E>(&mut self, mut f: F) -> Result<(), E>
@@ -231,41 +267,64 @@ impl WasmImc {
         F: FnMut(WasmOpcode, usize) -> Result<usize, E>,
     {
         use WasmIntMnemonic::*;
-        let mnemonic = self.mnemonic();
-        match mnemonic {
+        match self.mnemonic_mut() {
             Br(target) => {
-                self.mnemonic = Br(f(WasmOpcode::Br, *target)?);
+                *target = f(WasmSingleOpcode::Br.into(), *target)?;
             }
             BrIf(target) => {
-                self.mnemonic = BrIf(f(WasmOpcode::BrIf, *target)?);
+                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
             }
 
             FusedI32BrZ(target) => {
-                self.mnemonic = FusedI32BrZ(f(WasmOpcode::BrIf, *target)?);
+                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
             }
             FusedI32BrEq(target) => {
-                self.mnemonic = FusedI32BrEq(f(WasmOpcode::BrIf, *target)?);
+                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
             }
             FusedI32BrNe(target) => {
-                self.mnemonic = FusedI32BrNe(f(WasmOpcode::BrIf, *target)?);
+                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
+            }
+            FusedI32BrLtS(target) => {
+                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
+            }
+            FusedI32BrLtU(target) => {
+                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
+            }
+            FusedI32BrGtS(target) => {
+                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
+            }
+            FusedI32BrGtU(target) => {
+                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
+            }
+            FusedI32BrLeS(target) => {
+                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
+            }
+            FusedI32BrLeU(target) => {
+                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
+            }
+            FusedI32BrGeS(target) => {
+                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
+            }
+            FusedI32BrGeU(target) => {
+                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
             }
 
             FusedI64BrZ(target) => {
-                self.mnemonic = FusedI64BrZ(f(WasmOpcode::BrIf, *target)?);
+                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
             }
             FusedI64BrEq(target) => {
-                self.mnemonic = FusedI64BrEq(f(WasmOpcode::BrIf, *target)?);
+                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
             }
             FusedI64BrNe(target) => {
-                self.mnemonic = FusedI64BrNe(f(WasmOpcode::BrIf, *target)?);
+                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
             }
 
             BrTable(table) => {
                 let mut vec = Vec::with_capacity(table.len());
                 for target in table.iter() {
-                    vec.push(f(WasmOpcode::BrTable, *target)?);
+                    vec.push(f(WasmSingleOpcode::BrTable.into(), *target)?);
                 }
-                self.mnemonic = BrTable(vec.into_boxed_slice());
+                *table = vec.into_boxed_slice();
             }
             _ => (),
         }
