@@ -1,7 +1,10 @@
 //! WebAssembly Intermediate Code Interpreter
 
-use super::{intcode::*, opcode::WasmSingleOpcode, stack::*, wasm::*};
-use crate::opcode::WasmOpcode;
+use super::{
+    intcode::{WasmImc, WasmIntMnemonic},
+    LocalVarIndex, StackLevel, StackOffset, WasmCodeBlock,
+};
+use crate::{opcode::WasmOpcode, opcode::WasmSingleOpcode, stack::*, wasm::*};
 use alloc::{borrow::ToOwned, string::String, vec::Vec};
 use core::fmt;
 

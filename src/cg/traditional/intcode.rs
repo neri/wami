@@ -1,7 +1,5 @@
-use crate::{
-    opcode::{WasmOpcode, WasmSingleOpcode},
-    LocalVarIndex, StackLevel,
-};
+use super::{LocalVarIndex, StackLevel};
+use crate::opcode::{WasmOpcode, WasmSingleOpcode};
 use alloc::{boxed::Box, vec::Vec};
 
 /// Intermediate code for Webassembly runtime

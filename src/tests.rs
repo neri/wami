@@ -1,7 +1,10 @@
 // test
 
 use crate::{
-    intr::{WasmInterpreter, WasmInvocation},
+    cg::{
+        intr::{WasmInterpreter, WasmInvocation},
+        WasmCodeBlock,
+    },
     WasmValType, *,
 };
 use alloc::borrow::ToOwned;

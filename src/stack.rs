@@ -34,18 +34,6 @@ impl<T> FixedStack<'_, T> {
     pub fn get_mut(&mut self) -> Option<&mut [T]> {
         self.slice.get_mut(..self.stack_pointer)
     }
-
-    #[inline]
-    #[track_caller]
-    pub fn as_slice(&self) -> &[T] {
-        self.get().unwrap()
-    }
-
-    #[inline]
-    #[track_caller]
-    pub fn as_mut_slice(&mut self) -> &mut [T] {
-        self.get_mut().unwrap()
-    }
 }
 
 impl<T: Sized> FixedStack<'_, T> {
@@ -74,27 +62,25 @@ impl<T: Sized> FixedStack<'_, T> {
 
     #[inline]
     pub fn push(&mut self, data: T) -> Result<(), ()> {
-        if self.stack_pointer < self.slice.len() {
-            unsafe {
-                let p = self.slice.get_unchecked_mut(self.stack_pointer) as *mut T;
-                p.write(data);
-                self.stack_pointer += 1;
-            }
-            Ok(())
-        } else {
-            Err(())
-        }
+        self.slice
+            .get_mut(self.stack_pointer)
+            .map(|v| {
+                unsafe {
+                    (v as *mut T).write(data);
+                }
+                self.stack_pointer += 1
+            })
+            .ok_or(())
     }
 
     #[inline]
     pub fn pop(&mut self) -> Option<T> {
         if self.stack_pointer > 0 {
             let new_sp = self.stack_pointer - 1;
-            unsafe {
-                let p = self.slice.get_unchecked(new_sp) as *const T;
+            self.slice.get(new_sp).map(|v| {
                 self.stack_pointer = new_sp;
-                Some(p.read())
-            }
+                unsafe { (v as *const T).read() }
+            })
         } else {
             None
         }

@@ -10,8 +10,7 @@
 mod wasm;
 pub use crate::wasm::*;
 
-pub mod intcode;
-pub mod intr;
+pub mod cg;
 pub mod opcode;
 pub mod stack;
 
