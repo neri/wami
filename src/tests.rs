@@ -83,6 +83,219 @@ fn leb128() {
 }
 
 #[test]
+fn i32_const() {
+    let slice = [0, 0x41, 0xf8, 0xac, 0xd1, 0x91, 0x01, 0x0B];
+    let result_types = [WasmValType::I32];
+    let mut stream = Leb128Stream::from_slice(&slice);
+    let module = WasmModule::new();
+    let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
+    let mut interp = WasmInterpreter::new(&module);
+
+    let result = interp
+        .invoke(0, &info, &mut [], &result_types)
+        .unwrap()
+        .unwrap()
+        .get_i32()
+        .unwrap();
+    assert_eq!(result, 0x12345678);
+}
+
+#[test]
+#[should_panic(expected = "TypeMismatch")]
+fn i32_const_type_mismatch1() {
+    let slice = [0, 0x41, 0x00, 0x01, 0x0B];
+    let result_types = [WasmValType::I64];
+    let mut stream = Leb128Stream::from_slice(&slice);
+    let module = WasmModule::new();
+    let _info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
+}
+
+#[test]
+fn i32_const_type_mismatch2() {
+    let slice = [0, 0x41, 0x00, 0x01, 0x0B];
+    let result_types = [WasmValType::I32];
+    let mut stream = Leb128Stream::from_slice(&slice);
+    let module = WasmModule::new();
+    let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
+    let mut interp = WasmInterpreter::new(&module);
+
+    let result = interp
+        .invoke(0, &info, &mut [], &result_types)
+        .unwrap()
+        .unwrap()
+        .get_i32()
+        .unwrap();
+    assert_eq!(result, 0);
+
+    let result2 = interp
+        .invoke(0, &info, &mut [], &result_types)
+        .unwrap()
+        .unwrap()
+        .get_i64();
+    assert_eq!(result2, Err(WasmRuntimeErrorKind::TypeMismatch));
+}
+
+#[test]
+fn i64_const() {
+    let slice = [
+        0, 0x42, 0xef, 0x9b, 0xaf, 0xcd, 0xf8, 0xac, 0xd1, 0x91, 0x01, 0x0B,
+    ];
+    let result_types = [WasmValType::I64];
+    let mut stream = Leb128Stream::from_slice(&slice);
+    let module = WasmModule::new();
+    let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
+    let mut interp = WasmInterpreter::new(&module);
+
+    let result = interp
+        .invoke(0, &info, &mut [], &result_types)
+        .unwrap()
+        .unwrap()
+        .get_i64()
+        .unwrap();
+    assert_eq!(result, 0x123456789abcdef);
+}
+
+#[test]
+#[should_panic(expected = "TypeMismatch")]
+fn i64_const_type_mismatch1() {
+    let slice = [0, 0x42, 0x00, 0x01, 0x0B];
+    let result_types = [WasmValType::I32];
+    let mut stream = Leb128Stream::from_slice(&slice);
+    let module = WasmModule::new();
+    let _info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
+}
+
+#[test]
+#[cfg(feature = "float")]
+fn float_const() {
+    let slice = [0, 0x43, 0, 0, 0, 0, 0x0B];
+    let result_types = [WasmValType::F32];
+    let mut stream = Leb128Stream::from_slice(&slice);
+    let module = WasmModule::new();
+    let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
+    let mut interp = WasmInterpreter::new(&module);
+
+    let result = interp
+        .invoke(0, &info, &mut [], &result_types)
+        .unwrap()
+        .unwrap()
+        .get_f32()
+        .unwrap();
+    assert_eq!(result, 0.0);
+
+    let slice = [0, 0x43, 0, 0, 0xc0, 0x7f, 0x0B];
+    let result_types = [WasmValType::F32];
+    let mut stream = Leb128Stream::from_slice(&slice);
+    let module = WasmModule::new();
+    let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
+    let mut interp = WasmInterpreter::new(&module);
+
+    let result = interp
+        .invoke(0, &info, &mut [], &result_types)
+        .unwrap()
+        .unwrap()
+        .get_f32()
+        .unwrap();
+    assert!(result.is_nan());
+
+    let slice = [0, 0x43, 0, 0, 0x80, 0x7f, 0x0B];
+    let result_types = [WasmValType::F32];
+    let mut stream = Leb128Stream::from_slice(&slice);
+    let module = WasmModule::new();
+    let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
+    let mut interp = WasmInterpreter::new(&module);
+
+    let result = interp
+        .invoke(0, &info, &mut [], &result_types)
+        .unwrap()
+        .unwrap()
+        .get_f32()
+        .unwrap();
+    assert!(result.is_infinite());
+
+    let slice = [0, 0x43, 0xdb, 0x0f, 0x49, 0x40, 0x0B];
+    let result_types = [WasmValType::F32];
+    let mut stream = Leb128Stream::from_slice(&slice);
+    let module = WasmModule::new();
+    let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
+    let mut interp = WasmInterpreter::new(&module);
+
+    let result = interp
+        .invoke(0, &info, &mut [], &result_types)
+        .unwrap()
+        .unwrap()
+        .get_f32()
+        .unwrap();
+    assert_eq!(result, 3.1415927);
+}
+
+#[test]
+#[cfg(feature = "float")]
+fn float64_const() {
+    let slice = [0, 0x44, 0, 0, 0, 0, 0, 0, 0, 0, 0x0B];
+    let result_types = [WasmValType::F64];
+    let mut stream = Leb128Stream::from_slice(&slice);
+    let module = WasmModule::new();
+    let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
+    let mut interp = WasmInterpreter::new(&module);
+
+    let result = interp
+        .invoke(0, &info, &mut [], &result_types)
+        .unwrap()
+        .unwrap()
+        .get_f64()
+        .unwrap();
+    assert_eq!(result, 0.0);
+
+    let slice = [0, 0x44, 0, 0, 0, 0, 0, 0, 0xf8, 0x7f, 0x0B];
+    let result_types = [WasmValType::F64];
+    let mut stream = Leb128Stream::from_slice(&slice);
+    let module = WasmModule::new();
+    let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
+    let mut interp = WasmInterpreter::new(&module);
+
+    let result = interp
+        .invoke(0, &info, &mut [], &result_types)
+        .unwrap()
+        .unwrap()
+        .get_f64()
+        .unwrap();
+    assert!(result.is_nan());
+
+    let slice = [0, 0x44, 0, 0, 0, 0, 0, 0, 0xf0, 0x7f, 0x0B];
+    let result_types = [WasmValType::F64];
+    let mut stream = Leb128Stream::from_slice(&slice);
+    let module = WasmModule::new();
+    let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
+    let mut interp = WasmInterpreter::new(&module);
+
+    let result = interp
+        .invoke(0, &info, &mut [], &result_types)
+        .unwrap()
+        .unwrap()
+        .get_f64()
+        .unwrap();
+    assert!(result.is_infinite());
+
+    let slice = [
+        0, 0x44, 0x18, 0x2d, 0x44, 0x54, 0xfb, 0x21, 0x09, 0x40, 0x0b,
+    ];
+    let result_types = [WasmValType::F64];
+    let mut stream = Leb128Stream::from_slice(&slice);
+    let module = WasmModule::new();
+    let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
+    let mut interp = WasmInterpreter::new(&module);
+
+    let result = interp
+        .invoke(0, &info, &mut [], &result_types)
+        .unwrap()
+        .unwrap()
+        .get_f64()
+        .unwrap();
+    assert_eq!(result, PI);
+}
+
+#[test]
 fn add() {
     let slice = [0, 0x20, 0, 0x20, 1, 0x6A, 0x0B];
     let param_types = [WasmValType::I32, WasmValType::I32];
@@ -789,136 +1002,6 @@ fn name() {
 
 #[test]
 #[cfg(feature = "float")]
-fn float_const() {
-    let slice = [0, 0x43, 0, 0, 0, 0, 0x0B];
-    let result_types = [WasmValType::F32];
-    let mut stream = Leb128Stream::from_slice(&slice);
-    let module = WasmModule::new();
-    let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
-    let mut interp = WasmInterpreter::new(&module);
-
-    let result = interp
-        .invoke(0, &info, &mut [], &result_types)
-        .unwrap()
-        .unwrap()
-        .get_f32()
-        .unwrap();
-    assert_eq!(result, 0.0);
-
-    let slice = [0, 0x43, 0, 0, 0xc0, 0x7f, 0x0B];
-    let result_types = [WasmValType::F32];
-    let mut stream = Leb128Stream::from_slice(&slice);
-    let module = WasmModule::new();
-    let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
-    let mut interp = WasmInterpreter::new(&module);
-
-    let result = interp
-        .invoke(0, &info, &mut [], &result_types)
-        .unwrap()
-        .unwrap()
-        .get_f32()
-        .unwrap();
-    assert!(result.is_nan());
-
-    let slice = [0, 0x43, 0, 0, 0x80, 0x7f, 0x0B];
-    let result_types = [WasmValType::F32];
-    let mut stream = Leb128Stream::from_slice(&slice);
-    let module = WasmModule::new();
-    let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
-    let mut interp = WasmInterpreter::new(&module);
-
-    let result = interp
-        .invoke(0, &info, &mut [], &result_types)
-        .unwrap()
-        .unwrap()
-        .get_f32()
-        .unwrap();
-    assert!(result.is_infinite());
-
-    let slice = [0, 0x43, 0xdb, 0x0f, 0x49, 0x40, 0x0B];
-    let result_types = [WasmValType::F32];
-    let mut stream = Leb128Stream::from_slice(&slice);
-    let module = WasmModule::new();
-    let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
-    let mut interp = WasmInterpreter::new(&module);
-
-    let result = interp
-        .invoke(0, &info, &mut [], &result_types)
-        .unwrap()
-        .unwrap()
-        .get_f32()
-        .unwrap();
-    assert_eq!(result, 3.1415927);
-}
-
-#[test]
-#[cfg(feature = "float64")]
-fn float64_const() {
-    let slice = [0, 0x44, 0, 0, 0, 0, 0, 0, 0, 0, 0x0B];
-    let result_types = [WasmValType::F64];
-    let mut stream = Leb128Stream::from_slice(&slice);
-    let module = WasmModule::new();
-    let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
-    let mut interp = WasmInterpreter::new(&module);
-
-    let result = interp
-        .invoke(0, &info, &mut [], &result_types)
-        .unwrap()
-        .unwrap()
-        .get_f64()
-        .unwrap();
-    assert_eq!(result, 0.0);
-
-    let slice = [0, 0x44, 0, 0, 0, 0, 0, 0, 0xf8, 0x7f, 0x0B];
-    let result_types = [WasmValType::F64];
-    let mut stream = Leb128Stream::from_slice(&slice);
-    let module = WasmModule::new();
-    let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
-    let mut interp = WasmInterpreter::new(&module);
-
-    let result = interp
-        .invoke(0, &info, &mut [], &result_types)
-        .unwrap()
-        .unwrap()
-        .get_f64()
-        .unwrap();
-    assert!(result.is_nan());
-
-    let slice = [0, 0x44, 0, 0, 0, 0, 0, 0, 0xf0, 0x7f, 0x0B];
-    let result_types = [WasmValType::F64];
-    let mut stream = Leb128Stream::from_slice(&slice);
-    let module = WasmModule::new();
-    let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
-    let mut interp = WasmInterpreter::new(&module);
-
-    let result = interp
-        .invoke(0, &info, &mut [], &result_types)
-        .unwrap()
-        .unwrap()
-        .get_f64()
-        .unwrap();
-    assert!(result.is_infinite());
-
-    let slice = [
-        0, 0x44, 0x18, 0x2d, 0x44, 0x54, 0xfb, 0x21, 0x09, 0x40, 0x0b,
-    ];
-    let result_types = [WasmValType::F64];
-    let mut stream = Leb128Stream::from_slice(&slice);
-    let module = WasmModule::new();
-    let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
-    let mut interp = WasmInterpreter::new(&module);
-
-    let result = interp
-        .invoke(0, &info, &mut [], &result_types)
-        .unwrap()
-        .unwrap()
-        .get_f64()
-        .unwrap();
-    assert_eq!(result, PI);
-}
-
-#[test]
-#[cfg(feature = "float")]
 fn float_reinterpret() {
     let slice = [1, 1, 0x7F, 0x20, 0x01, 0xbe, 0x0B];
     let param_types = [WasmValType::I32];
@@ -958,7 +1041,7 @@ fn float_reinterpret() {
 }
 
 #[test]
-#[cfg(feature = "float64")]
+#[cfg(feature = "float")]
 fn float64_reinterpret() {
     let slice = [1, 1, 0x7E, 0x20, 0x01, 0xbf, 0x0B];
     let param_types = [WasmValType::I64];

@@ -147,7 +147,7 @@ impl StackHeap {
         r
     }
 
-    pub fn alloc<'a, T>(&mut self, len: usize) -> &'a mut [T]
+    pub fn alloc_slice<'a, T>(&mut self, len: usize) -> &'a mut [T]
     where
         T: Sized + Copy + Clone,
     {
@@ -176,7 +176,7 @@ impl StackHeap {
     where
         T: Sized + Copy + Clone,
     {
-        let slice = self.alloc(len);
+        let slice = self.alloc_slice(len);
         FixedStack::from_slice(slice)
     }
 }

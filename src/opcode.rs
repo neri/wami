@@ -68,6 +68,7 @@ impl WasmOpcode {
         match self {
             WasmOpcode::Single(_) => None,
             WasmOpcode::PrefixFC(v) => Some(*v as u32),
+            // TODO:
             WasmOpcode::PrefixFD(_) => None,
         }
     }

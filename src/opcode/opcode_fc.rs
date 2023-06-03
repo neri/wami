@@ -1,4 +1,4 @@
-use super::*;
+use super::WasmProposalType;
 
 /// Multi Bytes Opcodes (FC)
 #[non_exhaustive]

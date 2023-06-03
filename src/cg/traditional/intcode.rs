@@ -7,9 +7,10 @@ use alloc::{boxed::Box, vec::Vec};
 #[derive(Debug, PartialEq)]
 pub enum WasmIntMnemonic {
     /// Undefined
-    Undefined,
+    Undefined(WasmOpcode, ExceptionPosition),
     /// Unreachable
-    Unreachable,
+    Unreachable(ExceptionPosition),
+
     /// No operation, this mnemonic will be removed during the compaction phase.
     Nop,
     /// Block Marker, this mnemonic will be removed during the compaction phase.
@@ -38,12 +39,6 @@ pub enum WasmIntMnemonic {
     /// Sets a value to a local variable
     LocalSet(LocalVarIndex),
     LocalTee(LocalVarIndex),
-
-    /// Gets a 32-bit value from a local variable
-    LocalGet32(LocalVarIndex),
-    /// Sets a 32-bit value to a local variable
-    LocalSet32(LocalVarIndex),
-    LocalTee32(LocalVarIndex),
 
     /// Gets a value from a global variable
     GlobalGet(usize),
@@ -74,9 +69,9 @@ pub enum WasmIntMnemonic {
     F32Load(u32),
     #[cfg(feature = "float")]
     F32Store(u32),
-    #[cfg(feature = "float64")]
+    #[cfg(feature = "float")]
     F64Load(u32),
-    #[cfg(feature = "float64")]
+    #[cfg(feature = "float")]
     F64Store(u32),
 
     MemorySize,
@@ -88,7 +83,7 @@ pub enum WasmIntMnemonic {
     I64Const(i64),
     #[cfg(feature = "float")]
     F32Const(f32),
-    #[cfg(feature = "float64")]
+    #[cfg(feature = "float")]
     F64Const(f64),
 
     I32Eqz,
@@ -105,6 +100,7 @@ pub enum WasmIntMnemonic {
     I32Clz,
     I32Ctz,
     I32Popcnt,
+
     I32Add,
     I32Sub,
     I32Mul,
@@ -135,6 +131,7 @@ pub enum WasmIntMnemonic {
     I64Clz,
     I64Ctz,
     I64Popcnt,
+
     I64Add,
     I64Sub,
     I64Mul,
@@ -197,6 +194,25 @@ pub enum WasmIntMnemonic {
     FusedI64BrNe(usize),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ExceptionPosition {
+    pub position: u32,
+}
+
+impl ExceptionPosition {
+    #[inline]
+    pub const fn new(position: usize) -> Self {
+        Self {
+            position: position as u32,
+        }
+    }
+
+    #[inline]
+    pub const fn position(&self) -> usize {
+        self.position as usize
+    }
+}
+
 /// Wasm Intermediate Code
 #[derive(Debug)]
 pub struct WasmImc {
@@ -207,9 +223,6 @@ pub struct WasmImc {
 }
 
 impl WasmImc {
-    /// Maximum size of a byte code
-    pub const MAX_SOURCE_SIZE: usize = 0xFF_FF_FF;
-
     #[inline]
     pub const fn from_mnemonic(mnemonic: WasmIntMnemonic) -> Self {
         Self {

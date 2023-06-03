@@ -1,4 +1,4 @@
-use crate::{cg::WasmCodeBlock, opcode::*, *};
+use crate::{cg::WasmCodeBlock, opcode::*};
 use alloc::{borrow::ToOwned, boxed::Box, format, string::*, vec::Vec};
 use core::{
     cell::UnsafeCell,
@@ -35,7 +35,7 @@ impl WasmLoader {
     const VER_CURRENT: u32 = 0x0000_0001;
 
     #[inline]
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             module: WasmModule::new(),
         }
@@ -165,8 +165,7 @@ impl WasmLoader {
                     self.module.n_ext_func += 1;
                 }
                 WasmImportIndex::Memory(memtype) => {
-                    // TODO: import memory
-                    self.module.memories.push(WasmMemory::new(memtype));
+                    self.module.memories[0] = WasmMemory::new(memtype);
                 }
             }
             self.module.imports.push(import);
@@ -213,6 +212,9 @@ impl WasmLoader {
     /// Parse "memory" section
     fn parse_sec_memory(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeErrorKind> {
         let n_items = section.stream.read_unsigned()?;
+        self.module
+            .memories
+            .resize_with(0, || WasmMemory::new(WasmLimit::new(0, 0)));
         for _ in 0..n_items {
             let limit = WasmLimit::from_stream(&mut section.stream)?;
             self.module.memories.push(WasmMemory::new(limit));
@@ -383,10 +385,11 @@ pub struct WasmModule {
 
 impl WasmModule {
     #[inline]
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
+        let memories = Vec::from_iter([WasmMemory::new(WasmLimit::new(0, 0))]);
         Self {
             types: Vec::new(),
-            memories: Vec::new(),
+            memories,
             imports: Vec::new(),
             exports: Vec::new(),
             tables: Vec::new(),
@@ -427,6 +430,11 @@ impl WasmModule {
     #[inline]
     pub fn memories_mut(&mut self) -> &mut [WasmMemory] {
         self.memories.as_mut_slice()
+    }
+
+    #[inline]
+    pub fn add_memory(&mut self, memory: WasmMemory) {
+        self.memories.push(memory);
     }
 
     #[inline]
@@ -987,6 +995,11 @@ pub struct WasmLimit {
 }
 
 impl WasmLimit {
+    #[inline]
+    pub const fn new(min: u32, max: u32) -> Self {
+        Self { min, max }
+    }
+
     #[inline]
     fn from_stream(stream: &mut Leb128Stream) -> Result<Self, WasmDecodeErrorKind> {
         match stream.read_unsigned() {
@@ -1631,7 +1644,7 @@ pub enum WasmDecodeErrorKind {
 pub enum WasmRuntimeErrorKind {
     /// Exit the application (not an error)
     Exit,
-    // InternalInconsistency,
+    InternalInconsistency,
     InvalidParameter,
     NotSupprted,
     Unreachable,
