@@ -5,6 +5,7 @@ use crate::{
         intr::{WasmInterpreter, WasmInvocation},
         WasmCodeBlock,
     },
+    opcode::WasmSingleOpcode,
     WasmValType, *,
 };
 use alloc::borrow::ToOwned;
@@ -439,7 +440,7 @@ fn mul() {
 }
 
 #[test]
-fn div_s() {
+fn div32_s() {
     let slice = [0, 0x20, 0, 0x20, 1, 0x6D, 0x0B];
     let param_types = [WasmValType::I32, WasmValType::I32];
     let result_types = [WasmValType::I32];
@@ -490,10 +491,12 @@ fn div_s() {
         .invoke(0, &info, &mut locals, &result_types)
         .unwrap_err();
     assert_eq!(WasmRuntimeErrorKind::DivideByZero, result.kind());
+    assert_eq!(result.opcode(), WasmSingleOpcode::I32DivS.into());
+    assert_eq!(result.position(), 5);
 }
 
 #[test]
-fn div_u() {
+fn div32_u() {
     let slice = [0, 0x20, 0, 0x20, 1, 0x6E, 0x0B];
     let param_types = [WasmValType::I32, WasmValType::I32];
     let result_types = [WasmValType::I32];
@@ -535,6 +538,111 @@ fn div_u() {
         .invoke(0, &info, &mut locals, &result_types)
         .unwrap_err();
     assert_eq!(WasmRuntimeErrorKind::DivideByZero, result.kind());
+    assert_eq!(result.opcode(), WasmSingleOpcode::I32DivU.into());
+    assert_eq!(result.position(), 5);
+}
+
+#[test]
+fn div64_s() {
+    let slice = [0, 0x20, 0, 0x20, 1, 0x7F, 0x0B];
+    let param_types = [WasmValType::I64, WasmValType::I64];
+    let result_types = [WasmValType::I64];
+    let mut stream = Leb128Stream::from_slice(&slice);
+    let module = WasmModule::new();
+    let info =
+        WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
+    let mut interp = WasmInterpreter::new(&module);
+
+    let mut locals = [7006652i64.into(), 5678i64.into()];
+    let result = interp
+        .invoke(0, &info, &mut locals, &result_types)
+        .unwrap()
+        .unwrap()
+        .get_i64()
+        .unwrap();
+    assert_eq!(result, 1234);
+
+    let mut locals = [42i64.into(), (-6i64).into()];
+    let result = interp
+        .invoke(0, &info, &mut locals, &result_types)
+        .unwrap()
+        .unwrap()
+        .get_i64()
+        .unwrap();
+    assert_eq!(result, -7);
+
+    let mut locals = [(-42i64).into(), (6i64).into()];
+    let result = interp
+        .invoke(0, &info, &mut locals, &result_types)
+        .unwrap()
+        .unwrap()
+        .get_i64()
+        .unwrap();
+    assert_eq!(result, -7);
+
+    let mut locals = [(-42i64).into(), (-6i64).into()];
+    let result = interp
+        .invoke(0, &info, &mut locals, &result_types)
+        .unwrap()
+        .unwrap()
+        .get_i64()
+        .unwrap();
+    assert_eq!(result, 7);
+
+    let mut locals = [1234i64.into(), 0i64.into()];
+    let result = interp
+        .invoke(0, &info, &mut locals, &result_types)
+        .unwrap_err();
+    assert_eq!(WasmRuntimeErrorKind::DivideByZero, result.kind());
+    assert_eq!(result.opcode(), WasmSingleOpcode::I64DivS.into());
+    assert_eq!(result.position(), 5);
+}
+
+#[test]
+fn div64_u() {
+    let slice = [0, 0x20, 0, 0x20, 1, 0x80, 0x0B];
+    let param_types = [WasmValType::I64, WasmValType::I64];
+    let result_types = [WasmValType::I64];
+    let mut stream = Leb128Stream::from_slice(&slice);
+    let module = WasmModule::new();
+    let info =
+        WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
+    let mut interp = WasmInterpreter::new(&module);
+
+    let mut locals = [7006652i64.into(), 5678i64.into()];
+    let result = interp
+        .invoke(0, &info, &mut locals, &result_types)
+        .unwrap()
+        .unwrap()
+        .get_i64()
+        .unwrap();
+    assert_eq!(result, 1234);
+
+    let mut locals = [42i64.into(), (-6i64).into()];
+    let result = interp
+        .invoke(0, &info, &mut locals, &result_types)
+        .unwrap()
+        .unwrap()
+        .get_i64()
+        .unwrap();
+    assert_eq!(result, 0);
+
+    let mut locals = [(-42i64).into(), (6i64).into()];
+    let result = interp
+        .invoke(0, &info, &mut locals, &result_types)
+        .unwrap()
+        .unwrap()
+        .get_i64()
+        .unwrap();
+    assert_eq!(result, 3074457345618258595);
+
+    let mut locals = [1234i64.into(), 0i64.into()];
+    let result = interp
+        .invoke(0, &info, &mut locals, &result_types)
+        .unwrap_err();
+    assert_eq!(WasmRuntimeErrorKind::DivideByZero, result.kind());
+    assert_eq!(result.opcode(), WasmSingleOpcode::I64DivU.into());
+    assert_eq!(result.position(), 5);
 }
 
 #[test]
@@ -913,16 +1021,11 @@ fn app_factorial() {
 }
 
 #[test]
-fn app_fibonacci() {
-    let slice = [
-        0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00, 0x01, 0x06, 0x01, 0x60, 0x01, 0x7F, 0x01,
-        0x7F, 0x03, 0x02, 0x01, 0x00, 0x0A, 0x31, 0x01, 0x2F, 0x01, 0x01, 0x7F, 0x41, 0x00, 0x21,
-        0x01, 0x02, 0x40, 0x03, 0x40, 0x20, 0x00, 0x41, 0x02, 0x49, 0x0D, 0x01, 0x20, 0x00, 0x41,
-        0x7F, 0x6A, 0x10, 0x00, 0x20, 0x01, 0x6A, 0x21, 0x01, 0x20, 0x00, 0x41, 0x7E, 0x6A, 0x21,
-        0x00, 0x0C, 0x00, 0x0B, 0x0B, 0x20, 0x00, 0x20, 0x01, 0x6A, 0x0B,
-    ];
-    let module = WasmLoader::instantiate(&slice, |_, _, _| unreachable!()).unwrap();
-    let runnable = module.func_by_index(0).unwrap();
+fn app_fib() {
+    let module =
+        WasmLoader::instantiate(include_bytes!("../test/fib.wasm"), |_, _, _| unreachable!())
+            .unwrap();
+    let runnable = module.func("fib").unwrap();
 
     let result = runnable
         .invoke(&[5.into()])
@@ -950,14 +1053,322 @@ fn app_fibonacci() {
 }
 
 #[test]
+fn opr_test_i32() {
+    let module =
+        WasmLoader::instantiate(include_bytes!("../test/opr.wasm"), |_, _, _| unreachable!())
+            .unwrap();
+
+    for val in [
+        0i32,
+        1,
+        -1,
+        0x1234_5678,
+        0x5555_5555,
+        0xAAAA_AAAAu32 as i32,
+        0x0000_FFFF,
+        0xFFFF_0000u32 as i32,
+    ] {
+        module.memory(0).unwrap().memset(0, 0xCC, 0x1_0000).unwrap();
+        let result = module
+            .func("test_unary_i32")
+            .unwrap()
+            .invoke(&[val.into()])
+            .unwrap()
+            .unwrap()
+            .get_i32()
+            .unwrap();
+        assert_eq!(result, 28);
+
+        let memory = module.memory(0).unwrap();
+
+        assert_eq!(memory.read_u64(0, 0).unwrap(), 0xCCCC_CCCC_CCCC_CCCC);
+        assert_eq!(memory.read_u64(8, 0).unwrap(), 0xCCCC_CCCC_CCCC_CCCC);
+
+        assert_eq!(memory.read_u32(0x10, 0).unwrap(), (val == 0) as u32);
+
+        assert_eq!(memory.read_u32(0x14, 0).unwrap(), val.trailing_zeros());
+        assert_eq!(memory.read_u32(0x18, 0).unwrap(), val.leading_zeros());
+        assert_eq!(memory.read_u32(0x1C, 0).unwrap(), val.count_ones());
+
+        assert_eq!(memory.read_u64(0x20, 0).unwrap(), 0xCCCC_CCCC_CCCC_CCCC);
+    }
+
+    for (lhs, rhs) in [
+        (1i32, 1i32),
+        (-1, -1),
+        (1234, 1234),
+        (-5678, -5678),
+        (1234, 5678),
+        (5678, 1234),
+        (1234, -1234),
+        (-1234, 1234),
+        (0x1234_5678, 0x1234_5678),
+        (0x7FFF_FFFF, 0x8000_0000u32 as i32),
+        (0x8000_0000u32 as i32, 0x7FFF_FFFF),
+        (0x1234_5678, 0xFEDC_BA98u32 as i32),
+        (0x5555_5555, 0xAAAA_AAAAu32 as i32),
+    ] {
+        module.memory(0).unwrap().memset(0, 0xCC, 0x1_0000).unwrap();
+        let result = module
+            .func("test_bin_i32")
+            .unwrap()
+            .invoke(&[lhs.into(), rhs.into()])
+            .unwrap()
+            .unwrap()
+            .get_i32()
+            .unwrap();
+        assert_eq!(result, 112);
+
+        let memory = module.memory(0).unwrap();
+
+        assert_eq!(memory.read_u64(0, 0).unwrap(), 0xCCCC_CCCC_CCCC_CCCC);
+        assert_eq!(memory.read_u64(8, 0).unwrap(), 0xCCCC_CCCC_CCCC_CCCC);
+
+        assert_eq!(memory.read_u32(0x10, 0).unwrap(), (lhs == rhs) as u32);
+        assert_eq!(memory.read_u32(0x14, 0).unwrap(), (lhs != rhs) as u32);
+        assert_eq!(memory.read_u32(0x18, 0).unwrap(), (lhs < rhs) as u32);
+        assert_eq!(
+            memory.read_u32(0x1c, 0).unwrap(),
+            ((lhs as u32) < (rhs as u32)) as u32
+        );
+        assert_eq!(memory.read_u32(0x20, 0).unwrap(), (lhs > rhs) as u32);
+        assert_eq!(
+            memory.read_u32(0x24, 0).unwrap(),
+            ((lhs as u32) > (rhs as u32)) as u32
+        );
+        assert_eq!(memory.read_u32(0x28, 0).unwrap(), (lhs <= rhs) as u32);
+        assert_eq!(
+            memory.read_u32(0x2c, 0).unwrap(),
+            ((lhs as u32) <= (rhs as u32)) as u32
+        );
+        assert_eq!(memory.read_u32(0x30, 0).unwrap(), (lhs >= rhs) as u32);
+        assert_eq!(
+            memory.read_u32(0x34, 0).unwrap(),
+            ((lhs as u32) >= (rhs as u32)) as u32
+        );
+
+        assert_eq!(
+            memory.read_u32(0x38, 0).unwrap() as i32,
+            lhs.wrapping_add(rhs)
+        );
+        assert_eq!(
+            memory.read_u32(0x3c, 0).unwrap() as i32,
+            lhs.wrapping_sub(rhs)
+        );
+        assert_eq!(
+            memory.read_u32(0x40, 0).unwrap() as i32,
+            lhs.wrapping_mul(rhs)
+        );
+        assert_eq!(
+            memory.read_u32(0x44, 0).unwrap() as i32,
+            lhs.wrapping_div(rhs)
+        );
+        assert_eq!(
+            memory.read_u32(0x48, 0).unwrap(),
+            (lhs as u32).wrapping_div(rhs as u32)
+        );
+        assert_eq!(
+            memory.read_u32(0x4c, 0).unwrap() as i32,
+            lhs.wrapping_rem(rhs)
+        );
+        assert_eq!(
+            memory.read_u32(0x50, 0).unwrap(),
+            (lhs as u32).wrapping_rem(rhs as u32)
+        );
+
+        assert_eq!(memory.read_u32(0x54, 0).unwrap() as i32, lhs & rhs);
+        assert_eq!(memory.read_u32(0x58, 0).unwrap() as i32, lhs | rhs);
+        assert_eq!(memory.read_u32(0x5c, 0).unwrap() as i32, lhs ^ rhs);
+
+        assert_eq!(
+            memory.read_u32(0x60, 0).unwrap() as i32,
+            lhs.wrapping_shl(rhs as u32)
+        );
+        assert_eq!(
+            memory.read_u32(0x64, 0).unwrap() as i32,
+            lhs.wrapping_shr(rhs as u32)
+        );
+        assert_eq!(
+            memory.read_u32(0x68, 0).unwrap(),
+            (lhs as u32).wrapping_shr(rhs as u32)
+        );
+        assert_eq!(
+            memory.read_u32(0x6c, 0).unwrap(),
+            (lhs as u32).rotate_left(rhs as u32)
+        );
+        assert_eq!(
+            memory.read_u32(0x70, 0).unwrap(),
+            (lhs as u32).rotate_right(rhs as u32)
+        );
+
+        assert_eq!(memory.read_u32(0x74, 0).unwrap(), 0xCCCCCCCC);
+        assert_eq!(memory.read_u64(0x78, 0).unwrap(), 0xCCCC_CCCC_CCCC_CCCC);
+    }
+}
+
+#[test]
+fn opr_test_i64() {
+    let module =
+        WasmLoader::instantiate(include_bytes!("../test/opr.wasm"), |_, _, _| unreachable!())
+            .unwrap();
+
+    for val in [
+        0i64,
+        1,
+        -1,
+        0x1234_5678_ABCD_DEF0,
+        0x5555_5555_5555_5555,
+        0xAAAA_AAAA_AAAA_AAAAu64 as i64,
+        0x0000_0000_FFFF_FFFF,
+        0xFFFF_FFFF_0000_0000u64 as i64,
+    ] {
+        module.memory(0).unwrap().memset(0, 0xCC, 0x1_0000).unwrap();
+        let result = module
+            .func("test_unary_i64")
+            .unwrap()
+            .invoke(&[val.into()])
+            .unwrap()
+            .unwrap()
+            .get_i32()
+            .unwrap();
+        assert_eq!(result, 40);
+
+        let memory = module.memory(0).unwrap();
+
+        assert_eq!(memory.read_u64(0, 0).unwrap(), 0xCCCC_CCCC_CCCC_CCCC);
+        assert_eq!(memory.read_u64(8, 0).unwrap(), 0xCCCC_CCCC_CCCC_CCCC);
+
+        assert_eq!(memory.read_u32(0x10, 0).unwrap(), (val == 0) as u32);
+
+        assert_eq!(
+            memory.read_u64(0x18, 0).unwrap(),
+            val.trailing_zeros() as u64
+        );
+        assert_eq!(
+            memory.read_u64(0x20, 0).unwrap(),
+            val.leading_zeros() as u64
+        );
+        assert_eq!(memory.read_u64(0x28, 0).unwrap(), val.count_ones() as u64);
+
+        assert_eq!(memory.read_u64(0x30, 0).unwrap(), 0xCCCC_CCCC_CCCC_CCCC);
+    }
+
+    for (lhs, rhs) in [
+        (1i64, 1i64),
+        (-1, -1),
+        (1234, 1234),
+        (-5678, -5678),
+        (1234, 5678),
+        (5678, 1234),
+        (1234, -1234),
+        (-1234, 1234),
+        (0x1234_5678_9ABC_DEF0, 0x1234_5678_9ABC_DEF0),
+        (0x7FFF_FFFF_FFFF_FFFF, 0x8000_0000_0000_0000u64 as i64),
+        (0x8000_0000_0000_0000u64 as i64, 0x7FFF_FFFF_FFFF_FFFF),
+        (0x1234_5678_9ABC_DEF0, 0xFEDC_BA98_7654_3210u64 as i64),
+        (0x5555_5555_5555_5555, 0xAAAA_AAAA_AAAA_AAAAu64 as i64),
+    ] {
+        module.memory(0).unwrap().memset(0, 0xCC, 0x1_0000).unwrap();
+        let result = module
+            .func("test_bin_i64")
+            .unwrap()
+            .invoke(&[lhs.into(), rhs.into()])
+            .unwrap()
+            .unwrap()
+            .get_i32()
+            .unwrap();
+        assert_eq!(result, 168);
+
+        let memory = module.memory(0).unwrap();
+
+        assert_eq!(memory.read_u64(0, 0).unwrap(), 0xCCCC_CCCC_CCCC_CCCC);
+        assert_eq!(memory.read_u64(8, 0).unwrap(), 0xCCCC_CCCC_CCCC_CCCC);
+
+        assert_eq!(memory.read_u32(0x10, 0).unwrap(), (lhs == rhs) as u32);
+        assert_eq!(memory.read_u32(0x14, 0).unwrap(), (lhs != rhs) as u32);
+        assert_eq!(memory.read_u32(0x18, 0).unwrap(), (lhs < rhs) as u32);
+        assert_eq!(
+            memory.read_u32(0x1c, 0).unwrap(),
+            ((lhs as u64) < (rhs as u64)) as u32
+        );
+        assert_eq!(memory.read_u32(0x20, 0).unwrap(), (lhs > rhs) as u32);
+        assert_eq!(
+            memory.read_u32(0x24, 0).unwrap(),
+            ((lhs as u64) > (rhs as u64)) as u32
+        );
+        assert_eq!(memory.read_u32(0x28, 0).unwrap(), (lhs <= rhs) as u32);
+        assert_eq!(
+            memory.read_u32(0x2c, 0).unwrap(),
+            ((lhs as u64) <= (rhs as u64)) as u32
+        );
+        assert_eq!(memory.read_u32(0x30, 0).unwrap(), (lhs >= rhs) as u32);
+        assert_eq!(
+            memory.read_u32(0x34, 0).unwrap(),
+            ((lhs as u64) >= (rhs as u64)) as u32
+        );
+
+        assert_eq!(
+            memory.read_u64(0x38, 0).unwrap() as i64,
+            lhs.wrapping_add(rhs)
+        );
+        assert_eq!(
+            memory.read_u64(0x40, 0).unwrap() as i64,
+            lhs.wrapping_sub(rhs)
+        );
+        assert_eq!(
+            memory.read_u64(0x48, 0).unwrap() as i64,
+            lhs.wrapping_mul(rhs)
+        );
+        assert_eq!(
+            memory.read_u64(0x50, 0).unwrap() as i64,
+            lhs.wrapping_div(rhs)
+        );
+        assert_eq!(
+            memory.read_u64(0x58, 0).unwrap(),
+            (lhs as u64).wrapping_div(rhs as u64)
+        );
+        assert_eq!(
+            memory.read_u64(0x60, 0).unwrap() as i64,
+            lhs.wrapping_rem(rhs)
+        );
+        assert_eq!(
+            memory.read_u64(0x68, 0).unwrap(),
+            (lhs as u64).wrapping_rem(rhs as u64)
+        );
+
+        assert_eq!(memory.read_u64(0x70, 0).unwrap() as i64, lhs & rhs);
+        assert_eq!(memory.read_u64(0x78, 0).unwrap() as i64, lhs | rhs);
+        assert_eq!(memory.read_u64(0x80, 0).unwrap() as i64, lhs ^ rhs);
+
+        assert_eq!(
+            memory.read_u64(0x88, 0).unwrap() as i64,
+            lhs.wrapping_shl(rhs as u32)
+        );
+        assert_eq!(
+            memory.read_u64(0x90, 0).unwrap() as i64,
+            lhs.wrapping_shr(rhs as u32)
+        );
+        assert_eq!(
+            memory.read_u64(0x98, 0).unwrap(),
+            (lhs as u64).wrapping_shr(rhs as u32)
+        );
+        assert_eq!(
+            memory.read_u64(0xA0, 0).unwrap(),
+            (lhs as u64).rotate_left(rhs as u32)
+        );
+        assert_eq!(
+            memory.read_u64(0xA8, 0).unwrap(),
+            (lhs as u64).rotate_right(rhs as u32)
+        );
+
+        assert_eq!(memory.read_u64(0xB0, 0).unwrap(), 0xCCCC_CCCC_CCCC_CCCC);
+    }
+}
+
+#[test]
 fn global() {
-    let slice = [
-        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x06, 0x01, 0x60, 0x01, 0x7f, 0x01,
-        0x7f, 0x03, 0x02, 0x01, 0x00, 0x05, 0x03, 0x01, 0x00, 0x01, 0x06, 0x07, 0x01, 0x7f, 0x01,
-        0x41, 0xfb, 0x00, 0x0b, 0x0a, 0x0d, 0x01, 0x0b, 0x00, 0x23, 0x00, 0x20, 0x00, 0x6a, 0x24,
-        0x00, 0x23, 0x00, 0x0b,
-    ];
-    let module = WasmLoader::instantiate(&slice, |_, _, _| unreachable!()).unwrap();
+    let slice = include_bytes!("../test/global.wasm");
+    let module = WasmLoader::instantiate(slice, |_, _, _| unreachable!()).unwrap();
     let runnable = module.func_by_index(0).unwrap();
 
     assert_eq!(module.global_get(0).unwrap().value().get_i32(), Ok(123));

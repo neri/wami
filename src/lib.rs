@@ -6,6 +6,7 @@
 #![feature(const_option_ext)]
 #![feature(const_trait_impl)]
 #![feature(slice_split_at_unchecked)]
+#![feature(let_chains)]
 
 mod wasm;
 pub use crate::wasm::*;

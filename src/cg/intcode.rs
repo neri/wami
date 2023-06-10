@@ -1,4 +1,4 @@
-use super::{LocalVarIndex, StackLevel};
+use super::{GlobalVarIndex, LocalVarIndex, StackLevel};
 use crate::opcode::{WasmOpcode, WasmSingleOpcode};
 use alloc::{boxed::Box, vec::Vec};
 
@@ -6,84 +6,101 @@ use alloc::{boxed::Box, vec::Vec};
 #[non_exhaustive]
 #[derive(Debug, PartialEq)]
 pub enum WasmIntMnemonic {
-    /// Undefined
+    /// Intermediate code that could not be converted
     Undefined(WasmOpcode, ExceptionPosition),
-    /// Unreachable
-    Unreachable(ExceptionPosition),
 
-    /// No operation, this mnemonic will be removed during the compaction phase.
+    /// No operation marker, this mnemonic will be removed during the compaction phase.
     Nop,
     /// Block Marker, this mnemonic will be removed during the compaction phase.
     Block(usize),
     /// End of block marker, this mnemonic will be removed during the compaction phase.
     End(usize),
 
-    /// branch
+    /// `00 unreachable`
+    Unreachable(ExceptionPosition),
+
+    /// `0C br labelidx`
     Br(usize),
-    /// branch if true
+    /// `0D br_if labelidx`
     BrIf(usize),
-    /// branch table
+    /// `0E br_table vec(labelidx) labelidx`
     BrTable(Box<[usize]>),
 
     /// return from function
-    Return,
-    /// call function
-    Call(usize),
-    /// call indirect
-    CallIndirect(usize),
-    /// select value
-    Select,
+    ReturnV,
+    /// return from function (integer)
+    ReturnI,
+    /// return from function (float)
+    ReturnF,
 
-    /// Gets a value from a local variable
-    LocalGet(LocalVarIndex),
-    /// Sets a value to a local variable
-    LocalSet(LocalVarIndex),
-    LocalTee(LocalVarIndex),
+    /// `10 call funcidx`
+    Call(usize, ExceptionPosition),
+    /// `11 call_indirect typeidx 0x00`
+    CallIndirect(usize, ExceptionPosition),
 
-    /// Gets a value from a global variable
-    GlobalGet(usize),
-    /// Sets a value to a global variable
-    GlobalSet(usize),
+    /// `1B select`
+    SelectI,
+    SelectF,
 
-    I32Load(u32),
-    I32Load8S(u32),
-    I32Load8U(u32),
-    I32Load16S(u32),
-    I32Load16U(u32),
-    I32Store(u32),
-    I32Store8(u32),
-    I32Store16(u32),
-    I64Load(u32),
-    I64Load8S(u32),
-    I64Load8U(u32),
-    I64Load16S(u32),
-    I64Load16U(u32),
-    I64Load32S(u32),
-    I64Load32U(u32),
-    I64Store(u32),
-    I64Store8(u32),
-    I64Store16(u32),
-    I64Store32(u32),
+    LocalGetI(LocalVarIndex),
+    LocalSetI(LocalVarIndex),
+    LocalTeeI(LocalVarIndex),
+    GlobalGetI(GlobalVarIndex),
+    GlobalSetI(GlobalVarIndex),
+
+    LocalGetF(LocalVarIndex),
+    LocalSetF(LocalVarIndex),
+    LocalTeeF(LocalVarIndex),
+    GlobalGetF(GlobalVarIndex),
+    GlobalSetF(GlobalVarIndex),
+
+    I32Load(u32, ExceptionPosition),
+    I32Load8S(u32, ExceptionPosition),
+    I32Load8U(u32, ExceptionPosition),
+    I32Load16S(u32, ExceptionPosition),
+    I32Load16U(u32, ExceptionPosition),
+    I32Store(u32, ExceptionPosition),
+    I32Store8(u32, ExceptionPosition),
+    I32Store16(u32, ExceptionPosition),
+    I64Load(u32, ExceptionPosition),
+    I64Load8S(u32, ExceptionPosition),
+    I64Load8U(u32, ExceptionPosition),
+    I64Load16S(u32, ExceptionPosition),
+    I64Load16U(u32, ExceptionPosition),
+    I64Load32S(u32, ExceptionPosition),
+    I64Load32U(u32, ExceptionPosition),
+    I64Store(u32, ExceptionPosition),
+    I64Store8(u32, ExceptionPosition),
+    I64Store16(u32, ExceptionPosition),
+    I64Store32(u32, ExceptionPosition),
 
     #[cfg(feature = "float")]
-    F32Load(u32),
+    F32Load(u32, ExceptionPosition),
     #[cfg(feature = "float")]
-    F32Store(u32),
+    F32Store(u32, ExceptionPosition),
     #[cfg(feature = "float")]
-    F64Load(u32),
+    F64Load(u32, ExceptionPosition),
     #[cfg(feature = "float")]
-    F64Store(u32),
+    F64Store(u32, ExceptionPosition),
 
+    /// `3F memory.size 0x00`
     MemorySize,
+    /// `40 memory.grow 0x00`
     MemoryGrow,
-    MemoryCopy,
-    MemoryFill,
+    /// `FC 0A memory.copy memory_dst memory_src` (bulk_memory_operations)
+    MemoryCopy(ExceptionPosition),
+    /// `FC 0B memory.fill memory` (bulk_memory_operations)
+    MemoryFill(ExceptionPosition),
 
+    /// `41 i32.const n`
     I32Const(i32),
+    /// `42 i64.const n`
     I64Const(i64),
     #[cfg(feature = "float")]
+    /// `43 f32.const z`
     F32Const(f32),
     #[cfg(feature = "float")]
+    /// `44 f64.const z`
     F64Const(f64),
 
     I32Eqz,
@@ -104,10 +121,10 @@ pub enum WasmIntMnemonic {
     I32Add,
     I32Sub,
     I32Mul,
-    I32DivS,
-    I32DivU,
-    I32RemS,
-    I32RemU,
+    I32DivS(ExceptionPosition),
+    I32DivU(ExceptionPosition),
+    I32RemS(ExceptionPosition),
+    I32RemU(ExceptionPosition),
     I32And,
     I32Or,
     I32Xor,
@@ -135,10 +152,10 @@ pub enum WasmIntMnemonic {
     I64Add,
     I64Sub,
     I64Mul,
-    I64DivS,
-    I64DivU,
-    I64RemS,
-    I64RemU,
+    I64DivS(ExceptionPosition),
+    I64DivU(ExceptionPosition),
+    I64RemS(ExceptionPosition),
+    I64RemU(ExceptionPosition),
     I64And,
     I64Or,
     I64Xor,
@@ -156,11 +173,6 @@ pub enum WasmIntMnemonic {
     I32WrapI64,
     I32Extend8S,
     I32Extend16S,
-
-    I32ReinterpretF32,
-    I64ReinterpretF64,
-    F32ReinterpretI32,
-    F64ReinterpretI64,
 
     // Fused Instructions
     FusedI32SetConst(LocalVarIndex, i32),
@@ -200,6 +212,8 @@ pub struct ExceptionPosition {
 }
 
 impl ExceptionPosition {
+    pub const UNKNOWN: Self = Self::new(0);
+
     #[inline]
     pub const fn new(position: usize) -> Self {
         Self {
@@ -216,8 +230,6 @@ impl ExceptionPosition {
 /// Wasm Intermediate Code
 #[derive(Debug)]
 pub struct WasmImc {
-    pub position: u32,
-    pub opcode: WasmOpcode,
     pub mnemonic: WasmIntMnemonic,
     pub stack_level: StackLevel,
 }
@@ -226,36 +238,17 @@ impl WasmImc {
     #[inline]
     pub const fn from_mnemonic(mnemonic: WasmIntMnemonic) -> Self {
         Self {
-            position: 0,
-            opcode: WasmOpcode::UNREACHABLE,
             mnemonic,
             stack_level: StackLevel::zero(),
         }
     }
 
     #[inline]
-    pub const fn new(
-        source_position: usize,
-        opcode: WasmOpcode,
-        mnemonic: WasmIntMnemonic,
-        stack_level: StackLevel,
-    ) -> Self {
+    pub const fn new(mnemonic: WasmIntMnemonic, stack_level: StackLevel) -> Self {
         Self {
-            position: source_position as u32,
-            opcode,
             mnemonic,
             stack_level,
         }
-    }
-
-    #[inline]
-    pub const fn source_position(&self) -> usize {
-        self.position as usize
-    }
-
-    #[inline]
-    pub const fn opcode(&self) -> WasmOpcode {
-        self.opcode
     }
 
     #[inline]

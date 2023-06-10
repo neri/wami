@@ -49,11 +49,11 @@ pub enum WasmSingleOpcode {
     GlobalSet = 0x24,
     /// `28 i32.load align offset` (mvp)
     I32Load = 0x28,
-    /// `29 i64.load align offset` (mvp_i64)
+    /// `29 i64.load align offset` (mvp)
     I64Load = 0x29,
-    /// `2A f32.load align offset` (mvp_f32)
+    /// `2A f32.load align offset` (mvp_float)
     F32Load = 0x2A,
-    /// `2B f64.load align offset` (mvp_f64)
+    /// `2B f64.load align offset` (mvp_float)
     F64Load = 0x2B,
     /// `2C i32.load8_s align offset` (mvp)
     I32Load8S = 0x2C,
@@ -63,35 +63,35 @@ pub enum WasmSingleOpcode {
     I32Load16S = 0x2E,
     /// `2F i32.load16_u align offset` (mvp)
     I32Load16U = 0x2F,
-    /// `30 i64.load8_s align offset` (mvp_i64)
+    /// `30 i64.load8_s align offset` (mvp)
     I64Load8S = 0x30,
-    /// `31 i64.load8_u align offset` (mvp_i64)
+    /// `31 i64.load8_u align offset` (mvp)
     I64Load8U = 0x31,
-    /// `32 i64.load16_s align offset` (mvp_i64)
+    /// `32 i64.load16_s align offset` (mvp)
     I64Load16S = 0x32,
-    /// `33 i64.load16_u align offset` (mvp_i64)
+    /// `33 i64.load16_u align offset` (mvp)
     I64Load16U = 0x33,
-    /// `34 i64.load32_s align offset` (mvp_i64)
+    /// `34 i64.load32_s align offset` (mvp)
     I64Load32S = 0x34,
-    /// `35 i64.load32_u align offset` (mvp_i64)
+    /// `35 i64.load32_u align offset` (mvp)
     I64Load32U = 0x35,
     /// `36 i32.store align offset` (mvp)
     I32Store = 0x36,
-    /// `37 i64.store align offset` (mvp_i64)
+    /// `37 i64.store align offset` (mvp)
     I64Store = 0x37,
-    /// `38 f32.store align offset` (mvp_f32)
+    /// `38 f32.store align offset` (mvp_float)
     F32Store = 0x38,
-    /// `39 f64.store align offset` (mvp_f64)
+    /// `39 f64.store align offset` (mvp_float)
     F64Store = 0x39,
     /// `3A i32.store8 align offset` (mvp)
     I32Store8 = 0x3A,
     /// `3B i32.store16 align offset` (mvp)
     I32Store16 = 0x3B,
-    /// `3C i64.store8 align offset` (mvp_i64)
+    /// `3C i64.store8 align offset` (mvp)
     I64Store8 = 0x3C,
-    /// `3D i64.store16 align offset` (mvp_i64)
+    /// `3D i64.store16 align offset` (mvp)
     I64Store16 = 0x3D,
-    /// `3E i64.store32 align offset` (mvp_i64)
+    /// `3E i64.store32 align offset` (mvp)
     I64Store32 = 0x3E,
     /// `3F memory.size 0x00` (mvp)
     MemorySize = 0x3F,
@@ -99,11 +99,11 @@ pub enum WasmSingleOpcode {
     MemoryGrow = 0x40,
     /// `41 i32.const n` (mvp)
     I32Const = 0x41,
-    /// `42 i64.const n` (mvp_i64)
+    /// `42 i64.const n` (mvp)
     I64Const = 0x42,
-    /// `43 f32.const z` (mvp_f32)
+    /// `43 f32.const z` (mvp_float)
     F32Const = 0x43,
-    /// `44 f64.const z` (mvp_f64)
+    /// `44 f64.const z` (mvp_float)
     F64Const = 0x44,
     /// `45 i32.eqz` (mvp)
     I32Eqz = 0x45,
@@ -127,51 +127,51 @@ pub enum WasmSingleOpcode {
     I32GeS = 0x4E,
     /// `4F i32.ge_u` (mvp)
     I32GeU = 0x4F,
-    /// `50 i64.eqz` (mvp_i64)
+    /// `50 i64.eqz` (mvp)
     I64Eqz = 0x50,
-    /// `51 i64.eq` (mvp_i64)
+    /// `51 i64.eq` (mvp)
     I64Eq = 0x51,
-    /// `52 i64.ne` (mvp_i64)
+    /// `52 i64.ne` (mvp)
     I64Ne = 0x52,
-    /// `53 i64.lt_s` (mvp_i64)
+    /// `53 i64.lt_s` (mvp)
     I64LtS = 0x53,
-    /// `54 i64.lt_u` (mvp_i64)
+    /// `54 i64.lt_u` (mvp)
     I64LtU = 0x54,
-    /// `55 i64.gt_s` (mvp_i64)
+    /// `55 i64.gt_s` (mvp)
     I64GtS = 0x55,
-    /// `56 i64.gt_u` (mvp_i64)
+    /// `56 i64.gt_u` (mvp)
     I64GtU = 0x56,
-    /// `57 i64.le_s` (mvp_i64)
+    /// `57 i64.le_s` (mvp)
     I64LeS = 0x57,
-    /// `58 i64.le_u` (mvp_i64)
+    /// `58 i64.le_u` (mvp)
     I64LeU = 0x58,
-    /// `59 i64.ge_s` (mvp_i64)
+    /// `59 i64.ge_s` (mvp)
     I64GeS = 0x59,
-    /// `5A i64.ge_u` (mvp_i64)
+    /// `5A i64.ge_u` (mvp)
     I64GeU = 0x5A,
-    /// `5B f32.eq` (mvp_f32)
+    /// `5B f32.eq` (mvp_float)
     F32Eq = 0x5B,
-    /// `5C f32.ne` (mvp_f32)
+    /// `5C f32.ne` (mvp_float)
     F32Ne = 0x5C,
-    /// `5D f32.lt` (mvp_f32)
+    /// `5D f32.lt` (mvp_float)
     F32Lt = 0x5D,
-    /// `5E f32.gt` (mvp_f32)
+    /// `5E f32.gt` (mvp_float)
     F32Gt = 0x5E,
-    /// `5F f32.le` (mvp_f32)
+    /// `5F f32.le` (mvp_float)
     F32Le = 0x5F,
-    /// `60 f32.ge` (mvp_f32)
+    /// `60 f32.ge` (mvp_float)
     F32Ge = 0x60,
-    /// `61 f64.eq` (mvp_f64)
+    /// `61 f64.eq` (mvp_float)
     F64Eq = 0x61,
-    /// `62 f64.ne` (mvp_f64)
+    /// `62 f64.ne` (mvp_float)
     F64Ne = 0x62,
-    /// `63 f64.lt` (mvp_f64)
+    /// `63 f64.lt` (mvp_float)
     F64Lt = 0x63,
-    /// `64 f64.gt` (mvp_f64)
+    /// `64 f64.gt` (mvp_float)
     F64Gt = 0x64,
-    /// `65 f64.le` (mvp_f64)
+    /// `65 f64.le` (mvp_float)
     F64Le = 0x65,
-    /// `66 f64.ge` (mvp_f64)
+    /// `66 f64.ge` (mvp_float)
     F64Ge = 0x66,
     /// `67 i32.clz` (mvp)
     I32Clz = 0x67,
@@ -209,147 +209,147 @@ pub enum WasmSingleOpcode {
     I32Rotl = 0x77,
     /// `78 i32.rotr` (mvp)
     I32Rotr = 0x78,
-    /// `79 i64.clz` (mvp_i64)
+    /// `79 i64.clz` (mvp)
     I64Clz = 0x79,
-    /// `7A i64.ctz` (mvp_i64)
+    /// `7A i64.ctz` (mvp)
     I64Ctz = 0x7A,
-    /// `7B i64.popcnt` (mvp_i64)
+    /// `7B i64.popcnt` (mvp)
     I64Popcnt = 0x7B,
-    /// `7C i64.add` (mvp_i64)
+    /// `7C i64.add` (mvp)
     I64Add = 0x7C,
-    /// `7D i64.sub` (mvp_i64)
+    /// `7D i64.sub` (mvp)
     I64Sub = 0x7D,
-    /// `7E i64.mul` (mvp_i64)
+    /// `7E i64.mul` (mvp)
     I64Mul = 0x7E,
-    /// `7F i64.div_s` (mvp_i64)
+    /// `7F i64.div_s` (mvp)
     I64DivS = 0x7F,
-    /// `80 i64.div_u` (mvp_i64)
+    /// `80 i64.div_u` (mvp)
     I64DivU = 0x80,
-    /// `81 i64.rem_s` (mvp_i64)
+    /// `81 i64.rem_s` (mvp)
     I64RemS = 0x81,
-    /// `82 i64.rem_u` (mvp_i64)
+    /// `82 i64.rem_u` (mvp)
     I64RemU = 0x82,
-    /// `83 i64.and` (mvp_i64)
+    /// `83 i64.and` (mvp)
     I64And = 0x83,
-    /// `84 i64.or` (mvp_i64)
+    /// `84 i64.or` (mvp)
     I64Or = 0x84,
-    /// `85 i64.xor` (mvp_i64)
+    /// `85 i64.xor` (mvp)
     I64Xor = 0x85,
-    /// `86 i64.shl` (mvp_i64)
+    /// `86 i64.shl` (mvp)
     I64Shl = 0x86,
-    /// `87 i64.shr_s` (mvp_i64)
+    /// `87 i64.shr_s` (mvp)
     I64ShrS = 0x87,
-    /// `88 i64.shr_u` (mvp_i64)
+    /// `88 i64.shr_u` (mvp)
     I64ShrU = 0x88,
-    /// `89 i64.rotl` (mvp_i64)
+    /// `89 i64.rotl` (mvp)
     I64Rotl = 0x89,
-    /// `8A i64.rotr` (mvp_i64)
+    /// `8A i64.rotr` (mvp)
     I64Rotr = 0x8A,
-    /// `8B f32.abs` (mvp_f32)
+    /// `8B f32.abs` (mvp_float)
     F32Abs = 0x8B,
-    /// `8C f32.neg` (mvp_f32)
+    /// `8C f32.neg` (mvp_float)
     F32Neg = 0x8C,
-    /// `8D f32.ceil` (mvp_f32)
+    /// `8D f32.ceil` (mvp_float)
     F32Ceil = 0x8D,
-    /// `8E f32.floor` (mvp_f32)
+    /// `8E f32.floor` (mvp_float)
     F32Floor = 0x8E,
-    /// `8F f32.trunc` (mvp_f32)
+    /// `8F f32.trunc` (mvp_float)
     F32Trunc = 0x8F,
-    /// `90 f32.nearest` (mvp_f32)
+    /// `90 f32.nearest` (mvp_float)
     F32Nearest = 0x90,
-    /// `91 f32.sqrt` (mvp_f32)
+    /// `91 f32.sqrt` (mvp_float)
     F32Sqrt = 0x91,
-    /// `92 f32.add` (mvp_f32)
+    /// `92 f32.add` (mvp_float)
     F32Add = 0x92,
-    /// `93 f32.sub` (mvp_f32)
+    /// `93 f32.sub` (mvp_float)
     F32Sub = 0x93,
-    /// `94 f32.mul` (mvp_f32)
+    /// `94 f32.mul` (mvp_float)
     F32Mul = 0x94,
-    /// `95 f32.div` (mvp_f32)
+    /// `95 f32.div` (mvp_float)
     F32Div = 0x95,
-    /// `96 f32.min` (mvp_f32)
+    /// `96 f32.min` (mvp_float)
     F32Min = 0x96,
-    /// `97 f32.max` (mvp_f32)
+    /// `97 f32.max` (mvp_float)
     F32Max = 0x97,
-    /// `98 f32.copysign` (mvp_f32)
+    /// `98 f32.copysign` (mvp_float)
     F32Copysign = 0x98,
-    /// `99 f64.abs` (mvp_f64)
+    /// `99 f64.abs` (mvp_float)
     F64Abs = 0x99,
-    /// `9A f64.neg` (mvp_f64)
+    /// `9A f64.neg` (mvp_float)
     F64Neg = 0x9A,
-    /// `9B f64.ceil` (mvp_f64)
+    /// `9B f64.ceil` (mvp_float)
     F64Ceil = 0x9B,
-    /// `9C f64.floor` (mvp_f64)
+    /// `9C f64.floor` (mvp_float)
     F64Floor = 0x9C,
-    /// `9D f64.trunc` (mvp_f64)
+    /// `9D f64.trunc` (mvp_float)
     F64Trunc = 0x9D,
-    /// `9E f64.nearest` (mvp_f64)
+    /// `9E f64.nearest` (mvp_float)
     F64Nearest = 0x9E,
-    /// `9F f64.sqrt` (mvp_f64)
+    /// `9F f64.sqrt` (mvp_float)
     F64Sqrt = 0x9F,
-    /// `A0 f64.add` (mvp_f64)
+    /// `A0 f64.add` (mvp_float)
     F64Add = 0xA0,
-    /// `A1 f64.sub` (mvp_f64)
+    /// `A1 f64.sub` (mvp_float)
     F64Sub = 0xA1,
-    /// `A2 f64.mul` (mvp_f64)
+    /// `A2 f64.mul` (mvp_float)
     F64Mul = 0xA2,
-    /// `A3 f64.div` (mvp_f64)
+    /// `A3 f64.div` (mvp_float)
     F64Div = 0xA3,
-    /// `A4 f64.min` (mvp_f64)
+    /// `A4 f64.min` (mvp_float)
     F64Min = 0xA4,
-    /// `A5 f64.max` (mvp_f64)
+    /// `A5 f64.max` (mvp_float)
     F64Max = 0xA5,
-    /// `A6 f64.copysign` (mvp_f64)
+    /// `A6 f64.copysign` (mvp_float)
     F64Copysign = 0xA6,
-    /// `A7 i32.wrap_i64` (mvp_i64)
+    /// `A7 i32.wrap_i64` (mvp)
     I32WrapI64 = 0xA7,
-    /// `A8 i32.trunc_f32_s` (mvp_f32)
+    /// `A8 i32.trunc_f32_s` (mvp_float)
     I32TruncF32S = 0xA8,
-    /// `A9 i32.trunc_f32_u` (mvp_f32)
+    /// `A9 i32.trunc_f32_u` (mvp_float)
     I32TruncF32U = 0xA9,
-    /// `AA i32.trunc_f64_s` (mvp_f32)
+    /// `AA i32.trunc_f64_s` (mvp_float)
     I32TruncF64S = 0xAA,
-    /// `AB i32.trunc_f64_u` (mvp_f32)
+    /// `AB i32.trunc_f64_u` (mvp_float)
     I32TruncF64U = 0xAB,
-    /// `AC i64.extend_i32_s` (mvp_i64)
+    /// `AC i64.extend_i32_s` (mvp)
     I64ExtendI32S = 0xAC,
-    /// `AD i64.extend_i32_u` (mvp_i64)
+    /// `AD i64.extend_i32_u` (mvp)
     I64ExtendI32U = 0xAD,
-    /// `AE i64.trunc_f32_s` (mvp_f32)
+    /// `AE i64.trunc_f32_s` (mvp_float)
     I64TruncF32S = 0xAE,
-    /// `AF i64.trunc_f32_u` (mvp_f32)
+    /// `AF i64.trunc_f32_u` (mvp_float)
     I64TruncF32U = 0xAF,
-    /// `B0 i64.trunc_f64_s` (mvp_f64)
+    /// `B0 i64.trunc_f64_s` (mvp_float)
     I64TruncF64S = 0xB0,
-    /// `B1 i64.trunc_f64_u` (mvp_f64)
+    /// `B1 i64.trunc_f64_u` (mvp_float)
     I64TruncF64U = 0xB1,
-    /// `B2 f32.convert_i32_s` (mvp_f32)
+    /// `B2 f32.convert_i32_s` (mvp_float)
     F32ConvertI32S = 0xB2,
-    /// `B3 f32.convert_i32_u` (mvp_f32)
+    /// `B3 f32.convert_i32_u` (mvp_float)
     F32ConvertI32U = 0xB3,
-    /// `B4 f32.convert_i64_s` (mvp_f32)
+    /// `B4 f32.convert_i64_s` (mvp_float)
     F32ConvertI64S = 0xB4,
-    /// `B5 f32.convert_i64_u` (mvp_f32)
+    /// `B5 f32.convert_i64_u` (mvp_float)
     F32ConvertI64U = 0xB5,
-    /// `B6 f32.demote_f64` (mvp_f64)
+    /// `B6 f32.demote_f64` (mvp_float)
     F32DemoteF64 = 0xB6,
-    /// `B7 f64.convert_i32_s` (mvp_f64)
+    /// `B7 f64.convert_i32_s` (mvp_float)
     F64ConvertI32S = 0xB7,
-    /// `B8 f64.convert_i32_u` (mvp_f64)
+    /// `B8 f64.convert_i32_u` (mvp_float)
     F64ConvertI32U = 0xB8,
-    /// `B9 f64.convert_i64_s` (mvp_f64)
+    /// `B9 f64.convert_i64_s` (mvp_float)
     F64ConvertI64S = 0xB9,
-    /// `BA f64.convert_i64_u` (mvp_f64)
+    /// `BA f64.convert_i64_u` (mvp_float)
     F64ConvertI64U = 0xBA,
-    /// `BB f64.promote_f32` (mvp_f64)
+    /// `BB f64.promote_f32` (mvp_float)
     F64PromoteF32 = 0xBB,
-    /// `BC i32.reinterpret_f32` (mvp_f32)
+    /// `BC i32.reinterpret_f32` (mvp_float)
     I32ReinterpretF32 = 0xBC,
-    /// `BD i64.reinterpret_f64` (mvp_f64)
+    /// `BD i64.reinterpret_f64` (mvp_float)
     I64ReinterpretF64 = 0xBD,
-    /// `BE f32.reinterpret_i32` (mvp_f32)
+    /// `BE f32.reinterpret_i32` (mvp_float)
     F32ReinterpretI32 = 0xBE,
-    /// `BF f64.reinterpret_i64` (mvp_f64)
+    /// `BF f64.reinterpret_i64` (mvp_float)
     F64ReinterpretI64 = 0xBF,
     /// `C0 i32.extend8_s` (sign_extend)
     I32Extend8S = 0xC0,
@@ -395,9 +395,7 @@ pub enum WasmOperandType {
 pub enum WasmProposalType {
     Mvp,
     TailCall,
-    MvpI64,
-    MvpF32,
-    MvpF64,
+    MvpFloat,
     SignExtend,
     BulkMemoryOperations,
     Simd,
@@ -843,118 +841,118 @@ impl WasmSingleOpcode {
         match *self {
             Self::ReturnCall => WasmProposalType::TailCall,
             Self::ReturnCallIndirect => WasmProposalType::TailCall,
-            Self::I64Load => WasmProposalType::MvpI64,
-            Self::F32Load => WasmProposalType::MvpF32,
-            Self::F64Load => WasmProposalType::MvpF64,
-            Self::I64Load8S => WasmProposalType::MvpI64,
-            Self::I64Load8U => WasmProposalType::MvpI64,
-            Self::I64Load16S => WasmProposalType::MvpI64,
-            Self::I64Load16U => WasmProposalType::MvpI64,
-            Self::I64Load32S => WasmProposalType::MvpI64,
-            Self::I64Load32U => WasmProposalType::MvpI64,
-            Self::I64Store => WasmProposalType::MvpI64,
-            Self::F32Store => WasmProposalType::MvpF32,
-            Self::F64Store => WasmProposalType::MvpF64,
-            Self::I64Store8 => WasmProposalType::MvpI64,
-            Self::I64Store16 => WasmProposalType::MvpI64,
-            Self::I64Store32 => WasmProposalType::MvpI64,
-            Self::I64Const => WasmProposalType::MvpI64,
-            Self::F32Const => WasmProposalType::MvpF32,
-            Self::F64Const => WasmProposalType::MvpF64,
-            Self::I64Eqz => WasmProposalType::MvpI64,
-            Self::I64Eq => WasmProposalType::MvpI64,
-            Self::I64Ne => WasmProposalType::MvpI64,
-            Self::I64LtS => WasmProposalType::MvpI64,
-            Self::I64LtU => WasmProposalType::MvpI64,
-            Self::I64GtS => WasmProposalType::MvpI64,
-            Self::I64GtU => WasmProposalType::MvpI64,
-            Self::I64LeS => WasmProposalType::MvpI64,
-            Self::I64LeU => WasmProposalType::MvpI64,
-            Self::I64GeS => WasmProposalType::MvpI64,
-            Self::I64GeU => WasmProposalType::MvpI64,
-            Self::F32Eq => WasmProposalType::MvpF32,
-            Self::F32Ne => WasmProposalType::MvpF32,
-            Self::F32Lt => WasmProposalType::MvpF32,
-            Self::F32Gt => WasmProposalType::MvpF32,
-            Self::F32Le => WasmProposalType::MvpF32,
-            Self::F32Ge => WasmProposalType::MvpF32,
-            Self::F64Eq => WasmProposalType::MvpF64,
-            Self::F64Ne => WasmProposalType::MvpF64,
-            Self::F64Lt => WasmProposalType::MvpF64,
-            Self::F64Gt => WasmProposalType::MvpF64,
-            Self::F64Le => WasmProposalType::MvpF64,
-            Self::F64Ge => WasmProposalType::MvpF64,
-            Self::I64Clz => WasmProposalType::MvpI64,
-            Self::I64Ctz => WasmProposalType::MvpI64,
-            Self::I64Popcnt => WasmProposalType::MvpI64,
-            Self::I64Add => WasmProposalType::MvpI64,
-            Self::I64Sub => WasmProposalType::MvpI64,
-            Self::I64Mul => WasmProposalType::MvpI64,
-            Self::I64DivS => WasmProposalType::MvpI64,
-            Self::I64DivU => WasmProposalType::MvpI64,
-            Self::I64RemS => WasmProposalType::MvpI64,
-            Self::I64RemU => WasmProposalType::MvpI64,
-            Self::I64And => WasmProposalType::MvpI64,
-            Self::I64Or => WasmProposalType::MvpI64,
-            Self::I64Xor => WasmProposalType::MvpI64,
-            Self::I64Shl => WasmProposalType::MvpI64,
-            Self::I64ShrS => WasmProposalType::MvpI64,
-            Self::I64ShrU => WasmProposalType::MvpI64,
-            Self::I64Rotl => WasmProposalType::MvpI64,
-            Self::I64Rotr => WasmProposalType::MvpI64,
-            Self::F32Abs => WasmProposalType::MvpF32,
-            Self::F32Neg => WasmProposalType::MvpF32,
-            Self::F32Ceil => WasmProposalType::MvpF32,
-            Self::F32Floor => WasmProposalType::MvpF32,
-            Self::F32Trunc => WasmProposalType::MvpF32,
-            Self::F32Nearest => WasmProposalType::MvpF32,
-            Self::F32Sqrt => WasmProposalType::MvpF32,
-            Self::F32Add => WasmProposalType::MvpF32,
-            Self::F32Sub => WasmProposalType::MvpF32,
-            Self::F32Mul => WasmProposalType::MvpF32,
-            Self::F32Div => WasmProposalType::MvpF32,
-            Self::F32Min => WasmProposalType::MvpF32,
-            Self::F32Max => WasmProposalType::MvpF32,
-            Self::F32Copysign => WasmProposalType::MvpF32,
-            Self::F64Abs => WasmProposalType::MvpF64,
-            Self::F64Neg => WasmProposalType::MvpF64,
-            Self::F64Ceil => WasmProposalType::MvpF64,
-            Self::F64Floor => WasmProposalType::MvpF64,
-            Self::F64Trunc => WasmProposalType::MvpF64,
-            Self::F64Nearest => WasmProposalType::MvpF64,
-            Self::F64Sqrt => WasmProposalType::MvpF64,
-            Self::F64Add => WasmProposalType::MvpF64,
-            Self::F64Sub => WasmProposalType::MvpF64,
-            Self::F64Mul => WasmProposalType::MvpF64,
-            Self::F64Div => WasmProposalType::MvpF64,
-            Self::F64Min => WasmProposalType::MvpF64,
-            Self::F64Max => WasmProposalType::MvpF64,
-            Self::F64Copysign => WasmProposalType::MvpF64,
-            Self::I32WrapI64 => WasmProposalType::MvpI64,
-            Self::I32TruncF32S => WasmProposalType::MvpF32,
-            Self::I32TruncF32U => WasmProposalType::MvpF32,
-            Self::I32TruncF64S => WasmProposalType::MvpF32,
-            Self::I32TruncF64U => WasmProposalType::MvpF32,
-            Self::I64ExtendI32S => WasmProposalType::MvpI64,
-            Self::I64ExtendI32U => WasmProposalType::MvpI64,
-            Self::I64TruncF32S => WasmProposalType::MvpF32,
-            Self::I64TruncF32U => WasmProposalType::MvpF32,
-            Self::I64TruncF64S => WasmProposalType::MvpF64,
-            Self::I64TruncF64U => WasmProposalType::MvpF64,
-            Self::F32ConvertI32S => WasmProposalType::MvpF32,
-            Self::F32ConvertI32U => WasmProposalType::MvpF32,
-            Self::F32ConvertI64S => WasmProposalType::MvpF32,
-            Self::F32ConvertI64U => WasmProposalType::MvpF32,
-            Self::F32DemoteF64 => WasmProposalType::MvpF64,
-            Self::F64ConvertI32S => WasmProposalType::MvpF64,
-            Self::F64ConvertI32U => WasmProposalType::MvpF64,
-            Self::F64ConvertI64S => WasmProposalType::MvpF64,
-            Self::F64ConvertI64U => WasmProposalType::MvpF64,
-            Self::F64PromoteF32 => WasmProposalType::MvpF64,
-            Self::I32ReinterpretF32 => WasmProposalType::MvpF32,
-            Self::I64ReinterpretF64 => WasmProposalType::MvpF64,
-            Self::F32ReinterpretI32 => WasmProposalType::MvpF32,
-            Self::F64ReinterpretI64 => WasmProposalType::MvpF64,
+            Self::I64Load => WasmProposalType::Mvp,
+            Self::F32Load => WasmProposalType::MvpFloat,
+            Self::F64Load => WasmProposalType::MvpFloat,
+            Self::I64Load8S => WasmProposalType::Mvp,
+            Self::I64Load8U => WasmProposalType::Mvp,
+            Self::I64Load16S => WasmProposalType::Mvp,
+            Self::I64Load16U => WasmProposalType::Mvp,
+            Self::I64Load32S => WasmProposalType::Mvp,
+            Self::I64Load32U => WasmProposalType::Mvp,
+            Self::I64Store => WasmProposalType::Mvp,
+            Self::F32Store => WasmProposalType::MvpFloat,
+            Self::F64Store => WasmProposalType::MvpFloat,
+            Self::I64Store8 => WasmProposalType::Mvp,
+            Self::I64Store16 => WasmProposalType::Mvp,
+            Self::I64Store32 => WasmProposalType::Mvp,
+            Self::I64Const => WasmProposalType::Mvp,
+            Self::F32Const => WasmProposalType::MvpFloat,
+            Self::F64Const => WasmProposalType::MvpFloat,
+            Self::I64Eqz => WasmProposalType::Mvp,
+            Self::I64Eq => WasmProposalType::Mvp,
+            Self::I64Ne => WasmProposalType::Mvp,
+            Self::I64LtS => WasmProposalType::Mvp,
+            Self::I64LtU => WasmProposalType::Mvp,
+            Self::I64GtS => WasmProposalType::Mvp,
+            Self::I64GtU => WasmProposalType::Mvp,
+            Self::I64LeS => WasmProposalType::Mvp,
+            Self::I64LeU => WasmProposalType::Mvp,
+            Self::I64GeS => WasmProposalType::Mvp,
+            Self::I64GeU => WasmProposalType::Mvp,
+            Self::F32Eq => WasmProposalType::MvpFloat,
+            Self::F32Ne => WasmProposalType::MvpFloat,
+            Self::F32Lt => WasmProposalType::MvpFloat,
+            Self::F32Gt => WasmProposalType::MvpFloat,
+            Self::F32Le => WasmProposalType::MvpFloat,
+            Self::F32Ge => WasmProposalType::MvpFloat,
+            Self::F64Eq => WasmProposalType::MvpFloat,
+            Self::F64Ne => WasmProposalType::MvpFloat,
+            Self::F64Lt => WasmProposalType::MvpFloat,
+            Self::F64Gt => WasmProposalType::MvpFloat,
+            Self::F64Le => WasmProposalType::MvpFloat,
+            Self::F64Ge => WasmProposalType::MvpFloat,
+            Self::I64Clz => WasmProposalType::Mvp,
+            Self::I64Ctz => WasmProposalType::Mvp,
+            Self::I64Popcnt => WasmProposalType::Mvp,
+            Self::I64Add => WasmProposalType::Mvp,
+            Self::I64Sub => WasmProposalType::Mvp,
+            Self::I64Mul => WasmProposalType::Mvp,
+            Self::I64DivS => WasmProposalType::Mvp,
+            Self::I64DivU => WasmProposalType::Mvp,
+            Self::I64RemS => WasmProposalType::Mvp,
+            Self::I64RemU => WasmProposalType::Mvp,
+            Self::I64And => WasmProposalType::Mvp,
+            Self::I64Or => WasmProposalType::Mvp,
+            Self::I64Xor => WasmProposalType::Mvp,
+            Self::I64Shl => WasmProposalType::Mvp,
+            Self::I64ShrS => WasmProposalType::Mvp,
+            Self::I64ShrU => WasmProposalType::Mvp,
+            Self::I64Rotl => WasmProposalType::Mvp,
+            Self::I64Rotr => WasmProposalType::Mvp,
+            Self::F32Abs => WasmProposalType::MvpFloat,
+            Self::F32Neg => WasmProposalType::MvpFloat,
+            Self::F32Ceil => WasmProposalType::MvpFloat,
+            Self::F32Floor => WasmProposalType::MvpFloat,
+            Self::F32Trunc => WasmProposalType::MvpFloat,
+            Self::F32Nearest => WasmProposalType::MvpFloat,
+            Self::F32Sqrt => WasmProposalType::MvpFloat,
+            Self::F32Add => WasmProposalType::MvpFloat,
+            Self::F32Sub => WasmProposalType::MvpFloat,
+            Self::F32Mul => WasmProposalType::MvpFloat,
+            Self::F32Div => WasmProposalType::MvpFloat,
+            Self::F32Min => WasmProposalType::MvpFloat,
+            Self::F32Max => WasmProposalType::MvpFloat,
+            Self::F32Copysign => WasmProposalType::MvpFloat,
+            Self::F64Abs => WasmProposalType::MvpFloat,
+            Self::F64Neg => WasmProposalType::MvpFloat,
+            Self::F64Ceil => WasmProposalType::MvpFloat,
+            Self::F64Floor => WasmProposalType::MvpFloat,
+            Self::F64Trunc => WasmProposalType::MvpFloat,
+            Self::F64Nearest => WasmProposalType::MvpFloat,
+            Self::F64Sqrt => WasmProposalType::MvpFloat,
+            Self::F64Add => WasmProposalType::MvpFloat,
+            Self::F64Sub => WasmProposalType::MvpFloat,
+            Self::F64Mul => WasmProposalType::MvpFloat,
+            Self::F64Div => WasmProposalType::MvpFloat,
+            Self::F64Min => WasmProposalType::MvpFloat,
+            Self::F64Max => WasmProposalType::MvpFloat,
+            Self::F64Copysign => WasmProposalType::MvpFloat,
+            Self::I32WrapI64 => WasmProposalType::Mvp,
+            Self::I32TruncF32S => WasmProposalType::MvpFloat,
+            Self::I32TruncF32U => WasmProposalType::MvpFloat,
+            Self::I32TruncF64S => WasmProposalType::MvpFloat,
+            Self::I32TruncF64U => WasmProposalType::MvpFloat,
+            Self::I64ExtendI32S => WasmProposalType::Mvp,
+            Self::I64ExtendI32U => WasmProposalType::Mvp,
+            Self::I64TruncF32S => WasmProposalType::MvpFloat,
+            Self::I64TruncF32U => WasmProposalType::MvpFloat,
+            Self::I64TruncF64S => WasmProposalType::MvpFloat,
+            Self::I64TruncF64U => WasmProposalType::MvpFloat,
+            Self::F32ConvertI32S => WasmProposalType::MvpFloat,
+            Self::F32ConvertI32U => WasmProposalType::MvpFloat,
+            Self::F32ConvertI64S => WasmProposalType::MvpFloat,
+            Self::F32ConvertI64U => WasmProposalType::MvpFloat,
+            Self::F32DemoteF64 => WasmProposalType::MvpFloat,
+            Self::F64ConvertI32S => WasmProposalType::MvpFloat,
+            Self::F64ConvertI32U => WasmProposalType::MvpFloat,
+            Self::F64ConvertI64S => WasmProposalType::MvpFloat,
+            Self::F64ConvertI64U => WasmProposalType::MvpFloat,
+            Self::F64PromoteF32 => WasmProposalType::MvpFloat,
+            Self::I32ReinterpretF32 => WasmProposalType::MvpFloat,
+            Self::I64ReinterpretF64 => WasmProposalType::MvpFloat,
+            Self::F32ReinterpretI32 => WasmProposalType::MvpFloat,
+            Self::F64ReinterpretI64 => WasmProposalType::MvpFloat,
             Self::I32Extend8S => WasmProposalType::SignExtend,
             Self::I32Extend16S => WasmProposalType::SignExtend,
             Self::I64Extend8S => WasmProposalType::SignExtend,

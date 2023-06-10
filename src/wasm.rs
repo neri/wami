@@ -448,11 +448,6 @@ impl WasmModule {
     }
 
     #[inline]
-    pub unsafe fn memory_unchecked(&self, index: usize) -> &WasmMemory {
-        unsafe { self.memories.get_unchecked(index) }
-    }
-
-    #[inline]
     pub fn tables(&mut self) -> &mut [WasmTable] {
         self.tables.as_mut_slice()
     }
@@ -606,7 +601,6 @@ impl<'a> Leb128Stream<'a> {
     }
 }
 
-#[allow(dead_code)]
 impl Leb128Stream<'_> {
     /// Returns to the origin of the stream
     #[inline]
@@ -701,8 +695,8 @@ impl Leb128Stream<'_> {
             cursor += 1;
 
             value |= (d as u64 & 0x7F) << scale;
-            let signed = (d & 0x40) != 0;
             if (d & 0x80) == 0 {
+                let signed = (d & 0x40) != 0;
                 break signed;
             }
             scale += 7;
@@ -1090,63 +1084,32 @@ impl WasmMemory {
         }
     }
 
-    pub fn slice<'a>(
-        &'a self,
-        offset: usize,
-        size: usize,
-    ) -> Result<&'a [u8], WasmRuntimeErrorKind> {
+    pub fn slice<'a>(&'a self, base: u32, count: u32) -> Result<&'a [u8], WasmRuntimeErrorKind> {
         let memory = self.as_slice();
         let limit = memory.len();
-        if offset < limit && size < limit && offset + size < limit {
-            Ok(unsafe { slice::from_raw_parts(memory.as_ptr().add(offset), size) })
-        } else {
-            Err(WasmRuntimeErrorKind::OutOfBounds)
-        }
+        let _ea = Self::effective_address_range(base, count, limit)?;
+        Ok(unsafe { slice::from_raw_parts(memory.as_ptr().add(base as usize), count as usize) })
     }
 
     pub unsafe fn slice_mut<'a>(
         &'a self,
-        offset: usize,
-        size: usize,
+        base: u32,
+        count: u32,
     ) -> Result<&'a mut [u8], WasmRuntimeErrorKind> {
         let memory = self.as_mut_slice();
         let limit = memory.len();
-        if offset < limit && size < limit && offset + size < limit {
-            Ok(unsafe { slice::from_raw_parts_mut(memory.as_mut_ptr().add(offset), size) })
-        } else {
-            Err(WasmRuntimeErrorKind::OutOfBounds)
-        }
+        let _ea = Self::effective_address_range(base, count, limit)?;
+        Ok(unsafe {
+            slice::from_raw_parts_mut(memory.as_mut_ptr().add(base as usize), count as usize)
+        })
     }
 
-    pub unsafe fn transmute<T>(&self, offset: usize) -> Result<&T, WasmRuntimeErrorKind> {
+    pub unsafe fn transmute<T>(&self, offset: u32) -> Result<&T, WasmRuntimeErrorKind> {
         let memory = self.as_slice();
         let limit = memory.len();
         let size = size_of::<T>();
-        if offset < limit && size < limit && offset + size < limit {
-            Ok(unsafe { transmute(memory.as_ptr().add(offset)) })
-        } else {
-            Err(WasmRuntimeErrorKind::OutOfBounds)
-        }
-    }
-
-    pub fn read_u32_array(
-        &self,
-        offset: usize,
-        len: usize,
-    ) -> Result<&[u32], WasmRuntimeErrorKind> {
-        let memory = self.as_slice();
-        let limit = memory.len();
-        let size = len * 4;
-        if offset < limit && size < limit && offset + size < limit {
-            unsafe {
-                Ok(slice::from_raw_parts(
-                    memory.as_ptr().add(offset) as *const u32,
-                    len,
-                ))
-            }
-        } else {
-            Err(WasmRuntimeErrorKind::OutOfBounds)
-        }
+        let _ea = Self::effective_address_range(offset, size as u32, limit)?;
+        Ok(unsafe { transmute(memory.as_ptr().add(offset as usize)) })
     }
 
     /// Write slice to memory
@@ -1154,7 +1117,10 @@ impl WasmMemory {
         let memory = self.as_mut_slice();
         let count = src.len();
         let limit = memory.len();
-        if offset < limit && count < limit && offset + count < limit {
+        let Some(end) = offset.checked_add(count) else {
+            return Err(WasmRuntimeErrorKind::OutOfBounds)
+        };
+        if offset < limit && end <= limit {
             unsafe {
                 memory
                     .as_mut_ptr()
@@ -1167,40 +1133,44 @@ impl WasmMemory {
         }
     }
 
-    pub fn write_bytes(
-        &self,
-        offset: usize,
-        val: u8,
-        count: usize,
-    ) -> Result<(), WasmRuntimeErrorKind> {
+    pub fn memset(&self, base: u32, val: u8, count: u32) -> Result<(), WasmRuntimeErrorKind> {
         let memory = self.as_mut_slice();
         let limit = memory.len();
-        if offset < limit && count < limit && offset + count < limit {
-            unsafe {
-                memory.as_mut_ptr().add(offset).write_bytes(val, count);
-            }
-            Ok(())
-        } else {
-            Err(WasmRuntimeErrorKind::OutOfBounds)
+        let _ea = Self::effective_address_range(base, count, limit)?;
+        unsafe {
+            memory
+                .as_mut_ptr()
+                .add(base as usize)
+                .write_bytes(val, count as usize);
         }
+        Ok(())
     }
 
-    pub fn copy(&self, dest: usize, src: usize, count: usize) -> Result<(), WasmRuntimeErrorKind> {
+    pub fn memcpy(&self, dest: u32, src: u32, count: u32) -> Result<(), WasmRuntimeErrorKind> {
         let memory = self.as_mut_slice();
         let limit = memory.len();
-        if dest < limit
-            && src < limit
-            && count < limit
-            && dest + count < limit
-            && src + count < limit
-        {
-            unsafe {
-                memory
-                    .as_mut_ptr()
-                    .add(dest)
-                    .copy_from(memory.as_ptr().add(src), count);
-            }
-            Ok(())
+        let _ea = Self::effective_address_range(dest, count, limit)?;
+        let _ea = Self::effective_address_range(src, count, limit)?;
+        unsafe {
+            memory
+                .as_mut_ptr()
+                .add(dest as usize)
+                .copy_from(memory.as_ptr().add(src as usize), count as usize);
+        }
+        Ok(())
+    }
+
+    #[inline]
+    fn effective_address_range(
+        base: u32,
+        count: u32,
+        limit: usize,
+    ) -> Result<usize, WasmRuntimeErrorKind> {
+        let base = base as u64;
+        let limit = limit as u64;
+        let ea = base.wrapping_add(count as u64);
+        if base < limit && ea <= limit {
+            Ok(ea as usize)
         } else {
             Err(WasmRuntimeErrorKind::OutOfBounds)
         }
@@ -1602,7 +1572,7 @@ impl WasmExportIndex {
 pub enum WasmDecodeErrorKind {
     /// Not an executable file.
     BadExecutable,
-    /// We've reached the end of an unexpected stream.
+    /// Unexpected end of stream.
     UnexpectedEof,
     /// Unexpected token detected during decoding.
     UnexpectedToken,
@@ -1638,21 +1608,30 @@ pub enum WasmDecodeErrorKind {
     NoMethod(String),
     /// Imported module does not exist.
     NoModule(String),
+    /// Internal error
+    InternalInconsistency,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum WasmRuntimeErrorKind {
     /// Exit the application (not an error)
     Exit,
-    InternalInconsistency,
+    /// Argument type mismatch (e.g., call instruction).
     InvalidParameter,
+    /// Intermediate code that could not be converted
     NotSupprted,
+    /// The Unreachable instruction was executed.
     Unreachable,
+    /// Memory Boundary Errors
     OutOfBounds,
-    OutOfMemory,
+    /// The specified function cannot be found.
     NoMethod,
+    /// Device by zero
     DivideByZero,
+    /// The type of call instructions do not match.
     TypeMismatch,
+    /// Internal error
+    InternalInconsistency,
 }
 
 /// A type that holds a WebAssembly primitive value with a type information tag.
