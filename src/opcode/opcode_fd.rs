@@ -11,4 +11,8 @@ impl WasmOpcodeFD {
         // TODO:
         None
     }
+
+    pub const fn to_str(&self) -> &str {
+        "(simd)"
+    }
 }

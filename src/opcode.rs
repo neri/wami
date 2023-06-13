@@ -52,7 +52,7 @@ impl WasmOpcode {
         match self {
             WasmOpcode::Single(v) => v.to_str(),
             WasmOpcode::PrefixFC(v) => v.to_str(),
-            WasmOpcode::PrefixFD(_) => "(todo)",
+            WasmOpcode::PrefixFD(v) => v.to_str(),
         }
     }
 

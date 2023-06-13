@@ -55,33 +55,33 @@ pub enum WasmIntMnemonic {
     GlobalSetF(GlobalVarIndex),
 
     I32Load(u32, ExceptionPosition),
+    I64Load(u32, ExceptionPosition),
+    #[cfg(feature = "float")]
+    F32Load(u32, ExceptionPosition),
+    #[cfg(feature = "float")]
+    F64Load(u32, ExceptionPosition),
     I32Load8S(u32, ExceptionPosition),
     I32Load8U(u32, ExceptionPosition),
     I32Load16S(u32, ExceptionPosition),
     I32Load16U(u32, ExceptionPosition),
-    I32Store(u32, ExceptionPosition),
-    I32Store8(u32, ExceptionPosition),
-    I32Store16(u32, ExceptionPosition),
-    I64Load(u32, ExceptionPosition),
     I64Load8S(u32, ExceptionPosition),
     I64Load8U(u32, ExceptionPosition),
     I64Load16S(u32, ExceptionPosition),
     I64Load16U(u32, ExceptionPosition),
     I64Load32S(u32, ExceptionPosition),
     I64Load32U(u32, ExceptionPosition),
-    I64Store(u32, ExceptionPosition),
-    I64Store8(u32, ExceptionPosition),
-    I64Store16(u32, ExceptionPosition),
-    I64Store32(u32, ExceptionPosition),
 
-    #[cfg(feature = "float")]
-    F32Load(u32, ExceptionPosition),
     #[cfg(feature = "float")]
     F32Store(u32, ExceptionPosition),
     #[cfg(feature = "float")]
-    F64Load(u32, ExceptionPosition),
-    #[cfg(feature = "float")]
     F64Store(u32, ExceptionPosition),
+    I32Store(u32, ExceptionPosition),
+    I64Store(u32, ExceptionPosition),
+    I32Store8(u32, ExceptionPosition),
+    I32Store16(u32, ExceptionPosition),
+    I64Store8(u32, ExceptionPosition),
+    I64Store16(u32, ExceptionPosition),
+    I64Store32(u32, ExceptionPosition),
 
     /// `3F memory.size 0x00`
     MemorySize,
@@ -176,16 +176,17 @@ pub enum WasmIntMnemonic {
 
     // Fused Instructions
     FusedI32SetConst(LocalVarIndex, i32),
+    FusedI64SetConst(LocalVarIndex, i64),
+
     FusedI32AddI(i32),
     FusedI32SubI(i32),
-    FusedI32AndI(i32),
-    FusedI32OrI(i32),
-    FusedI32XorI(i32),
-    FusedI32ShlI(i32),
-    FusedI32ShrSI(i32),
-    FusedI32ShrUI(i32),
+    FusedI32AndI(u32),
+    FusedI32OrI(u32),
+    FusedI32XorI(u32),
+    FusedI32ShlI(u32),
+    FusedI32ShrSI(u32),
+    FusedI32ShrUI(u32),
 
-    FusedI64SetConst(LocalVarIndex, i64),
     FusedI64AddI(i64),
     FusedI64SubI(i64),
 
@@ -206,24 +207,29 @@ pub enum WasmIntMnemonic {
     FusedI64BrNe(usize),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ExceptionPosition {
-    pub position: u32,
+impl WasmIntMnemonic {
+    #[inline]
+    pub fn normalized(self) -> Self {
+        // TODO:
+        self
+    }
 }
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ExceptionPosition(u32);
 
 impl ExceptionPosition {
     pub const UNKNOWN: Self = Self::new(0);
 
     #[inline]
     pub const fn new(position: usize) -> Self {
-        Self {
-            position: position as u32,
-        }
+        Self(position as u32)
     }
 
     #[inline]
     pub const fn position(&self) -> usize {
-        self.position as usize
+        self.0 as usize
     }
 }
 

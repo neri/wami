@@ -12,6 +12,7 @@ mod wasm;
 pub use crate::wasm::*;
 
 pub mod cg;
+// pub mod memory;
 pub mod opcode;
 pub mod stack;
 

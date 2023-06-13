@@ -959,7 +959,7 @@ impl WasmSingleOpcode {
             Self::I64Extend16S => WasmProposalType::SignExtend,
             Self::I64Extend32S => WasmProposalType::SignExtend,
             Self::PrefixFC => WasmProposalType::Prefixed,
-            Self::PrefixFD => WasmProposalType::Prefixed,
+            Self::PrefixFD => WasmProposalType::Simd,
             _ => WasmProposalType::Mvp,
         }
     }

@@ -1,7 +1,7 @@
 .PHONY: all clean
 .SUFFIXES: .wat .wasm
 
-TARGETS	= fib.wasm global.wasm opr.wasm
+TARGETS	= tester.wasm
 
 .wat.wasm:
 	wat2wasm $<

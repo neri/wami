@@ -1,5 +1,5 @@
 use crate::{cg::WasmCodeBlock, opcode::*};
-use alloc::{borrow::ToOwned, boxed::Box, format, string::*, vec::Vec};
+use alloc::{borrow::ToOwned, format, string::*, vec::Vec};
 use core::{
     cell::UnsafeCell,
     fmt,
@@ -10,9 +10,10 @@ use core::{
 };
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
+use smallvec::SmallVec;
 
 pub type WasmDynFunc =
-    fn(&WasmModule, &[WasmUnsafeValue]) -> Result<WasmValue, WasmRuntimeErrorKind>;
+    fn(&WasmModule, &[WasmUnionValue]) -> Result<WasmValue, WasmRuntimeErrorKind>;
 
 pub enum ImportResult<T> {
     Ok(T),
@@ -22,17 +23,21 @@ pub enum ImportResult<T> {
 }
 
 /// WebAssembly loader
-pub struct WasmLoader {
+pub struct WebAssembly {
     module: WasmModule,
 }
 
-impl WasmLoader {
+impl WebAssembly {
     /// Minimal valid module size, Magic(4) + Version(4) + Empty sections(0) = 8
-    const MINIMAL_MOD_SIZE: usize = 8;
+    pub const MINIMAL_MOD_SIZE: usize = 8;
     /// Magic number of WebAssembly Binary Format
-    const MAGIC: u32 = 0x6D736100;
+    pub const MAGIC: [u8; 4] = *b"\0asm";
     /// Current Version
-    const VER_CURRENT: u32 = 0x0000_0001;
+    pub const VER_CURRENT: [u8; 4] = *b"\x01\0\0\0";
+
+    /// The length of the vector always is a multiple of the WebAssembly page size,
+    /// which is defined to be the constant 65536 – abbreviated 64Ki.
+    pub const PAGE_SIZE: usize = 65536;
 
     #[inline]
     pub fn new() -> Self {
@@ -43,10 +48,10 @@ impl WasmLoader {
 
     /// Identify the file format
     #[inline]
-    pub fn identity(blob: &[u8]) -> bool {
+    pub fn identify(blob: &[u8]) -> bool {
         blob.len() >= Self::MINIMAL_MOD_SIZE
-            && unsafe { WasmEndian::read_u32(blob, 0) } == Self::MAGIC
-            && unsafe { WasmEndian::read_u32(blob, 4) } == Self::VER_CURRENT
+            && &blob[0..4] == Self::MAGIC
+            && &blob[4..8] == Self::VER_CURRENT
     }
 
     /// Instantiate wasm modules from slice
@@ -54,7 +59,7 @@ impl WasmLoader {
     where
         F: FnMut(&str, &str, &WasmType) -> ImportResult<WasmDynFunc> + Copy,
     {
-        if Self::identity(blob) {
+        if Self::identify(blob) {
             let mut loader = Self::new();
             loader.load(blob, resolver).map(|_| loader.module)
         } else {
@@ -439,7 +444,11 @@ impl WasmModule {
 
     #[inline]
     pub fn has_memory(&self) -> bool {
-        self.memories.len() > 0
+        if let Some(memory) = self.memories.first() {
+            memory.as_slice().len() > 0
+        } else {
+            false
+        }
     }
 
     #[inline]
@@ -473,6 +482,19 @@ impl WasmModule {
             .ok_or(WasmRuntimeErrorKind::NoMethod)
     }
 
+    /// Get a reference to the exported function with the specified name
+    #[inline]
+    pub fn func(&self, name: &str) -> Result<WasmRunnable, WasmRuntimeErrorKind> {
+        for export in &self.exports {
+            if let WasmExportIndex::Function(index) = export.index {
+                if export.name == name {
+                    return self.func_by_index(index);
+                }
+            }
+        }
+        Err(WasmRuntimeErrorKind::NoMethod)
+    }
+
     #[inline]
     pub(crate) fn codeblock(&self, index: usize) -> Option<&WasmCodeBlock> {
         self.functions.get(index).and_then(|v| v.code_block())
@@ -483,19 +505,6 @@ impl WasmModule {
         self.start
             .ok_or(WasmRuntimeErrorKind::NoMethod)
             .and_then(|v| self.func_by_index(v))
-    }
-
-    /// Get a reference to the exported function with the specified name
-    #[inline]
-    pub fn func(&self, name: &str) -> Result<WasmRunnable, WasmRuntimeErrorKind> {
-        for export in &self.exports {
-            if let WasmExportIndex::Function(v) = export.index {
-                if export.name == name {
-                    return self.func_by_index(v);
-                }
-            }
-        }
-        Err(WasmRuntimeErrorKind::NoMethod)
     }
 
     #[inline]
@@ -509,8 +518,15 @@ impl WasmModule {
     }
 
     #[inline]
-    pub unsafe fn global_get_unchecked(&self, index: usize) -> &WasmGlobal {
-        unsafe { self.globals.get_unchecked(index) }
+    pub fn global(&self, name: &str) -> Result<&WasmGlobal, WasmRuntimeErrorKind> {
+        for export in &self.exports {
+            if let WasmExportIndex::Global(index) = export.index {
+                if export.name == name {
+                    return self.global_get(index).ok_or(WasmRuntimeErrorKind::NoMethod);
+                }
+            }
+        }
+        Err(WasmRuntimeErrorKind::NoMethod)
     }
 
     #[inline]
@@ -521,58 +537,6 @@ impl WasmModule {
     #[inline]
     pub fn names(&self) -> Option<&WasmName> {
         self.names.as_ref()
-    }
-}
-
-struct WasmEndian;
-
-impl WasmEndian {
-    #[inline]
-    unsafe fn read_u16(slice: &[u8], offset: usize) -> u16 {
-        unsafe {
-            let p = slice.as_ptr().add(offset) as *const u16;
-            p.read_unaligned().to_le()
-        }
-    }
-
-    #[inline]
-    unsafe fn read_u32(slice: &[u8], offset: usize) -> u32 {
-        unsafe {
-            let p = slice.as_ptr().add(offset) as *const u32;
-            p.read_unaligned().to_le()
-        }
-    }
-
-    #[inline]
-    unsafe fn read_u64(slice: &[u8], offset: usize) -> u64 {
-        unsafe {
-            let p = slice.as_ptr().add(offset) as *const u64;
-            p.read_unaligned().to_le()
-        }
-    }
-
-    #[inline]
-    unsafe fn write_u16(slice: &mut [u8], offset: usize, val: u16) {
-        unsafe {
-            let p = slice.as_mut_ptr().add(offset) as *mut u16;
-            p.write_unaligned(val.to_le());
-        }
-    }
-
-    #[inline]
-    unsafe fn write_u32(slice: &mut [u8], offset: usize, val: u32) {
-        unsafe {
-            let p = slice.as_mut_ptr().add(offset) as *mut u32;
-            p.write_unaligned(val.to_le());
-        }
-    }
-
-    #[inline]
-    unsafe fn write_u64(slice: &mut [u8], offset: usize, val: u64) {
-        unsafe {
-            let p = slice.as_mut_ptr().add(offset) as *mut u64;
-            p.write_unaligned(val.to_le());
-        }
     }
 }
 
@@ -712,13 +676,13 @@ impl Leb128Stream<'_> {
     #[inline]
     pub fn read_f32(&mut self) -> Result<f32, WasmDecodeErrorKind> {
         self.get_bytes(4)
-            .map(|v| unsafe { transmute(WasmEndian::read_u32(v, 0)) })
+            .map(|v| unsafe { transmute(u32::from_le_bytes(v.try_into().unwrap())) })
     }
 
     #[inline]
     pub fn read_f64(&mut self) -> Result<f64, WasmDecodeErrorKind> {
         self.get_bytes(8)
-            .map(|v| unsafe { transmute(WasmEndian::read_u64(v, 0)) })
+            .map(|v| unsafe { transmute(u64::from_le_bytes(v.try_into().unwrap())) })
     }
 
     /// Reads the UTF-8 encoded string from the stream
@@ -857,18 +821,18 @@ impl WasmSection<'_> {
 #[derive(Debug, Clone, Copy, PartialOrd, PartialEq, FromPrimitive)]
 pub enum WasmSectionType {
     Custom = 0,
-    Type,
-    Import,
-    Function,
-    Table,
-    Memory,
-    Global,
-    Export,
-    Start,
-    Element,
-    Code,
-    Data,
-    DataCount,
+    Type = 1,
+    Import = 2,
+    Function = 3,
+    Table = 4,
+    Memory = 5,
+    Global = 6,
+    Export = 7,
+    Start = 8,
+    Element = 9,
+    Code = 10,
+    Data = 11,
+    DataCount = 12,
 }
 
 /// WebAssembly primitive types
@@ -1050,12 +1014,12 @@ impl WasmMemory {
     }
 
     #[inline]
-    fn as_slice(&self) -> &[u8] {
+    pub fn as_slice(&self) -> &[u8] {
         unsafe { &*self.data.get() }
     }
 
     #[inline]
-    fn as_mut_slice(&self) -> &mut [u8] {
+    pub fn as_mut_slice(&self) -> &mut [u8] {
         unsafe { &mut *self.data.get() }
     }
 
@@ -1161,7 +1125,7 @@ impl WasmMemory {
     }
 
     #[inline]
-    fn effective_address_range(
+    pub fn effective_address_range(
         base: u32,
         count: u32,
         limit: usize,
@@ -1177,7 +1141,7 @@ impl WasmMemory {
     }
 
     #[inline]
-    fn effective_address(
+    pub fn effective_address(
         offset: u32,
         index: u32,
         limit: usize,
@@ -1190,64 +1154,16 @@ impl WasmMemory {
         }
     }
 
-    #[inline]
-    pub fn read_u8(&self, offset: u32, index: u32) -> Result<u8, WasmRuntimeErrorKind> {
-        let slice = self.as_slice();
-        Self::effective_address(offset, index, slice.len())
-            .map(|ea| unsafe { slice.as_ptr().add(ea).read() })
+    #[cfg(test)]
+    pub(crate) fn read_u32(&self, offset: usize) -> u32 {
+        let slice = &self.as_slice()[offset..offset + 4].try_into().unwrap();
+        u32::from_le_bytes(*slice)
     }
 
-    #[inline]
-    pub fn write_u8(&self, offset: u32, index: u32, val: u8) -> Result<(), WasmRuntimeErrorKind> {
-        let slice = self.as_mut_slice();
-        Self::effective_address(offset, index, slice.len()).map(|ea| unsafe {
-            slice.as_mut_ptr().add(ea).write(val);
-        })
-    }
-
-    #[inline]
-    pub fn read_u16(&self, offset: u32, index: u32) -> Result<u16, WasmRuntimeErrorKind> {
-        let slice = self.as_slice();
-        Self::effective_address(offset, index, slice.len() - 1)
-            .map(|ea| unsafe { WasmEndian::read_u16(slice, ea) })
-    }
-
-    #[inline]
-    pub fn write_u16(&self, offset: u32, index: u32, val: u16) -> Result<(), WasmRuntimeErrorKind> {
-        let slice = self.as_mut_slice();
-        Self::effective_address(offset, index, slice.len() - 1).map(|ea| unsafe {
-            WasmEndian::write_u16(slice, ea, val);
-        })
-    }
-
-    #[inline]
-    pub fn read_u32(&self, offset: u32, index: u32) -> Result<u32, WasmRuntimeErrorKind> {
-        let slice = self.as_slice();
-        Self::effective_address(offset, index, slice.len() - 3)
-            .map(|ea| unsafe { WasmEndian::read_u32(slice, ea) })
-    }
-
-    #[inline]
-    pub fn write_u32(&self, offset: u32, index: u32, val: u32) -> Result<(), WasmRuntimeErrorKind> {
-        let slice = self.as_mut_slice();
-        Self::effective_address(offset, index, slice.len() - 3).map(|ea| unsafe {
-            WasmEndian::write_u32(slice, ea, val);
-        })
-    }
-
-    #[inline]
-    pub fn read_u64(&self, offset: u32, index: u32) -> Result<u64, WasmRuntimeErrorKind> {
-        let slice = self.as_slice();
-        Self::effective_address(offset, index, slice.len() - 7)
-            .map(|ea| unsafe { WasmEndian::read_u64(slice, ea) })
-    }
-
-    #[inline]
-    pub fn write_u64(&self, offset: u32, index: u32, val: u64) -> Result<(), WasmRuntimeErrorKind> {
-        let slice = self.as_mut_slice();
-        Self::effective_address(offset, index, slice.len() - 7).map(|ea| unsafe {
-            WasmEndian::write_u64(slice, ea, val);
-        })
+    #[cfg(test)]
+    pub(crate) fn read_u64(&self, offset: usize) -> u64 {
+        let slice = &self.as_slice()[offset..offset + 8].try_into().unwrap();
+        u64::from_le_bytes(*slice)
     }
 }
 
@@ -1339,13 +1255,13 @@ impl WasmFunction {
     }
 
     #[inline]
-    pub const fn param_types(&self) -> &[WasmValType] {
-        &self.func_type.param_types
+    pub fn param_types(&self) -> &[WasmValType] {
+        self.func_type.param_types.as_slice()
     }
 
     #[inline]
-    pub const fn result_types(&self) -> &[WasmValType] {
-        &self.func_type.result_types
+    pub fn result_types(&self) -> &[WasmValType] {
+        self.func_type.result_types.as_slice()
     }
 
     #[inline]
@@ -1376,8 +1292,8 @@ pub enum WasmFunctionOrigin {
 /// It appears as the first section (`0x01`) in the WebAssembly binary.
 #[derive(Debug, Clone)]
 pub struct WasmType {
-    param_types: Box<[WasmValType]>,
-    result_types: Box<[WasmValType]>,
+    param_types: SmallVec<[WasmValType; 8]>,
+    result_types: SmallVec<[WasmValType; 8]>,
 }
 
 impl WasmType {
@@ -1388,24 +1304,24 @@ impl WasmType {
             _ => return Err(WasmDecodeErrorKind::UnexpectedToken),
         };
         let n_params = stream.read_unsigned()? as usize;
-        let mut params = Vec::with_capacity(n_params);
+        let mut param_types = SmallVec::with_capacity(n_params);
         for _ in 0..n_params {
             stream
                 .read_unsigned()
                 .and_then(|v| WasmValType::from_u64(v))
-                .map(|v| params.push(v))?;
+                .map(|v| param_types.push(v))?;
         }
         let n_result = stream.read_unsigned()? as usize;
-        let mut result = Vec::with_capacity(n_result);
+        let mut result_types = SmallVec::with_capacity(n_result);
         for _ in 0..n_result {
             stream
                 .read_unsigned()
                 .and_then(|v| WasmValType::from_u64(v))
-                .map(|v| result.push(v))?;
+                .map(|v| result_types.push(v))?;
         }
         Ok(Self {
-            param_types: params.into_boxed_slice(),
-            result_types: result.into_boxed_slice(),
+            param_types,
+            result_types,
         })
     }
 
@@ -1440,14 +1356,14 @@ impl fmt::Display for WasmType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.param_types.len() > 0 {
             write!(f, " (param")?;
-            for param in self.param_types.into_iter() {
+            for param in self.param_types.iter() {
                 write!(f, " {}", param)?;
             }
             write!(f, ")")?;
         }
         if self.result_types.len() > 0 {
             write!(f, " (result")?;
-            for result in self.result_types.into_iter() {
+            for result in self.result_types.iter() {
                 write!(f, " {}", result)?;
             }
             write!(f, ")")?;
@@ -1810,7 +1726,7 @@ impl fmt::Display for WasmValue {
 ///
 /// The internal representation is `union`, so information about the type needs to be provided externally.
 #[derive(Copy, Clone)]
-pub union WasmUnsafeValue {
+pub union WasmUnionValue {
     usize: usize,
     i32: i32,
     u32: u32,
@@ -1820,7 +1736,7 @@ pub union WasmUnsafeValue {
     f64: f64,
 }
 
-impl WasmUnsafeValue {
+impl WasmUnionValue {
     #[inline(always)]
     const fn _is_32bit_env() -> bool {
         size_of::<usize>() == size_of::<u32>()
@@ -2038,63 +1954,63 @@ impl WasmUnsafeValue {
     }
 }
 
-impl Default for WasmUnsafeValue {
+impl Default for WasmUnionValue {
     #[inline]
     fn default() -> Self {
         Self::zero()
     }
 }
 
-impl From<bool> for WasmUnsafeValue {
+impl From<bool> for WasmUnionValue {
     #[inline]
     fn from(v: bool) -> Self {
         Self::from_bool(v)
     }
 }
 
-impl From<u32> for WasmUnsafeValue {
+impl From<u32> for WasmUnionValue {
     #[inline]
     fn from(v: u32) -> Self {
         Self::from_u32(v)
     }
 }
 
-impl From<i32> for WasmUnsafeValue {
+impl From<i32> for WasmUnionValue {
     #[inline]
     fn from(v: i32) -> Self {
         Self::from_i32(v)
     }
 }
 
-impl From<u64> for WasmUnsafeValue {
+impl From<u64> for WasmUnionValue {
     #[inline]
     fn from(v: u64) -> Self {
         Self::from_u64(v)
     }
 }
 
-impl From<i64> for WasmUnsafeValue {
+impl From<i64> for WasmUnionValue {
     #[inline]
     fn from(v: i64) -> Self {
         Self::from_i64(v)
     }
 }
 
-impl From<f32> for WasmUnsafeValue {
+impl From<f32> for WasmUnionValue {
     #[inline]
     fn from(v: f32) -> Self {
         Self::from_f32(v)
     }
 }
 
-impl From<f64> for WasmUnsafeValue {
+impl From<f64> for WasmUnionValue {
     #[inline]
     fn from(v: f64) -> Self {
         Self::from_f64(v)
     }
 }
 
-impl From<WasmValue> for WasmUnsafeValue {
+impl From<WasmValue> for WasmUnionValue {
     #[inline]
     fn from(v: WasmValue) -> Self {
         match v {
@@ -2110,28 +2026,42 @@ pub unsafe trait UnsafeInto<T> {
     unsafe fn unsafe_into(self) -> T;
 }
 
-unsafe impl UnsafeInto<i32> for WasmUnsafeValue {
+unsafe impl UnsafeInto<u32> for WasmUnionValue {
+    #[inline]
+    unsafe fn unsafe_into(self) -> u32 {
+        unsafe { self.get_u32() }
+    }
+}
+
+unsafe impl UnsafeInto<i32> for WasmUnionValue {
     #[inline]
     unsafe fn unsafe_into(self) -> i32 {
         unsafe { self.get_i32() }
     }
 }
 
-unsafe impl UnsafeInto<i64> for WasmUnsafeValue {
+unsafe impl UnsafeInto<u64> for WasmUnionValue {
+    #[inline]
+    unsafe fn unsafe_into(self) -> u64 {
+        unsafe { self.get_u64() }
+    }
+}
+
+unsafe impl UnsafeInto<i64> for WasmUnionValue {
     #[inline]
     unsafe fn unsafe_into(self) -> i64 {
         unsafe { self.get_i64() }
     }
 }
 
-unsafe impl UnsafeInto<f32> for WasmUnsafeValue {
+unsafe impl UnsafeInto<f32> for WasmUnionValue {
     #[inline]
     unsafe fn unsafe_into(self) -> f32 {
         unsafe { self.get_f32() }
     }
 }
 
-unsafe impl UnsafeInto<f64> for WasmUnsafeValue {
+unsafe impl UnsafeInto<f64> for WasmUnionValue {
     #[inline]
     unsafe fn unsafe_into(self) -> f64 {
         unsafe { self.get_f64() }
@@ -2165,7 +2095,7 @@ impl WasmGlobal {
     }
 
     #[inline]
-    pub fn set_value(&self, val: WasmUnsafeValue) {
+    pub fn set_value(&self, val: WasmUnionValue) {
         self.data.store(unsafe { val.get_u32() }, Ordering::SeqCst);
     }
 
@@ -2184,7 +2114,6 @@ impl WasmGlobal {
 pub struct WasmName {
     module: Option<String>,
     functions: Vec<(usize, String)>,
-    //locals: Vec<>,
     globals: Vec<(usize, String)>,
 }
 
@@ -2200,8 +2129,8 @@ impl WasmName {
             let name_id = stream.read_byte()?;
             let blob = stream.read_bytes()?;
             let Some(name_id) = FromPrimitive::from_u8(name_id) else {
-                        continue
-                    };
+                continue
+            };
             let mut stream = Leb128Stream::from_slice(blob);
             match name_id {
                 WasmNameSubsectionType::Module => {
@@ -2223,9 +2152,7 @@ impl WasmName {
                         globals.push((idx, s));
                     }
                 }
-                _ => {
-                    // TODO:
-                }
+                _ => (),
             }
         }
 
@@ -2246,9 +2173,9 @@ impl WasmName {
         self.functions.as_slice()
     }
 
-    pub fn func_by_index(&self, idx: usize) -> Option<&str> {
+    pub fn func_by_index(&self, index: usize) -> Option<&str> {
         let functions = self.functions();
-        match functions.binary_search_by_key(&idx, |(k, _v)| *k) {
+        match functions.binary_search_by_key(&index, |(k, _v)| *k) {
             Ok(v) => functions.get(v).map(|(_k, v)| v.as_str()),
             Err(_) => None,
         }
@@ -2271,15 +2198,15 @@ impl WasmName {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
 enum WasmNameSubsectionType {
     Module = 0,
-    Function,
-    Local,
-    Labels,
-    Type,
-    Table,
-    Memory,
-    Global,
-    ElemSegment,
-    DataSegment,
+    Function = 1,
+    Local = 2,
+    Labels = 3,
+    Type = 4,
+    Table = 5,
+    Memory = 6,
+    Global = 7,
+    ElemSegment = 8,
+    DataSegment = 9,
 }
 
 /// Instance type to invoke the function
