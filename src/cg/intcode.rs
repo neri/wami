@@ -263,7 +263,7 @@ impl WasmImc {
     }
 
     #[inline]
-    pub const fn mnemonic_mut(&mut self) -> &mut WasmIntMnemonic {
+    pub fn mnemonic_mut(&mut self) -> &mut WasmIntMnemonic {
         &mut self.mnemonic
     }
 

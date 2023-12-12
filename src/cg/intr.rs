@@ -1208,13 +1208,12 @@ struct WasmIntermediateCodeStream<'a> {
 impl<'a> WasmIntermediateCodeStream<'a> {
     #[inline]
     fn from_codes(codes: &'a [WasmImc]) -> Option<Self> {
-        if let Some(last) = codes.last()
-            && matches!(last.mnemonic(), WasmIntMnemonic::Unreachable(_))
-        {
-            Some(Self { codes, position: 0 })
-        } else {
-            None
+        if let Some(last) = codes.last() {
+            if matches!(last.mnemonic(), WasmIntMnemonic::Unreachable(_)) {
+                return Some(Self { codes, position: 0 });
+            }
         }
+        None
     }
 }
 

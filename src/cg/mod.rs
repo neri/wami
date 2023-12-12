@@ -2,7 +2,9 @@ pub mod intcode;
 pub mod intr;
 
 use self::intcode::{ExceptionPosition, WasmImc, WasmIntMnemonic};
-use crate::{opcode::*, Leb128Stream, WasmBlockType, WasmDecodeErrorKind, WasmModule, WasmValType};
+use crate::{
+    leb128::*, opcode::*, WasmBlockType, WasmDecodeErrorKind, WasmMemArg, WasmModule, WasmValType,
+};
 use alloc::{boxed::Box, vec::Vec};
 use bitflags::*;
 use core::{cell::RefCell, ops::*};
@@ -62,7 +64,7 @@ impl WasmCodeBlock {
     pub fn generate(
         func_index: usize,
         file_position: usize,
-        stream: &mut Leb128Stream,
+        stream: &mut Leb128Reader,
         param_types: &[WasmValType],
         result_types: &[WasmValType],
         module: &WasmModule,
@@ -72,9 +74,7 @@ impl WasmCodeBlock {
             let mut local_var_types = Vec::with_capacity(n_local_var_types);
             for _ in 0..n_local_var_types {
                 let repeat = stream.read_unsigned()?;
-                let val = stream
-                    .read_unsigned()
-                    .and_then(|v| WasmValType::from_u64(v))?;
+                let val = WasmValType::from_u64(stream.read()?)?;
                 for _ in 0..repeat {
                     local_var_types.push(val);
                 }
@@ -99,7 +99,7 @@ impl WasmCodeBlock {
             max_stack = usize::max(max_stack, value_stack.len());
             max_block_level = usize::max(max_block_level, block_stack.len());
             let position = ExceptionPosition::new(stream.position());
-            let opcode = stream.read_opcode()?;
+            let opcode = WasmOpcode::read_from(stream)?;
 
             // match opcode.proposal_type() {
             //     WasmProposalType::Mvp => {}
@@ -119,7 +119,7 @@ impl WasmCodeBlock {
                     if !$module.has_memory() {
                         return Err(WasmDecodeErrorKind::OutOfMemory);
                     }
-                    let arg = $stream.read_memarg()?;
+                    let arg: WasmMemArg = $stream.read()?;
                     let a = $value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
                     if a != WasmValType::I32 {
                         return Err(WasmDecodeErrorKind::TypeMismatch);
@@ -139,7 +139,7 @@ impl WasmCodeBlock {
                     if !$module.has_memory() {
                         return Err(WasmDecodeErrorKind::OutOfMemory);
                     }
-                    let arg = $stream.read_memarg()?;
+                    let arg: WasmMemArg = $stream.read()?;
                     let d = $value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
                     let i = $value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
                     if i != WasmValType::I32 && d != WasmValType::$val_type {
@@ -245,9 +245,7 @@ impl WasmCodeBlock {
 
                     WasmSingleOpcode::Block => {
                         let target = blocks.len();
-                        let block_type = stream
-                            .read_signed()
-                            .and_then(|v| WasmBlockType::from_i64(v))?;
+                        let block_type = WasmBlockType::from_i64(stream.read()?)?;
                         let block = RefCell::new(BlockContext {
                             inst_type: BlockInstType::Block,
                             block_type,
@@ -273,9 +271,7 @@ impl WasmCodeBlock {
                     }
                     WasmSingleOpcode::Loop => {
                         let target = blocks.len();
-                        let block_type = stream
-                            .read_signed()
-                            .and_then(|v| WasmBlockType::from_i64(v))?;
+                        let block_type = WasmBlockType::from_i64(stream.read()?)?;
                         let block = RefCell::new(BlockContext {
                             inst_type: BlockInstType::Loop,
                             block_type,
@@ -304,9 +300,7 @@ impl WasmCodeBlock {
                         if cc != WasmValType::I32 {
                             return Err(WasmDecodeErrorKind::TypeMismatch);
                         }
-                        let block_type = stream
-                            .read_signed()
-                            .and_then(|v| WasmBlockType::from_i64(v))?;
+                        let block_type = WasmBlockType::from_i64(stream.read()?)?;
                         let block = RefCell::new(BlockContext {
                             inst_type: BlockInstType::If,
                             block_type,
@@ -468,7 +462,7 @@ impl WasmCodeBlock {
                         let function = module
                             .functions()
                             .get(func_index)
-                            .ok_or(WasmDecodeErrorKind::InvalidParameter)?;
+                            .ok_or(WasmDecodeErrorKind::InvalidData)?;
                         int_codes.push(WasmImc::new(
                             WasmIntMnemonic::Call(func_index, position),
                             value_stack.len().into(),
@@ -487,7 +481,7 @@ impl WasmCodeBlock {
                         let _reserved = stream.read_unsigned()? as usize;
                         let func_type = module
                             .type_by_ref(type_index)
-                            .ok_or(WasmDecodeErrorKind::InvalidParameter)?;
+                            .ok_or(WasmDecodeErrorKind::InvalidData)?;
                         let index = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
                         if index != WasmValType::I32 {
                             return Err(WasmDecodeErrorKind::TypeMismatch);
@@ -728,7 +722,7 @@ impl WasmCodeBlock {
                         let val = stream.read_signed()?;
                         let val: i32 = val
                             .try_into()
-                            .map_err(|_| WasmDecodeErrorKind::InvalidParameter)?;
+                            .map_err(|_| WasmDecodeErrorKind::InvalidData)?;
                         int_codes.push(WasmImc::new(
                             WasmIntMnemonic::I32Const(val),
                             value_stack.len().into(),

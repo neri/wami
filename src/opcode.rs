@@ -5,6 +5,8 @@ pub use opcode_fc::*;
 mod opcode_fd;
 pub use opcode_fd::*;
 
+use crate::{leb128::*, WasmDecodeErrorKind};
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum WasmOpcode {
     /// Single Byte Opcode
@@ -38,6 +40,13 @@ impl WasmOpcode {
             Some(opcode) => Ok(Self::Single(opcode)),
             None => Err(failure),
         }
+    }
+
+    pub fn read_from(reader: &mut Leb128Reader) -> Result<Self, WasmDecodeErrorKind> {
+        let lead = reader.read_byte()?;
+        WasmOpcode::decode(lead, WasmDecodeErrorKind::InvalidBytecode(lead), || {
+            reader.read().map_err(|err| err.into())
+        })
     }
 
     pub const fn proposal_type(&self) -> WasmProposalType {

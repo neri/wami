@@ -3,6 +3,7 @@ use crate::{
         intr::{WasmInterpreter, WasmInvocation},
         WasmCodeBlock,
     },
+    leb128::*,
     opcode::WasmSingleOpcode,
     WasmValType, *,
 };
@@ -43,40 +44,10 @@ fn instantiate() {
 }
 
 #[test]
-fn leb128() {
-    let data = [
-        0x7F, 0xFF, 0x00, 0xEF, 0xFD, 0xB6, 0xF5, 0x0D, 0xEF, 0xFD, 0xB6, 0xF5, 0x7D,
-    ];
-    let mut stream = Leb128Stream::from_slice(&data);
-
-    stream.reset();
-    assert_eq!(stream.position(), 0);
-    let test = stream.read_unsigned().unwrap();
-    assert_eq!(test, 127);
-    let test = stream.read_unsigned().unwrap();
-    assert_eq!(test, 127);
-    let test = stream.read_unsigned().unwrap();
-    assert_eq!(test, 0xdeadbeef);
-    let test = stream.read_unsigned().unwrap();
-    assert_eq!(test, 0x7deadbeef);
-
-    stream.reset();
-    assert_eq!(stream.position(), 0);
-    let test = stream.read_signed().unwrap();
-    assert_eq!(test, -1);
-    let test = stream.read_signed().unwrap();
-    assert_eq!(test, 127);
-    let test = stream.read_signed().unwrap();
-    assert_eq!(test, 0xdeadbeef);
-    let test = stream.read_signed().unwrap();
-    assert_eq!(test, -559038737);
-}
-
-#[test]
 fn i32_const() {
     let slice = [0, 0x41, 0xf8, 0xac, 0xd1, 0x91, 0x01, 0x0B];
     let result_types = [WasmValType::I32];
-    let mut stream = Leb128Stream::from_slice(&slice);
+    let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::new();
     let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
     let mut interp = WasmInterpreter::new(&module);
@@ -94,7 +65,7 @@ fn i32_const() {
 fn i32_const_type_mismatch() {
     let slice = [0, 0x41, 0x00, 0x01, 0x0B];
     let result_types = [WasmValType::I64];
-    let mut stream = Leb128Stream::from_slice(&slice);
+    let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::new();
     assert!(matches!(
         WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module),
@@ -103,7 +74,7 @@ fn i32_const_type_mismatch() {
 
     let slice = [0, 0x41, 0x00, 0x01, 0x0B];
     let result_types = [WasmValType::I32];
-    let mut stream = Leb128Stream::from_slice(&slice);
+    let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::new();
     let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
     let mut interp = WasmInterpreter::new(&module);
@@ -130,7 +101,7 @@ fn i64_const() {
         0, 0x42, 0xef, 0x9b, 0xaf, 0xcd, 0xf8, 0xac, 0xd1, 0x91, 0x01, 0x0B,
     ];
     let result_types = [WasmValType::I64];
-    let mut stream = Leb128Stream::from_slice(&slice);
+    let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::new();
     let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
     let mut interp = WasmInterpreter::new(&module);
@@ -148,7 +119,7 @@ fn i64_const() {
 fn i64_const_type_mismatch() {
     let slice = [0, 0x42, 0x00, 0x01, 0x0B];
     let result_types = [WasmValType::I32];
-    let mut stream = Leb128Stream::from_slice(&slice);
+    let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::new();
     assert!(matches!(
         WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module),
@@ -161,7 +132,7 @@ fn i64_const_type_mismatch() {
 fn float_const() {
     let slice = [0, 0x43, 0, 0, 0, 0, 0x0B];
     let result_types = [WasmValType::F32];
-    let mut stream = Leb128Stream::from_slice(&slice);
+    let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::new();
     let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
     let mut interp = WasmInterpreter::new(&module);
@@ -176,7 +147,7 @@ fn float_const() {
 
     let slice = [0, 0x43, 0, 0, 0xc0, 0x7f, 0x0B];
     let result_types = [WasmValType::F32];
-    let mut stream = Leb128Stream::from_slice(&slice);
+    let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::new();
     let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
     let mut interp = WasmInterpreter::new(&module);
@@ -191,7 +162,7 @@ fn float_const() {
 
     let slice = [0, 0x43, 0, 0, 0x80, 0x7f, 0x0B];
     let result_types = [WasmValType::F32];
-    let mut stream = Leb128Stream::from_slice(&slice);
+    let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::new();
     let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
     let mut interp = WasmInterpreter::new(&module);
@@ -206,7 +177,7 @@ fn float_const() {
 
     let slice = [0, 0x43, 0xdb, 0x0f, 0x49, 0x40, 0x0B];
     let result_types = [WasmValType::F32];
-    let mut stream = Leb128Stream::from_slice(&slice);
+    let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::new();
     let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
     let mut interp = WasmInterpreter::new(&module);
@@ -225,7 +196,7 @@ fn float_const() {
 fn float64_const() {
     let slice = [0, 0x44, 0, 0, 0, 0, 0, 0, 0, 0, 0x0B];
     let result_types = [WasmValType::F64];
-    let mut stream = Leb128Stream::from_slice(&slice);
+    let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::new();
     let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
     let mut interp = WasmInterpreter::new(&module);
@@ -240,7 +211,7 @@ fn float64_const() {
 
     let slice = [0, 0x44, 0, 0, 0, 0, 0, 0, 0xf8, 0x7f, 0x0B];
     let result_types = [WasmValType::F64];
-    let mut stream = Leb128Stream::from_slice(&slice);
+    let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::new();
     let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
     let mut interp = WasmInterpreter::new(&module);
@@ -255,7 +226,7 @@ fn float64_const() {
 
     let slice = [0, 0x44, 0, 0, 0, 0, 0, 0, 0xf0, 0x7f, 0x0B];
     let result_types = [WasmValType::F64];
-    let mut stream = Leb128Stream::from_slice(&slice);
+    let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::new();
     let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
     let mut interp = WasmInterpreter::new(&module);
@@ -272,7 +243,7 @@ fn float64_const() {
         0, 0x44, 0x18, 0x2d, 0x44, 0x54, 0xfb, 0x21, 0x09, 0x40, 0x0b,
     ];
     let result_types = [WasmValType::F64];
-    let mut stream = Leb128Stream::from_slice(&slice);
+    let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::new();
     let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
     let mut interp = WasmInterpreter::new(&module);
@@ -293,7 +264,7 @@ fn const_local() {
     ];
     let param_types = [];
     let result_types = [WasmValType::I32];
-    let mut stream = Leb128Stream::from_slice(&slice);
+    let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::new();
     let info =
         WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
@@ -313,7 +284,7 @@ fn div32_s() {
     let slice = [0, 0x20, 0, 0x20, 1, 0x6D, 0x0B];
     let param_types = [WasmValType::I32, WasmValType::I32];
     let result_types = [WasmValType::I32];
-    let mut stream = Leb128Stream::from_slice(&slice);
+    let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::new();
     let info =
         WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
@@ -369,7 +340,7 @@ fn div32_u() {
     let slice = [0, 0x20, 0, 0x20, 1, 0x6E, 0x0B];
     let param_types = [WasmValType::I32, WasmValType::I32];
     let result_types = [WasmValType::I32];
-    let mut stream = Leb128Stream::from_slice(&slice);
+    let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::new();
     let info =
         WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
@@ -416,7 +387,7 @@ fn div64_s() {
     let slice = [0, 0x20, 0, 0x20, 1, 0x7F, 0x0B];
     let param_types = [WasmValType::I64, WasmValType::I64];
     let result_types = [WasmValType::I64];
-    let mut stream = Leb128Stream::from_slice(&slice);
+    let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::new();
     let info =
         WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
@@ -472,7 +443,7 @@ fn div64_u() {
     let slice = [0, 0x20, 0, 0x20, 1, 0x80, 0x0B];
     let param_types = [WasmValType::I64, WasmValType::I64];
     let result_types = [WasmValType::I64];
-    let mut stream = Leb128Stream::from_slice(&slice);
+    let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::new();
     let info =
         WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
@@ -519,7 +490,7 @@ fn select() {
     let slice = [0, 0x20, 0, 0x20, 1, 0x20, 2, 0x1B, 0x0B];
     let param_types = [WasmValType::I32, WasmValType::I32, WasmValType::I32];
     let result_types = [WasmValType::I32];
-    let mut stream = Leb128Stream::from_slice(&slice);
+    let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::new();
     let info =
         WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
@@ -551,7 +522,7 @@ fn br_if() {
     ];
     let param_types = [WasmValType::I32, WasmValType::I32];
     let result_types = [WasmValType::I32];
-    let mut stream = Leb128Stream::from_slice(&slice);
+    let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::new();
     let info =
         WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
@@ -612,7 +583,7 @@ fn br_table() {
     ];
     let param_types = [WasmValType::I32];
     let result_types = [WasmValType::I32];
-    let mut stream = Leb128Stream::from_slice(&slice);
+    let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::new();
     let info =
         WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
@@ -683,7 +654,7 @@ fn br_table() {
 }
 
 #[test]
-fn app_factorial() {
+fn app_fact() {
     let module = WebAssembly::instantiate(
         include_bytes!("../test/tester.wasm"),
         |_, _, _| unreachable!(),
@@ -972,12 +943,15 @@ fn call_test() {
     )
     .unwrap();
 
-    for (a1, a2, a3, a4) in [(
-        0x1234_5678_u32,
-        0xFEDC_BA98_u32,
-        0x1234_5678_9ABC_DEF0_u64,
-        0xFEDC_BA98_7654_3210_u64,
-    )] {
+    for (a1, a2, a3, a4) in [
+        (1u32, 2u32, 3u64, 4u64),
+        (
+            0x1234_5678,
+            0xFEDC_BA98,
+            0x1234_5678_9ABC_DEF0,
+            0xFEDC_BA98_7654_3210,
+        ),
+    ] {
         module.memory(0).unwrap().as_mut_slice().fill(0xCC);
         let result = module
             .func("call_test1")
@@ -1164,8 +1138,7 @@ fn mem_test() {
         assert_eq!(&memory[0..256], expected);
 
         // u32
-        let expected =
-            0xFFFFFFFF ^ (a1 + (a1 + 1) * 0x100 + (a1 + 2) * 0x100_00 + (a1 + 3) * 0x100_00_00);
+        let expected = 0xFFFFFFFF ^ ((a1 * 0x1_01_01_01) + 0x03_02_01_00);
         memory[0..256].copy_from_slice(src);
         let result = module
             .func("mem_test_u32")
@@ -1179,10 +1152,9 @@ fn mem_test() {
 
         let mut expected = Vec::new();
         expected.extend_from_slice(src);
-        expected[a2 as usize] = expected[a1 as usize];
-        expected[a2 as usize + 1] = expected[a1 as usize + 1];
-        expected[a2 as usize + 2] = expected[a1 as usize + 2];
-        expected[a2 as usize + 3] = expected[a1 as usize + 3];
+        for i in 0..4 {
+            expected[a2 as usize + i] = expected[a1 as usize + i];
+        }
         assert_eq!(&memory[0..256], expected);
 
         // u64u8
@@ -1260,11 +1232,7 @@ fn mem_test() {
         assert_eq!(&memory[0..256], expected);
 
         // u64u32
-        let expected = 0xFFFFFFFF
-            ^ (a1 as u64
-                + (a1 as u64 + 1) * 0x100
-                + (a1 as u64 + 2) * 0x100_00
-                + (a1 as u64 + 3) * 0x100_00_00);
+        let expected = 0xFFFFFFFF ^ ((a1 * 0x1_01_01_01) + 0x03_02_01_00) as u64;
         memory[0..256].copy_from_slice(src);
         let result = module
             .func("mem_test_u64u32")
@@ -1278,18 +1246,13 @@ fn mem_test() {
 
         let mut expected = Vec::new();
         expected.extend_from_slice(src);
-        expected[a2 as usize] = expected[a1 as usize];
-        expected[a2 as usize + 1] = expected[a1 as usize + 1];
-        expected[a2 as usize + 2] = expected[a1 as usize + 2];
-        expected[a2 as usize + 3] = expected[a1 as usize + 3];
+        for i in 0..4 {
+            expected[a2 as usize + i] = expected[a1 as usize + i];
+        }
         assert_eq!(&memory[0..256], expected);
 
         // i64i32
-        let expected = -1
-            ^ ((a1 as u64
-                + (a1 as u64 + 1) * 0x100
-                + (a1 as u64 + 2) * 0x100_00
-                + (a1 as u64 + 3) * 0x100_00_00) as i32) as i64;
+        let expected = -1 ^ (((a1 * 0x1_01_01_01) + 0x03_02_01_00) as i32) as i64;
         memory[0..256].copy_from_slice(src);
         let result = module
             .func("mem_test_i64i32")
@@ -1303,22 +1266,14 @@ fn mem_test() {
 
         let mut expected = Vec::new();
         expected.extend_from_slice(src);
-        expected[a2 as usize] = expected[a1 as usize];
-        expected[a2 as usize + 1] = expected[a1 as usize + 1];
-        expected[a2 as usize + 2] = expected[a1 as usize + 2];
-        expected[a2 as usize + 3] = expected[a1 as usize + 3];
+        for i in 0..4 {
+            expected[a2 as usize + i] = expected[a1 as usize + i];
+        }
         assert_eq!(&memory[0..256], expected);
 
         // u64
         let expected = 0xFFFF_FFFF_FFFF_FFFF
-            ^ (a1 as u64
-                + (a1 as u64 + 1) * 0x100
-                + (a1 as u64 + 2) * 0x100_00
-                + (a1 as u64 + 3) * 0x100_00_00
-                + (a1 as u64 + 4) * 0x100_00_00_00
-                + (a1 as u64 + 5) * 0x100_00_00_00_00
-                + (a1 as u64 + 6) * 0x100_00_00_00_00_00
-                + (a1 as u64 + 7) * 0x100_00_00_00_00_00_00);
+            ^ ((a1 as u64 * 0x1_01_01_01_01_01_01_01) + 0x07_06_05_04_03_02_01_00);
         memory[0..256].copy_from_slice(src);
         let result = module
             .func("mem_test_u64")
@@ -1332,14 +1287,9 @@ fn mem_test() {
 
         let mut expected = Vec::new();
         expected.extend_from_slice(src);
-        expected[a2 as usize] = expected[a1 as usize];
-        expected[a2 as usize + 1] = expected[a1 as usize + 1];
-        expected[a2 as usize + 2] = expected[a1 as usize + 2];
-        expected[a2 as usize + 3] = expected[a1 as usize + 3];
-        expected[a2 as usize + 4] = expected[a1 as usize + 4];
-        expected[a2 as usize + 5] = expected[a1 as usize + 5];
-        expected[a2 as usize + 6] = expected[a1 as usize + 6];
-        expected[a2 as usize + 7] = expected[a1 as usize + 7];
+        for i in 0..8 {
+            expected[a2 as usize + i] = expected[a1 as usize + i];
+        }
         assert_eq!(&memory[0..256], expected);
     }
 }
@@ -1402,7 +1352,7 @@ fn float_reinterpret() {
     let slice = [1, 1, 0x7F, 0x20, 0x01, 0xbe, 0x0B];
     let param_types = [WasmValType::I32];
     let result_types = [WasmValType::F32];
-    let mut stream = Leb128Stream::from_slice(&slice);
+    let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::new();
     let info =
         WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
@@ -1420,7 +1370,7 @@ fn float_reinterpret() {
     let slice = [1, 1, 0x7D, 0x20, 0x01, 0xbc, 0x0B];
     let param_types = [WasmValType::F32];
     let result_types = [WasmValType::I32];
-    let mut stream = Leb128Stream::from_slice(&slice);
+    let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::new();
     let info =
         WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
@@ -1442,7 +1392,7 @@ fn float64_reinterpret() {
     let slice = [1, 1, 0x7E, 0x20, 0x01, 0xbf, 0x0B];
     let param_types = [WasmValType::I64];
     let result_types = [WasmValType::F64];
-    let mut stream = Leb128Stream::from_slice(&slice);
+    let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::new();
     let info =
         WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
@@ -1460,7 +1410,7 @@ fn float64_reinterpret() {
     let slice = [1, 1, 0x7C, 0x20, 0x01, 0xbd, 0x0B];
     let param_types = [WasmValType::F64];
     let result_types = [WasmValType::I64];
-    let mut stream = Leb128Stream::from_slice(&slice);
+    let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::new();
     let info =
         WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();

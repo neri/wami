@@ -1,9 +1,14 @@
-use crate::{cg::WasmCodeBlock, opcode::*};
+use crate::{
+    cg::WasmCodeBlock,
+    leb128::{self, *},
+    opcode::*,
+};
 use alloc::{borrow::ToOwned, format, string::*, vec::Vec};
 use core::{
     cell::UnsafeCell,
     fmt,
     mem::{size_of, transmute},
+    num::NonZeroU32,
     ops::*,
     slice, str,
     sync::atomic::{AtomicU32, Ordering},
@@ -72,13 +77,13 @@ impl WebAssembly {
     where
         F: FnMut(&str, &str, &WasmType) -> ImportResult<WasmDynFunc> + Copy,
     {
-        let mut blob = Leb128Stream::from_slice(&blob[8..]);
-        while let Some(mut section) = blob.next_section()? {
+        let mut blob = Leb128Reader::from_slice(&blob[8..]);
+        while let Some(mut section) = WasmSection::from_reader(&mut blob)? {
             match section.section_type {
                 WasmSectionType::Custom => {
-                    match section.stream.get_string() {
+                    match section.reader.read() {
                         Ok(WasmName::SECTION_NAME) => {
-                            self.module.names = WasmName::from_stream(&mut section.stream).ok()
+                            self.module.names = WasmName::from_reader(&mut section.reader).ok()
                         }
                         _ => (),
                     }
@@ -123,9 +128,9 @@ impl WebAssembly {
 
     /// Parse "type" section
     fn parse_sec_type(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeErrorKind> {
-        let n_items = section.stream.read_unsigned()? as usize;
+        let n_items: usize = section.reader.read()?;
         for _ in 0..n_items {
-            let ft = WasmType::from_stream(&mut section.stream)?;
+            let ft = WasmType::from_reader(&mut section.reader)?;
             self.module.types.push(ft);
         }
         Ok(())
@@ -140,9 +145,9 @@ impl WebAssembly {
     where
         F: FnMut(&str, &str, &WasmType) -> ImportResult<WasmDynFunc> + Copy,
     {
-        let n_items = section.stream.read_unsigned()? as usize;
+        let n_items: usize = section.reader.read()?;
         for _ in 0..n_items {
-            let mut import = WasmImport::from_stream(&mut section.stream)?;
+            let mut import = WasmImport::from_reader(&mut section.reader)?;
             match import.index {
                 WasmImportIndex::Type(index) => {
                     import.func_ref = self.module.n_ext_func;
@@ -180,10 +185,10 @@ impl WebAssembly {
 
     /// Parse "func" section
     fn parse_sec_func(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeErrorKind> {
-        let n_items = section.stream.read_unsigned()? as usize;
+        let n_items: usize = section.reader.read()?;
         let base_index = self.module.imports.len();
         for index in 0..n_items {
-            let type_index = section.stream.read_unsigned()? as usize;
+            let type_index: usize = section.reader.read()?;
             let func_type = self
                 .module
                 .types
@@ -200,9 +205,9 @@ impl WebAssembly {
 
     /// Parse "export" section
     fn parse_sec_export(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeErrorKind> {
-        let n_items = section.stream.read_unsigned()? as usize;
+        let n_items: usize = section.reader.read()?;
         for i in 0..n_items {
-            let export = WasmExport::from_stream(&mut section.stream)?;
+            let export = WasmExport::from_reader(&mut section.reader)?;
             if let WasmExportIndex::Function(index) = export.index {
                 self.module
                     .functions
@@ -216,12 +221,12 @@ impl WebAssembly {
 
     /// Parse "memory" section
     fn parse_sec_memory(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeErrorKind> {
-        let n_items = section.stream.read_unsigned()?;
+        let n_items: usize = section.reader.read()?;
         self.module
             .memories
-            .resize_with(0, || WasmMemory::new(WasmLimit::new(0, 0)));
+            .resize_with(0, || WasmMemory::new(WasmLimit::zero()));
         for _ in 0..n_items {
-            let limit = WasmLimit::from_stream(&mut section.stream)?;
+            let limit = WasmLimit::from_reader(&mut section.reader, true)?;
             self.module.memories.push(WasmMemory::new(limit));
         }
         Ok(())
@@ -229,9 +234,9 @@ impl WebAssembly {
 
     /// Parse "table" section
     fn parse_sec_table(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeErrorKind> {
-        let n_items = section.stream.read_unsigned()?;
+        let n_items: usize = section.reader.read()?;
         for _ in 0..n_items {
-            let table = WasmTable::from_stream(&mut section.stream)?;
+            let table = WasmTable::from_reader(&mut section.reader)?;
             self.module.tables.push(table);
         }
         Ok(())
@@ -239,18 +244,18 @@ impl WebAssembly {
 
     /// Parse "elem" section
     fn parse_sec_elem(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeErrorKind> {
-        let n_items = section.stream.read_unsigned()?;
+        let n_items: usize = section.reader.read()?;
         for _ in 0..n_items {
-            let tabidx = section.stream.read_unsigned()? as usize;
-            let offset = self.eval_offset(&mut section.stream)? as usize;
-            let n_elements = section.stream.read_unsigned()? as usize;
+            let tabidx = section.reader.read_unsigned()? as usize;
+            let offset = self.eval_offset(&mut section.reader)? as usize;
+            let n_elements = section.reader.read_unsigned()? as usize;
             let table = self
                 .module
                 .tables
                 .get_mut(tabidx)
-                .ok_or(WasmDecodeErrorKind::InvalidParameter)?;
+                .ok_or(WasmDecodeErrorKind::InvalidData)?;
             for i in offset..offset + n_elements {
-                let elem = section.stream.read_unsigned()? as usize;
+                let elem = section.reader.read_unsigned()? as usize;
                 table.table.get_mut(i).map(|v| *v = elem);
             }
         }
@@ -259,22 +264,22 @@ impl WebAssembly {
 
     /// Parse "code" section
     fn parse_sec_code(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeErrorKind> {
-        let n_items = section.stream.read_unsigned()? as usize;
+        let n_items: usize = section.reader.read()?;
         for i in 0..n_items {
             let index = i + self.module.n_ext_func;
             let module = &mut self.module;
             let func_def = module
                 .functions
                 .get(index)
-                .ok_or(WasmDecodeErrorKind::InvalidParameter)?;
-            let length = section.stream.read_unsigned()? as usize;
-            let file_position = section.file_position() + section.stream.position();
-            let blob = section.stream.get_bytes(length)?;
-            let mut stream = Leb128Stream::from_slice(blob);
+                .ok_or(WasmDecodeErrorKind::InvalidData)?;
+            let length = section.reader.read_unsigned()? as usize;
+            let file_position = section.file_position() + section.reader.position();
+            let blob = section.reader.read_bytes(length)?;
+            let mut reader = Leb128Reader::from_slice(blob);
             let body = WasmCodeBlock::generate(
                 index,
                 file_position,
-                &mut stream,
+                &mut reader,
                 func_def.param_types(),
                 func_def.result_types(),
                 module,
@@ -287,16 +292,16 @@ impl WebAssembly {
 
     /// Parse "data" section
     fn parse_sec_data(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeErrorKind> {
-        let n_items = section.stream.read_unsigned()?;
+        let n_items: usize = section.reader.read()?;
         for _ in 0..n_items {
-            let memidx = section.stream.read_unsigned()? as usize;
-            let offset = self.eval_offset(&mut section.stream)?;
-            let src = section.stream.read_bytes()?;
+            let memidx = section.reader.read_unsigned()? as usize;
+            let offset = self.eval_offset(&mut section.reader)?;
+            let src = section.reader.read_blob()?;
             let memory = self
                 .module
                 .memories
                 .get_mut(memidx)
-                .ok_or(WasmDecodeErrorKind::InvalidParameter)?;
+                .ok_or(WasmDecodeErrorKind::InvalidData)?;
             memory.write_slice(offset, src).unwrap();
         }
         Ok(())
@@ -304,21 +309,22 @@ impl WebAssembly {
 
     /// Parse "start" section
     fn parse_sec_start(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeErrorKind> {
-        let index = section.stream.read_unsigned()? as usize;
+        let index: usize = section.reader.read()?;
         self.module.start = Some(index);
         Ok(())
     }
 
     /// Parse "global" section
     fn parse_sec_global(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeErrorKind> {
-        let n_items = section.stream.read_unsigned()? as usize;
+        let n_items: usize = section.reader.read()?;
         for _ in 0..n_items {
             let val_type = section
-                .stream
+                .reader
                 .read_byte()
+                .map_err(|v| v.into())
                 .and_then(|v| WasmValType::from_u64(v as u64))?;
-            let is_mutable = section.stream.read_byte()? == 1;
-            let value = self.eval_expr(&mut section.stream)?;
+            let is_mutable = section.reader.read_byte()? == 1;
+            let value = self.eval_expr(&mut section.reader)?;
 
             if !value.is_valid_type(val_type) {
                 return Err(WasmDecodeErrorKind::InvalidGlobal);
@@ -334,42 +340,35 @@ impl WebAssembly {
         &mut self,
         mut section: WasmSection,
     ) -> Result<(), WasmDecodeErrorKind> {
-        let count = section.stream.read_unsigned()? as usize;
+        let count: usize = section.reader.read()?;
         self.module.data_count = Some(count);
         Ok(())
     }
 
-    fn eval_offset(&self, mut stream: &mut Leb128Stream) -> Result<usize, WasmDecodeErrorKind> {
-        self.eval_expr(&mut stream)
-            .and_then(|v| {
-                v.get_i32()
-                    .map_err(|_| WasmDecodeErrorKind::InvalidParameter)
-            })
+    fn eval_offset(&self, mut reader: &mut Leb128Reader) -> Result<usize, WasmDecodeErrorKind> {
+        self.eval_expr(&mut reader)
+            .and_then(|v| v.get_i32().map_err(|_| WasmDecodeErrorKind::InvalidData))
             .map(|v| v as usize)
     }
 
-    fn eval_expr(&self, stream: &mut Leb128Stream) -> Result<WasmValue, WasmDecodeErrorKind> {
-        stream
-            .read_byte()
-            .and_then(|opc| match WasmSingleOpcode::new(opc) {
-                Some(WasmSingleOpcode::I32Const) => stream.read_signed().and_then(|r| {
-                    stream
-                        .read_byte()
-                        .and_then(|v| match WasmSingleOpcode::new(v) {
-                            Some(WasmSingleOpcode::End) => Ok(WasmValue::I32(r as i32)),
-                            _ => Err(WasmDecodeErrorKind::UnexpectedToken),
-                        })
-                }),
-                Some(WasmSingleOpcode::I64Const) => stream.read_signed().and_then(|r| {
-                    stream
-                        .read_byte()
-                        .and_then(|v| match WasmSingleOpcode::new(v) {
-                            Some(WasmSingleOpcode::End) => Ok(WasmValue::I64(r)),
-                            _ => Err(WasmDecodeErrorKind::UnexpectedToken),
-                        })
-                }),
-                _ => Err(WasmDecodeErrorKind::UnexpectedToken),
-            })
+    fn eval_expr(&self, reader: &mut Leb128Reader) -> Result<WasmValue, WasmDecodeErrorKind> {
+        match WasmSingleOpcode::new(reader.read_byte()?) {
+            Some(WasmSingleOpcode::I32Const) => {
+                let result = WasmValue::I32(reader.read()?);
+                match WasmSingleOpcode::new(reader.read_byte()?) {
+                    Some(WasmSingleOpcode::End) => Ok(result),
+                    _ => Err(WasmDecodeErrorKind::UnexpectedToken),
+                }
+            }
+            Some(WasmSingleOpcode::I64Const) => {
+                let result = WasmValue::I64(reader.read()?);
+                match WasmSingleOpcode::new(reader.read_byte()?) {
+                    Some(WasmSingleOpcode::End) => Ok(result),
+                    _ => Err(WasmDecodeErrorKind::UnexpectedToken),
+                }
+            }
+            _ => Err(WasmDecodeErrorKind::UnexpectedToken),
+        }
     }
 }
 
@@ -391,7 +390,7 @@ pub struct WasmModule {
 impl WasmModule {
     #[inline]
     pub fn new() -> Self {
-        let memories = Vec::from_iter([WasmMemory::new(WasmLimit::new(0, 0))]);
+        let memories = Vec::from_iter([WasmMemory::new(WasmLimit::zero())]);
         Self {
             types: Vec::new(),
             memories,
@@ -457,7 +456,12 @@ impl WasmModule {
     }
 
     #[inline]
-    pub fn tables(&mut self) -> &mut [WasmTable] {
+    pub fn tables(&self) -> &[WasmTable] {
+        self.tables.as_slice()
+    }
+
+    #[inline]
+    pub fn tables_mut(&mut self) -> &mut [WasmTable] {
         self.tables.as_mut_slice()
     }
 
@@ -540,224 +544,6 @@ impl WasmModule {
     }
 }
 
-/// Stream encoded with LEB128
-pub struct Leb128Stream<'a> {
-    blob: &'a [u8],
-    position: usize,
-}
-
-impl<'a> Leb128Stream<'a> {
-    /// Instantiates from a slice
-    #[inline]
-    pub const fn from_slice(slice: &'a [u8]) -> Self {
-        Self {
-            blob: slice,
-            position: 0,
-        }
-    }
-
-    #[inline]
-    pub fn cloned(&self) -> Self {
-        Self {
-            blob: self.blob,
-            position: self.position,
-        }
-    }
-}
-
-impl Leb128Stream<'_> {
-    /// Returns to the origin of the stream
-    #[inline]
-    pub fn reset(&mut self) {
-        self.position = 0;
-    }
-
-    #[inline]
-    pub const fn len(&self) -> usize {
-        self.blob.len()
-    }
-
-    /// Gets current position of stream
-    #[inline]
-    pub const fn position(&self) -> usize {
-        self.position
-    }
-
-    #[inline]
-    pub fn set_position(&mut self, val: usize) {
-        self.position = val;
-    }
-
-    /// Returns whether the end of the stream has been reached
-    #[inline]
-    pub const fn is_eof(&self) -> bool {
-        self.position >= self.blob.len()
-    }
-
-    /// Reads one byte from a stream
-    #[inline]
-    pub fn read_byte(&mut self) -> Result<u8, WasmDecodeErrorKind> {
-        self.blob
-            .get(self.position)
-            .map(|v| {
-                self.position += 1;
-                *v
-            })
-            .ok_or(WasmDecodeErrorKind::UnexpectedEof)
-    }
-
-    /// Returns a slice of the specified number of bytes from the stream
-    pub fn get_bytes(&mut self, size: usize) -> Result<&[u8], WasmDecodeErrorKind> {
-        self.blob
-            .get(self.position..self.position + size)
-            .map(|v| {
-                self.position += size;
-                v
-            })
-            .ok_or(WasmDecodeErrorKind::UnexpectedEof)
-    }
-
-    /// Reads multiple bytes from the stream
-    #[inline]
-    pub fn read_bytes(&mut self) -> Result<&[u8], WasmDecodeErrorKind> {
-        self.read_unsigned()
-            .and_then(move |size| self.get_bytes(size as usize))
-    }
-
-    /// Reads an unsigned integer from a stream
-    pub fn read_unsigned(&mut self) -> Result<u64, WasmDecodeErrorKind> {
-        let mut value: u64 = 0;
-        let mut scale = 0;
-        let mut cursor = self.position;
-        loop {
-            let d = match self.blob.get(cursor) {
-                Some(v) => *v,
-                None => return Err(WasmDecodeErrorKind::UnexpectedEof),
-            };
-            cursor += 1;
-
-            value |= (d as u64 & 0x7F) << scale;
-            scale += 7;
-            if (d & 0x80) == 0 {
-                break;
-            }
-        }
-        self.position = cursor;
-        Ok(value)
-    }
-
-    /// Reads a signed integer from a stream
-    pub fn read_signed(&mut self) -> Result<i64, WasmDecodeErrorKind> {
-        let mut value: u64 = 0;
-        let mut scale = 0;
-        let mut cursor = self.position;
-        let signed = loop {
-            let d = match self.blob.get(cursor) {
-                Some(v) => *v,
-                None => return Err(WasmDecodeErrorKind::UnexpectedEof),
-            };
-            cursor += 1;
-
-            value |= (d as u64 & 0x7F) << scale;
-            if (d & 0x80) == 0 {
-                let signed = (d & 0x40) != 0;
-                break signed;
-            }
-            scale += 7;
-        };
-        self.position = cursor;
-        if signed {
-            Ok((value | 0xFFFF_FFFF_FFFF_FFC0 << scale) as i64)
-        } else {
-            Ok(value as i64)
-        }
-    }
-
-    #[inline]
-    pub fn read_f32(&mut self) -> Result<f32, WasmDecodeErrorKind> {
-        self.get_bytes(4)
-            .map(|v| unsafe { transmute(u32::from_le_bytes(v.try_into().unwrap())) })
-    }
-
-    #[inline]
-    pub fn read_f64(&mut self) -> Result<f64, WasmDecodeErrorKind> {
-        self.get_bytes(8)
-            .map(|v| unsafe { transmute(u64::from_le_bytes(v.try_into().unwrap())) })
-    }
-
-    /// Reads the UTF-8 encoded string from the stream
-    #[inline]
-    pub fn get_string(&mut self) -> Result<&str, WasmDecodeErrorKind> {
-        self.read_bytes()
-            .and_then(|v| str::from_utf8(v).map_err(|_| WasmDecodeErrorKind::UnexpectedToken))
-    }
-
-    #[inline]
-    pub fn read_opcode(&mut self) -> Result<WasmOpcode, WasmDecodeErrorKind> {
-        self.read_byte().and_then(|lead| {
-            WasmOpcode::decode(lead, WasmDecodeErrorKind::InvalidBytecode(lead), || {
-                self.read_unsigned().map(|v| v as u32)
-            })
-        })
-    }
-
-    #[inline]
-    pub fn read_memarg(&mut self) -> Result<WasmMemArg, WasmDecodeErrorKind> {
-        let a = self.read_unsigned()? as u32;
-        let o = self.read_unsigned()? as u32;
-        Ok(WasmMemArg::new(o, a))
-    }
-
-    fn next_section_triple(
-        &mut self,
-    ) -> Result<Option<(WasmSectionType, usize, usize)>, WasmDecodeErrorKind> {
-        if self.is_eof() {
-            return Ok(None);
-        }
-        let section_type = self.read_byte()?;
-        let Some(section_type) = FromPrimitive::from_u8(section_type) else {
-                    return Err(WasmDecodeErrorKind::UnexpectedToken)
-                };
-
-        let magic = 8;
-        let length = self.read_unsigned()? as usize;
-        let file_position = self.position + magic;
-        self.position += length;
-
-        Ok(Some((section_type, file_position, length)))
-    }
-
-    fn next_section(&mut self) -> Result<Option<WasmSection>, WasmDecodeErrorKind> {
-        let magic = 8;
-        self.next_section_triple().map(|v| {
-            v.map(|(section_type, file_position, length)| {
-                let stream = Leb128Stream::from_slice(
-                    &self.blob[file_position - magic..file_position + length - magic],
-                );
-                WasmSection {
-                    section_type,
-                    file_position,
-                    stream,
-                }
-            })
-        })
-    }
-
-    pub fn write_unsigned(vec: &mut Vec<u8>, value: u64) {
-        let mut value = value;
-        loop {
-            let byte = value & 0x7F;
-            value >>= 7;
-            if value == 0 {
-                vec.push(byte as u8);
-                break;
-            } else {
-                vec.push(0x80 | byte as u8);
-            }
-        }
-    }
-}
-
 /// WebAssembly memory argument
 #[derive(Debug, Copy, Clone)]
 pub struct WasmMemArg {
@@ -770,18 +556,48 @@ impl WasmMemArg {
     pub const fn new(offset: u32, align: u32) -> Self {
         Self { offset, align }
     }
+}
 
-    #[inline]
-    pub const fn offset_by(&self, base: u32) -> usize {
-        (self.offset as u64 + base as u64) as usize
+impl<'a, 'b> ReadLeb128<'a, WasmMemArg> for Leb128Reader<'b> {
+    fn read(&'a mut self) -> Result<WasmMemArg, ReadError> {
+        let a = self.read()?;
+        let o = self.read()?;
+        Ok(WasmMemArg::new(o, a))
     }
 }
 
-/// WebAssembly section stream
+/// WebAssembly section
 pub struct WasmSection<'a> {
     section_type: WasmSectionType,
     file_position: usize,
-    stream: Leb128Stream<'a>,
+    reader: Leb128Reader<'a>,
+}
+
+impl<'a> WasmSection<'a> {
+    pub fn from_reader<'b>(
+        reader: &'b mut Leb128Reader<'a>,
+    ) -> Result<Option<WasmSection<'a>>, WasmDecodeErrorKind> {
+        if reader.is_eof() {
+            return Ok(None);
+        }
+        let section_type = reader.read_byte()?;
+        let Some(section_type) = FromPrimitive::from_u8(section_type) else {
+            return Err(WasmDecodeErrorKind::UnexpectedToken);
+        };
+
+        let magic_numer = 8;
+        let length: usize = reader.read()?;
+        let file_position = reader.position() + magic_numer;
+        let _reader = reader
+            .sub_slice(length)
+            .ok_or(WasmDecodeErrorKind::InternalInconsistency)?;
+
+        Ok(Some(Self {
+            section_type,
+            file_position,
+            reader: _reader,
+        }))
+    }
 }
 
 impl WasmSection<'_> {
@@ -797,7 +613,7 @@ impl WasmSection<'_> {
 
     #[inline]
     pub const fn content_size(&self) -> usize {
-        self.stream.len()
+        self.reader.len()
     }
 
     #[inline]
@@ -805,19 +621,14 @@ impl WasmSection<'_> {
         if self.section_type != WasmSectionType::Custom {
             return None;
         }
-        let mut blob = self.stream.cloned();
+        let mut blob = self.reader.cloned();
         blob.reset();
-        blob.get_string().map(|v| v.to_string()).ok()
-    }
-
-    pub fn write_to_vec(&self, vec: &mut Vec<u8>) {
-        vec.push(self.section_type() as u8);
-        Leb128Stream::write_unsigned(vec, self.content_size() as u64);
-        vec.extend_from_slice(self.stream.blob);
+        blob.get_string().ok()
     }
 }
 
 /// WebAssembly section types
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialOrd, PartialEq, FromPrimitive)]
 pub enum WasmSectionType {
     Custom = 0,
@@ -930,7 +741,7 @@ impl WasmBlockType {
             -2 => Ok(Self::I64),
             -3 => Ok(Self::F32),
             -4 => Ok(Self::F64),
-            _ => Err(WasmDecodeErrorKind::InvalidParameter),
+            _ => Err(WasmDecodeErrorKind::InvalidData),
         }
     }
 
@@ -949,30 +760,48 @@ impl WasmBlockType {
 #[derive(Debug, Copy, Clone)]
 pub struct WasmLimit {
     min: u32,
-    max: u32,
+    max: Option<NonZeroU32>,
+    is_shared: bool,
 }
 
 impl WasmLimit {
     #[inline]
-    pub const fn new(min: u32, max: u32) -> Self {
-        Self { min, max }
+    fn zero() -> Self {
+        Self {
+            min: 0,
+            max: None,
+            is_shared: false,
+        }
     }
 
     #[inline]
-    fn from_stream(stream: &mut Leb128Stream) -> Result<Self, WasmDecodeErrorKind> {
-        match stream.read_unsigned() {
-            Ok(0) => stream.read_unsigned().map(|min| Self {
-                min: min as u32,
-                max: min as u32,
-            }),
-            Ok(1) => {
-                let min = stream.read_unsigned()? as u32;
-                let max = stream.read_unsigned()? as u32;
-                Ok(Self { min, max })
-            }
-            Err(err) => Err(err),
-            _ => Err(WasmDecodeErrorKind::UnexpectedToken),
-        }
+    fn from_reader(
+        reader: &mut Leb128Reader,
+        is_memory: bool,
+    ) -> Result<Self, WasmDecodeErrorKind> {
+        let limit_type = reader.read().map_err(|v| v.into()).and_then(|v| {
+            WasmLimitType::new(v, is_memory).ok_or(WasmDecodeErrorKind::UnexpectedToken)
+        })?;
+
+        let min = reader.read()?;
+        let max = if limit_type.has_max() {
+            NonZeroU32::new(reader.read()?)
+        } else {
+            None
+        };
+
+        let is_shared = limit_type.is_shared();
+
+        Ok(Self {
+            min,
+            max,
+            is_shared,
+        })
+    }
+
+    #[inline]
+    pub fn initial_alloc(&self) -> u32 {
+        self.max.map(|v| v.get()).unwrap_or(self.min)
     }
 
     #[inline]
@@ -981,8 +810,69 @@ impl WasmLimit {
     }
 
     #[inline]
-    pub const fn max(&self) -> u32 {
-        self.max
+    pub fn max(&self) -> Option<u32> {
+        self.max.map(|v| v.get())
+    }
+
+    #[inline]
+    pub const fn is_shared(&self) -> bool {
+        self.is_shared
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct WasmLimitType(u8);
+
+impl WasmLimitType {
+    const ALL_MEMORY: u64 = (
+        Self::HAS_MAX
+        //| Self::IS_SHARED
+        //| Self::IS_MEMORY64
+    ) as u64;
+
+    const ALL_OTHER: u64 = (Self::HAS_MAX) as u64;
+
+    const HAS_MAX: u8 = 0b0000_0001;
+
+    const IS_SHARED: u8 = 0b0000_0010;
+
+    const IS_MEMORY64: u8 = 0b0000_0100;
+
+    #[inline]
+    pub const fn new(value: u64, is_memory: bool) -> Option<Self> {
+        if is_memory {
+            if value <= Self::ALL_MEMORY {
+                Some(Self(value as u8))
+            } else {
+                None
+            }
+        } else {
+            if value <= Self::ALL_OTHER {
+                Some(Self(value as u8))
+            } else {
+                None
+            }
+        }
+    }
+
+    /// Limit Type has `max` field
+    #[inline]
+    pub const fn has_max(&self) -> bool {
+        (self.0 & Self::HAS_MAX) != 0
+    }
+
+    /// Limit Type is `shared`
+    /// TODO: **SUPPORTED IN THE FUTURE**
+    #[inline]
+    pub const fn is_shared(&self) -> bool {
+        (self.0 & Self::IS_SHARED) != 0
+    }
+
+    /// Limit Type is `memory64`
+    /// TODO: **SUPPORTED IN THE FUTURE**
+    #[inline]
+    pub const fn is_memory64(&self) -> bool {
+        (self.0 & Self::IS_MEMORY64) != 0
     }
 }
 
@@ -993,13 +883,9 @@ pub struct WasmMemory {
 }
 
 impl WasmMemory {
-    /// The length of the vector always is a multiple of the WebAssembly page size,
-    /// which is defined to be the constant 65536 – abbreviated 64Ki.
-    pub const PAGE_SIZE: usize = 65536;
-
     #[inline]
     pub fn new(limit: WasmLimit) -> Self {
-        let size = limit.min as usize * Self::PAGE_SIZE;
+        let size = limit.initial_alloc() as usize * WebAssembly::PAGE_SIZE;
         let mut data = Vec::with_capacity(size);
         data.resize(size, 0);
         Self {
@@ -1027,7 +913,7 @@ impl WasmMemory {
     #[inline]
     pub fn size(&self) -> i32 {
         let memory = self.as_slice();
-        (memory.len() / Self::PAGE_SIZE) as i32
+        (memory.len() / WebAssembly::PAGE_SIZE) as i32
     }
 
     /// memory.grow
@@ -1035,14 +921,14 @@ impl WasmMemory {
         let memory = unsafe { &mut *self.data.get() };
         let old_size = memory.len();
         if delta > 0 {
-            let additional = delta as usize * Self::PAGE_SIZE;
+            let additional = delta as usize * WebAssembly::PAGE_SIZE;
             if memory.try_reserve(additional).is_err() {
                 return -1;
             }
             memory.resize(old_size + additional, 0);
-            (old_size / Self::PAGE_SIZE) as i32
+            (old_size / WebAssembly::PAGE_SIZE) as i32
         } else if delta == 0 {
-            (old_size / Self::PAGE_SIZE) as i32
+            (old_size / WebAssembly::PAGE_SIZE) as i32
         } else {
             -1
         }
@@ -1082,7 +968,7 @@ impl WasmMemory {
         let count = src.len();
         let limit = memory.len();
         let Some(end) = offset.checked_add(count) else {
-            return Err(WasmRuntimeErrorKind::OutOfBounds)
+            return Err(WasmRuntimeErrorKind::OutOfBounds);
         };
         if offset < limit && end <= limit {
             unsafe {
@@ -1146,8 +1032,9 @@ impl WasmMemory {
         index: u32,
         limit: usize,
     ) -> Result<usize, WasmRuntimeErrorKind> {
+        let limit = limit as u64;
         let ea = (offset as u64).wrapping_add(index as u64);
-        if ea < limit as u64 {
+        if ea < limit {
             Ok(ea as usize)
         } else {
             Err(WasmRuntimeErrorKind::OutOfBounds)
@@ -1175,14 +1062,14 @@ pub struct WasmTable {
 
 impl WasmTable {
     #[inline]
-    fn from_stream(stream: &mut Leb128Stream) -> Result<Self, WasmDecodeErrorKind> {
-        match stream.read_unsigned() {
+    fn from_reader(reader: &mut Leb128Reader) -> Result<Self, WasmDecodeErrorKind> {
+        match reader.read_unsigned() {
             Ok(0x70) => (),
-            Err(err) => return Err(err),
+            Err(err) => return Err(err.into()),
             _ => return Err(WasmDecodeErrorKind::UnexpectedToken),
         };
-        WasmLimit::from_stream(stream).map(|limit| {
-            let size = limit.min as usize;
+        WasmLimit::from_reader(reader, false).map(|limit| {
+            let size = limit.initial_alloc() as usize;
             let mut table = Vec::with_capacity(size);
             table.resize(size, 0);
             Self { limit, table }
@@ -1297,25 +1184,27 @@ pub struct WasmType {
 }
 
 impl WasmType {
-    fn from_stream(stream: &mut Leb128Stream) -> Result<Self, WasmDecodeErrorKind> {
-        match stream.read_unsigned() {
+    fn from_reader(reader: &mut Leb128Reader) -> Result<Self, WasmDecodeErrorKind> {
+        match reader.read_unsigned() {
             Ok(0x60) => (),
-            Err(err) => return Err(err),
+            Err(err) => return Err(err.into()),
             _ => return Err(WasmDecodeErrorKind::UnexpectedToken),
         };
-        let n_params = stream.read_unsigned()? as usize;
+        let n_params = reader.read_unsigned()? as usize;
         let mut param_types = SmallVec::with_capacity(n_params);
         for _ in 0..n_params {
-            stream
+            reader
                 .read_unsigned()
+                .map_err(|v| v.into())
                 .and_then(|v| WasmValType::from_u64(v))
                 .map(|v| param_types.push(v))?;
         }
-        let n_result = stream.read_unsigned()? as usize;
+        let n_result = reader.read_unsigned()? as usize;
         let mut result_types = SmallVec::with_capacity(n_result);
         for _ in 0..n_result {
-            stream
+            reader
                 .read_unsigned()
+                .map_err(|v| v.into())
                 .and_then(|v| WasmValType::from_u64(v))
                 .map(|v| result_types.push(v))?;
         }
@@ -1388,10 +1277,10 @@ pub struct WasmImport {
 
 impl WasmImport {
     #[inline]
-    fn from_stream(stream: &mut Leb128Stream) -> Result<Self, WasmDecodeErrorKind> {
-        let mod_name = stream.get_string()?.to_string();
-        let name = stream.get_string()?.to_string();
-        let index = WasmImportIndex::from_stream(stream)?;
+    fn from_reader(reader: &mut Leb128Reader) -> Result<Self, WasmDecodeErrorKind> {
+        let mod_name = reader.get_string()?;
+        let name = reader.get_string()?;
+        let index = WasmImportIndex::from_reader(reader)?;
 
         Ok(Self {
             mod_name,
@@ -1427,14 +1316,20 @@ pub enum WasmImportIndex {
 
 impl WasmImportIndex {
     #[inline]
-    fn from_stream(mut stream: &mut Leb128Stream) -> Result<Self, WasmDecodeErrorKind> {
-        stream.read_unsigned().and_then(|v| match v {
-            0 => stream.read_unsigned().map(|v| Self::Type(v as usize)),
-            // 1 => stream.read_unsigned().map(|v| Self::Table(v as usize)),
-            2 => WasmLimit::from_stream(&mut stream).map(|v| Self::Memory(v)),
-            // 3 => stream.read_unsigned().map(|v| Self::Global(v as usize)),
-            _ => Err(WasmDecodeErrorKind::UnexpectedToken),
-        })
+    fn from_reader(mut reader: &mut Leb128Reader) -> Result<Self, WasmDecodeErrorKind> {
+        reader
+            .read_unsigned()
+            .map_err(|v| v.into())
+            .and_then(|v| match v {
+                0 => reader
+                    .read_unsigned()
+                    .map(|v| Self::Type(v as usize))
+                    .map_err(|v| v.into()),
+                // 1 => reader.read_unsigned().map(|v| Self::Table(v as usize)),
+                2 => WasmLimit::from_reader(&mut reader, true).map(|v| Self::Memory(v)),
+                // 3 => reader.read_unsigned().map(|v| Self::Global(v as usize)),
+                _ => Err(WasmDecodeErrorKind::UnexpectedToken),
+            })
     }
 }
 
@@ -1446,9 +1341,9 @@ pub struct WasmExport {
 
 impl WasmExport {
     #[inline]
-    fn from_stream(stream: &mut Leb128Stream) -> Result<Self, WasmDecodeErrorKind> {
-        let name = stream.get_string()?.to_string();
-        let index = WasmExportIndex::from_stream(stream)?;
+    fn from_reader(reader: &mut Leb128Reader) -> Result<Self, WasmDecodeErrorKind> {
+        let name = reader.get_string()?;
+        let index = WasmExportIndex::from_reader(reader)?;
         Ok(Self { name, index })
     }
 
@@ -1473,14 +1368,29 @@ pub enum WasmExportIndex {
 
 impl WasmExportIndex {
     #[inline]
-    fn from_stream(stream: &mut Leb128Stream) -> Result<Self, WasmDecodeErrorKind> {
-        stream.read_unsigned().and_then(|v| match v {
-            0 => stream.read_unsigned().map(|v| Self::Function(v as usize)),
-            1 => stream.read_unsigned().map(|v| Self::Table(v as usize)),
-            2 => stream.read_unsigned().map(|v| Self::Memory(v as usize)),
-            3 => stream.read_unsigned().map(|v| Self::Global(v as usize)),
-            _ => Err(WasmDecodeErrorKind::UnexpectedToken),
-        })
+    fn from_reader(reader: &mut Leb128Reader) -> Result<Self, WasmDecodeErrorKind> {
+        reader
+            .read_unsigned()
+            .map_err(|v| v.into())
+            .and_then(|v| match v {
+                0 => reader
+                    .read_unsigned()
+                    .map(|v| Self::Function(v as usize))
+                    .map_err(|v| v.into()),
+                1 => reader
+                    .read_unsigned()
+                    .map(|v| Self::Table(v as usize))
+                    .map_err(|v| v.into()),
+                2 => reader
+                    .read_unsigned()
+                    .map(|v| Self::Memory(v as usize))
+                    .map_err(|v| v.into()),
+                3 => reader
+                    .read_unsigned()
+                    .map(|v| Self::Global(v as usize))
+                    .map_err(|v| v.into()),
+                _ => Err(WasmDecodeErrorKind::UnexpectedToken),
+            })
     }
 }
 
@@ -1499,7 +1409,7 @@ pub enum WasmDecodeErrorKind {
     /// Unsupported global data type
     UnsupportedGlobalType,
     /// Invalid parameter was specified.
-    InvalidParameter,
+    InvalidData,
     /// Invalid stack level.
     InvalidStackLevel,
     /// Specified a non-existent type.
@@ -1526,6 +1436,16 @@ pub enum WasmDecodeErrorKind {
     NoModule(String),
     /// Internal error
     InternalInconsistency,
+}
+
+impl From<leb128::ReadError> for WasmDecodeErrorKind {
+    fn from(value: leb128::ReadError) -> Self {
+        match value {
+            ReadError::InvalidData => WasmDecodeErrorKind::InvalidData,
+            ReadError::UnexpectedEof => WasmDecodeErrorKind::UnexpectedEof,
+            ReadError::OutOfBounds => WasmDecodeErrorKind::InvalidType,
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -2120,35 +2040,33 @@ pub struct WasmName {
 impl WasmName {
     pub const SECTION_NAME: &'static str = "name";
 
-    fn from_stream(stream: &mut Leb128Stream) -> Result<Self, WasmDecodeErrorKind> {
+    fn from_reader(reader: &mut Leb128Reader) -> Result<Self, WasmDecodeErrorKind> {
         let mut module = None;
         let mut functions = Vec::new();
         let mut globals = Vec::new();
 
-        while !stream.is_eof() {
-            let name_id = stream.read_byte()?;
-            let blob = stream.read_bytes()?;
+        while !reader.is_eof() {
+            let name_id = reader.read_byte()?;
+            let blob = reader.read_blob()?;
             let Some(name_id) = FromPrimitive::from_u8(name_id) else {
-                continue
+                continue;
             };
-            let mut stream = Leb128Stream::from_slice(blob);
+            let mut reader = Leb128Reader::from_slice(blob);
             match name_id {
-                WasmNameSubsectionType::Module => {
-                    module = stream.get_string().map(|s| s.to_string()).ok()
-                }
+                WasmNameSubsectionType::Module => module = reader.get_string().ok(),
                 WasmNameSubsectionType::Function => {
-                    let length = stream.read_unsigned()? as usize;
+                    let length = reader.read_unsigned()? as usize;
                     for _ in 0..length {
-                        let idx = stream.read_unsigned()? as usize;
-                        let s = stream.get_string().map(|s| s.to_string())?;
+                        let idx = reader.read_unsigned()? as usize;
+                        let s = reader.get_string()?;
                         functions.push((idx, s));
                     }
                 }
                 WasmNameSubsectionType::Global => {
-                    let length = stream.read_unsigned()? as usize;
+                    let length = reader.read_unsigned()? as usize;
                     for _ in 0..length {
-                        let idx = stream.read_unsigned()? as usize;
-                        let s = stream.get_string().map(|s| s.to_string())?;
+                        let idx = reader.read_unsigned()? as usize;
+                        let s = reader.get_string()?;
                         globals.push((idx, s));
                     }
                 }
@@ -2195,6 +2113,7 @@ impl WasmName {
     }
 }
 
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
 enum WasmNameSubsectionType {
     Module = 0,
