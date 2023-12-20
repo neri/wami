@@ -317,6 +317,16 @@ impl<'a> Leb128Reader<'a> {
             .ok_or(ReadError::UnexpectedEof)
     }
 
+    pub fn read_slice<'b, const N: usize>(&'b mut self) -> Result<&'a [u8; N], ReadError> {
+        self.slice
+            .get(self.position..self.position + N)
+            .map(|v| {
+                self.position += N;
+                v.try_into().unwrap()
+            })
+            .ok_or(ReadError::UnexpectedEof)
+    }
+
     #[inline]
     pub fn read_blob<'b>(&'b mut self) -> Result<&'a [u8], ReadError> {
         self.read_unsigned()
@@ -406,6 +416,14 @@ impl Leb128Reader<'_> {
         } else {
             Ok(value as i64)
         }
+    }
+
+    pub fn read_f32(&mut self) -> Result<f32, ReadError> {
+        self.read_slice().map(|v| f32::from_le_bytes(*v))
+    }
+
+    pub fn read_f64(&mut self) -> Result<f64, ReadError> {
+        self.read_slice().map(|v| f64::from_le_bytes(*v))
     }
 }
 

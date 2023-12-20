@@ -14,6 +14,7 @@ use alloc::{borrow::ToOwned, string::String, vec::Vec};
 use core::{
     fmt,
     mem::{size_of, transmute},
+    ops::Neg,
 };
 
 const INITIAL_VALUE_STACK_SIZE: usize = 512;
@@ -47,12 +48,9 @@ impl WasmInterpreter<'_> {
             .names()
             .and_then(|v| v.func_by_index(self.func_index))
             .map(|v| v.to_owned());
-        let file_position = self
-            .module
-            .codeblock(self.func_index)
-            .map(|v| v.file_position())
-            .unwrap_or(0)
-            + ex_position.position();
+        let file_position =
+            self.module.func_position(self.func_index).unwrap_or(0) + ex_position.position();
+
         WasmRuntimeError {
             kind,
             file_position,
@@ -203,7 +201,7 @@ impl WasmInterpreter<'_> {
                     codes.set_position(target)?;
                 }
 
-                WasmIntMnemonic::ReturnV => {
+                WasmIntMnemonic::ReturnN => {
                     break;
                 }
 
@@ -384,22 +382,22 @@ impl WasmInterpreter<'_> {
                     MEM_STORE!(u64, u32, I64Store32, offset, ex_position, code, value_stack, memory, );
                 }
 
-                #[cfg(feature = "float")]
                 WasmIntMnemonic::F32Load(offset, ex_position) => {
-                    todo!();
+                    #[rustfmt::skip]
+                    MEM_LOAD!(f32, f32, F32Load, offset, ex_position, code, value_stack, memory, );
                 }
-                #[cfg(feature = "float")]
                 WasmIntMnemonic::F32Store(offset, ex_position) => {
-                    todo!();
+                    #[rustfmt::skip]
+                    MEM_STORE!(f32, f32, F32Store, offset, ex_position, code, value_stack, memory, );
                 }
 
-                #[cfg(feature = "float")]
                 WasmIntMnemonic::F64Load(offset, ex_position) => {
-                    todo!();
+                    #[rustfmt::skip]
+                    MEM_LOAD!(f64, f64, F64Load, offset, ex_position, code, value_stack, memory, );
                 }
-                #[cfg(feature = "float")]
                 WasmIntMnemonic::F64Store(offset, ex_position) => {
-                    todo!();
+                    #[rustfmt::skip]
+                    MEM_STORE!(f64, f64, F64Store, offset, ex_position, code, value_stack, memory, );
                 }
 
                 WasmIntMnemonic::MemorySize => {
@@ -464,14 +462,12 @@ impl WasmInterpreter<'_> {
                         ref_a.write_i64(val);
                     }
                 }
-                #[cfg(feature = "float")]
                 WasmIntMnemonic::F32Const(val) => {
                     let ref_a = unsafe { value_stack.get_unchecked_mut(code.base_stack_level()) };
                     unsafe {
                         ref_a.write_f32(val);
                     }
                 }
-                #[cfg(feature = "float")]
                 WasmIntMnemonic::F64Const(val) => {
                     let ref_a = unsafe { value_stack.get_unchecked_mut(code.base_stack_level()) };
                     unsafe {
@@ -894,6 +890,368 @@ impl WasmInterpreter<'_> {
                     });
                 }
 
+                WasmIntMnemonic::F32Eq => {
+                    Self::binary_op(code, &mut value_stack, |lhs, rhs| unsafe {
+                        lhs.write_bool(lhs.get_f32() == rhs.get_f32())
+                    });
+                }
+                WasmIntMnemonic::F32Ne => {
+                    Self::binary_op(code, &mut value_stack, |lhs, rhs| unsafe {
+                        lhs.write_bool(lhs.get_f32() != rhs.get_f32())
+                    });
+                }
+                WasmIntMnemonic::F32Lt => {
+                    Self::binary_op(code, &mut value_stack, |lhs, rhs| unsafe {
+                        lhs.write_bool(lhs.get_f32() < rhs.get_f32())
+                    });
+                }
+                WasmIntMnemonic::F32Gt => {
+                    Self::binary_op(code, &mut value_stack, |lhs, rhs| unsafe {
+                        lhs.write_bool(lhs.get_f32() > rhs.get_f32())
+                    });
+                }
+                WasmIntMnemonic::F32Le => {
+                    Self::binary_op(code, &mut value_stack, |lhs, rhs| unsafe {
+                        lhs.write_bool(lhs.get_f32() <= rhs.get_f32())
+                    });
+                }
+                WasmIntMnemonic::F32Ge => {
+                    Self::binary_op(code, &mut value_stack, |lhs, rhs| unsafe {
+                        lhs.write_bool(lhs.get_f32() >= rhs.get_f32())
+                    });
+                }
+
+                WasmIntMnemonic::F32Abs => {
+                    Self::unary_op(code, &mut value_stack, |v| unsafe {
+                        v.map_f32(|v| core::intrinsics::fabsf32(v));
+                    });
+                }
+                WasmIntMnemonic::F32Neg => {
+                    Self::unary_op(code, &mut value_stack, |v| unsafe {
+                        v.map_f32(|v| v.neg());
+                    });
+                }
+                WasmIntMnemonic::F32Ceil => {
+                    Self::unary_op(code, &mut value_stack, |v| unsafe {
+                        v.map_f32(|v| core::intrinsics::ceilf32(v));
+                    });
+                }
+                WasmIntMnemonic::F32Floor => {
+                    Self::unary_op(code, &mut value_stack, |v| unsafe {
+                        v.map_f32(|v| core::intrinsics::floorf32(v));
+                    });
+                }
+                WasmIntMnemonic::F32Trunc => {
+                    Self::unary_op(code, &mut value_stack, |v| unsafe {
+                        v.map_f32(|v| core::intrinsics::truncf32(v));
+                    });
+                }
+                WasmIntMnemonic::F32Nearest => {
+                    Self::unary_op(code, &mut value_stack, |v| unsafe {
+                        v.map_f32(|v| core::intrinsics::rintf32(v));
+                    });
+                }
+                WasmIntMnemonic::F32Sqrt => {
+                    Self::unary_op(code, &mut value_stack, |v| unsafe {
+                        v.map_f32(|v| core::intrinsics::sqrtf32(v));
+                    });
+                }
+
+                WasmIntMnemonic::F32Add => {
+                    Self::binary_op(code, &mut value_stack, |lhs, rhs| unsafe {
+                        lhs.map_f32(|lhs| lhs + rhs.get_f32());
+                    });
+                }
+                WasmIntMnemonic::F32Sub => {
+                    Self::binary_op(code, &mut value_stack, |lhs, rhs| unsafe {
+                        lhs.map_f32(|lhs| lhs - rhs.get_f32());
+                    });
+                }
+                WasmIntMnemonic::F32Mul => {
+                    Self::binary_op(code, &mut value_stack, |lhs, rhs| unsafe {
+                        lhs.map_f32(|lhs| lhs * rhs.get_f32());
+                    });
+                }
+                WasmIntMnemonic::F32Div => {
+                    Self::binary_op(code, &mut value_stack, |lhs, rhs| unsafe {
+                        lhs.map_f32(|lhs| lhs / rhs.get_f32());
+                    });
+                }
+                WasmIntMnemonic::F32Min => {
+                    Self::binary_op(code, &mut value_stack, |lhs, rhs| unsafe {
+                        lhs.map_f32(|lhs| lhs.minimum(rhs.get_f32()));
+                    });
+                }
+                WasmIntMnemonic::F32Max => {
+                    Self::binary_op(code, &mut value_stack, |lhs, rhs| unsafe {
+                        lhs.map_f32(|lhs| lhs.maximum(rhs.get_f32()));
+                    });
+                }
+                WasmIntMnemonic::F32Copysign => {
+                    Self::binary_op(code, &mut value_stack, |lhs, rhs| unsafe {
+                        lhs.map_f32(|lhs| core::intrinsics::copysignf32(lhs, rhs.get_f32()));
+                    });
+                }
+
+                WasmIntMnemonic::F64Eq => {
+                    Self::binary_op(code, &mut value_stack, |lhs, rhs| unsafe {
+                        lhs.write_bool(lhs.get_f64() == rhs.get_f64())
+                    });
+                }
+                WasmIntMnemonic::F64Ne => {
+                    Self::binary_op(code, &mut value_stack, |lhs, rhs| unsafe {
+                        lhs.write_bool(lhs.get_f64() != rhs.get_f64())
+                    });
+                }
+                WasmIntMnemonic::F64Lt => {
+                    Self::binary_op(code, &mut value_stack, |lhs, rhs| unsafe {
+                        lhs.write_bool(lhs.get_f64() < rhs.get_f64())
+                    });
+                }
+                WasmIntMnemonic::F64Gt => {
+                    Self::binary_op(code, &mut value_stack, |lhs, rhs| unsafe {
+                        lhs.write_bool(lhs.get_f64() > rhs.get_f64())
+                    });
+                }
+                WasmIntMnemonic::F64Le => {
+                    Self::binary_op(code, &mut value_stack, |lhs, rhs| unsafe {
+                        lhs.write_bool(lhs.get_f64() <= rhs.get_f64())
+                    });
+                }
+                WasmIntMnemonic::F64Ge => {
+                    Self::binary_op(code, &mut value_stack, |lhs, rhs| unsafe {
+                        lhs.write_bool(lhs.get_f64() >= rhs.get_f64())
+                    });
+                }
+
+                WasmIntMnemonic::F64Abs => {
+                    Self::unary_op(code, &mut value_stack, |v| unsafe {
+                        v.map_f64(|v| core::intrinsics::fabsf64(v));
+                    });
+                }
+                WasmIntMnemonic::F64Neg => {
+                    Self::unary_op(code, &mut value_stack, |v| unsafe {
+                        v.map_f64(|v| v.neg());
+                    });
+                }
+                WasmIntMnemonic::F64Ceil => {
+                    Self::unary_op(code, &mut value_stack, |v| unsafe {
+                        v.map_f64(|v| core::intrinsics::ceilf64(v));
+                    });
+                }
+                WasmIntMnemonic::F64Floor => {
+                    Self::unary_op(code, &mut value_stack, |v| unsafe {
+                        v.map_f64(|v| core::intrinsics::floorf64(v));
+                    });
+                }
+                WasmIntMnemonic::F64Trunc => {
+                    Self::unary_op(code, &mut value_stack, |v| unsafe {
+                        v.map_f64(|v| core::intrinsics::truncf64(v));
+                    });
+                }
+                WasmIntMnemonic::F64Nearest => {
+                    Self::unary_op(code, &mut value_stack, |v| unsafe {
+                        v.map_f64(|v| core::intrinsics::rintf64(v));
+                    });
+                }
+                WasmIntMnemonic::F64Sqrt => {
+                    Self::unary_op(code, &mut value_stack, |v| unsafe {
+                        v.map_f64(|v| core::intrinsics::sqrtf64(v));
+                    });
+                }
+
+                WasmIntMnemonic::F64Add => {
+                    Self::binary_op(code, &mut value_stack, |lhs, rhs| unsafe {
+                        lhs.map_f64(|lhs| lhs + rhs.get_f64());
+                    });
+                }
+                WasmIntMnemonic::F64Sub => {
+                    Self::binary_op(code, &mut value_stack, |lhs, rhs| unsafe {
+                        lhs.map_f64(|lhs| lhs - rhs.get_f64());
+                    });
+                }
+                WasmIntMnemonic::F64Mul => {
+                    Self::binary_op(code, &mut value_stack, |lhs, rhs| unsafe {
+                        lhs.map_f64(|lhs| lhs * rhs.get_f64());
+                    });
+                }
+                WasmIntMnemonic::F64Div => {
+                    Self::binary_op(code, &mut value_stack, |lhs, rhs| unsafe {
+                        lhs.map_f64(|lhs| lhs / rhs.get_f64());
+                    });
+                }
+                WasmIntMnemonic::F64Min => {
+                    Self::binary_op(code, &mut value_stack, |lhs, rhs| unsafe {
+                        lhs.map_f64(|lhs| lhs.minimum(rhs.get_f64()));
+                    });
+                }
+                WasmIntMnemonic::F64Max => {
+                    Self::binary_op(code, &mut value_stack, |lhs, rhs| unsafe {
+                        lhs.map_f64(|lhs| lhs.maximum(rhs.get_f64()));
+                    });
+                }
+                WasmIntMnemonic::F64Copysign => {
+                    Self::binary_op(code, &mut value_stack, |lhs, rhs| unsafe {
+                        lhs.map_f64(|lhs| core::intrinsics::copysignf64(lhs, rhs.get_f64()));
+                    });
+                }
+
+                WasmIntMnemonic::I32TruncF32S => {
+                    Self::unary_op(code, &mut value_stack, |var| unsafe {
+                        var.write_i32(var.get_f32().to_int_unchecked());
+                    });
+                }
+                WasmIntMnemonic::I32TruncF32U => {
+                    Self::unary_op(code, &mut value_stack, |var| unsafe {
+                        var.write_u32(var.get_f32().to_int_unchecked());
+                    });
+                }
+                WasmIntMnemonic::I32TruncF64S => {
+                    Self::unary_op(code, &mut value_stack, |var| unsafe {
+                        var.write_i32(var.get_f64().to_int_unchecked());
+                    });
+                }
+                WasmIntMnemonic::I32TruncF64U => {
+                    Self::unary_op(code, &mut value_stack, |var| unsafe {
+                        var.write_u32(var.get_f64().to_int_unchecked());
+                    });
+                }
+
+                WasmIntMnemonic::I64TruncF32S => {
+                    Self::unary_op(code, &mut value_stack, |var| unsafe {
+                        var.write_i64(var.get_f32().to_int_unchecked());
+                    });
+                }
+                WasmIntMnemonic::I64TruncF32U => {
+                    Self::unary_op(code, &mut value_stack, |var| unsafe {
+                        var.write_u64(var.get_f32().to_int_unchecked());
+                    });
+                }
+                WasmIntMnemonic::I64TruncF64S => {
+                    Self::unary_op(code, &mut value_stack, |var| unsafe {
+                        var.write_i64(var.get_f64().to_int_unchecked());
+                    });
+                }
+                WasmIntMnemonic::I64TruncF64U => {
+                    Self::unary_op(code, &mut value_stack, |var| unsafe {
+                        var.write_u64(var.get_f64().to_int_unchecked());
+                    });
+                }
+
+                WasmIntMnemonic::I32TruncSatF32S => {
+                    Self::unary_op(code, &mut value_stack, |var| unsafe {
+                        var.write_i32(var.get_f32() as i32);
+                    });
+                }
+                WasmIntMnemonic::I32TruncSatF32U => {
+                    Self::unary_op(code, &mut value_stack, |var| unsafe {
+                        var.write_u32(var.get_f32() as u32);
+                    });
+                }
+                WasmIntMnemonic::I32TruncSatF64S => {
+                    Self::unary_op(code, &mut value_stack, |var| unsafe {
+                        var.write_i32(var.get_f64() as i32);
+                    });
+                }
+                WasmIntMnemonic::I32TruncSatF64U => {
+                    Self::unary_op(code, &mut value_stack, |var| unsafe {
+                        var.write_u32(var.get_f64() as u32);
+                    });
+                }
+                WasmIntMnemonic::I64TruncSatF32S => {
+                    Self::unary_op(code, &mut value_stack, |var| unsafe {
+                        var.write_i64(var.get_f32() as i64);
+                    });
+                }
+                WasmIntMnemonic::I64TruncSatF32U => {
+                    Self::unary_op(code, &mut value_stack, |var| unsafe {
+                        var.write_u64(var.get_f32() as u64);
+                    });
+                }
+                WasmIntMnemonic::I64TruncSatF64S => {
+                    Self::unary_op(code, &mut value_stack, |var| unsafe {
+                        var.write_i64(var.get_f64() as i64);
+                    });
+                }
+                WasmIntMnemonic::I64TruncSatF64U => {
+                    Self::unary_op(code, &mut value_stack, |var| unsafe {
+                        var.write_u64(var.get_f64() as u64);
+                    });
+                }
+
+                WasmIntMnemonic::F32ConvertI32S => {
+                    Self::unary_op(code, &mut value_stack, |var| unsafe {
+                        var.write_f32(var.get_i32() as f32);
+                    });
+                }
+                WasmIntMnemonic::F32ConvertI32U => {
+                    Self::unary_op(code, &mut value_stack, |var| unsafe {
+                        var.write_f32(var.get_u32() as f32);
+                    });
+                }
+                WasmIntMnemonic::F32ConvertI64S => {
+                    Self::unary_op(code, &mut value_stack, |var| unsafe {
+                        var.write_f32(var.get_i64() as f32);
+                    });
+                }
+                WasmIntMnemonic::F32ConvertI64U => {
+                    Self::unary_op(code, &mut value_stack, |var| unsafe {
+                        var.write_f32(var.get_u64() as f32);
+                    });
+                }
+                WasmIntMnemonic::F32DemoteF64 => {
+                    Self::unary_op(code, &mut value_stack, |var| unsafe {
+                        var.write_f32(var.get_f64() as f32);
+                    });
+                }
+
+                WasmIntMnemonic::F64ConvertI32S => {
+                    Self::unary_op(code, &mut value_stack, |var| unsafe {
+                        var.write_f64(var.get_i32() as f64);
+                    });
+                }
+                WasmIntMnemonic::F64ConvertI32U => {
+                    Self::unary_op(code, &mut value_stack, |var| unsafe {
+                        var.write_f64(var.get_u32() as f64);
+                    });
+                }
+                WasmIntMnemonic::F64ConvertI64S => {
+                    Self::unary_op(code, &mut value_stack, |var| unsafe {
+                        var.write_f64(var.get_i64() as f64);
+                    });
+                }
+                WasmIntMnemonic::F64ConvertI64U => {
+                    Self::unary_op(code, &mut value_stack, |var| unsafe {
+                        var.write_f64(var.get_u64() as f64);
+                    });
+                }
+                WasmIntMnemonic::F64PromoteF32 => {
+                    Self::unary_op(code, &mut value_stack, |var| unsafe {
+                        var.write_f64(var.get_f32().into());
+                    });
+                }
+
+                WasmIntMnemonic::I32ReinterpretF32 => {
+                    Self::unary_op(code, &mut value_stack, |v| unsafe {
+                        v.write_i32(transmute(v.get_f32()));
+                    })
+                }
+                WasmIntMnemonic::I64ReinterpretF64 => {
+                    Self::unary_op(code, &mut value_stack, |v| unsafe {
+                        v.write_i64(transmute(v.get_f64()));
+                    })
+                }
+                WasmIntMnemonic::F32ReinterpretI32 => {
+                    Self::unary_op(code, &mut value_stack, |v| unsafe {
+                        v.write_f32(transmute(v.get_i32()));
+                    })
+                }
+                WasmIntMnemonic::F64ReinterpretI64 => {
+                    Self::unary_op(code, &mut value_stack, |v| unsafe {
+                        v.write_f64(transmute(v.get_i64()));
+                    })
+                }
+
                 WasmIntMnemonic::FusedI32SetConst(local_index, val) => {
                     let local = locals.get_local_mut(local_index);
                     unsafe {
@@ -1094,7 +1452,7 @@ impl WasmInterpreter<'_> {
         F: FnOnce(&mut StackTop) -> R,
     {
         let var =
-            unsafe { StackTop::transmute(value_stack.get_unchecked_mut(code.base_stack_level())) };
+            unsafe { StackTop::from_union(value_stack.get_unchecked_mut(code.base_stack_level())) };
         kernel(var)
     }
 
@@ -1105,7 +1463,7 @@ impl WasmInterpreter<'_> {
     {
         let stack_level = code.base_stack_level();
         let rhs = unsafe { *value_stack.get_unchecked(stack_level + 1) };
-        let lhs = unsafe { StackTop::transmute(value_stack.get_unchecked_mut(stack_level)) };
+        let lhs = unsafe { StackTop::from_union(value_stack.get_unchecked_mut(stack_level)) };
         kernel(lhs, rhs)
     }
 
@@ -1129,8 +1487,8 @@ impl WasmInterpreter<'_> {
         // }
         let stack_under = stack_pointer - StackOffset::new(param_len);
 
-        if let Some(code_block) = target.code_block() {
-            heap.snapshot(|heap| {
+        match target.content() {
+            WasmFunctionContent::CodeBlock(code_block) => heap.snapshot(|heap| {
                 let local_len = param_len + code_block.local_types().len();
 
                 let mut locals = if value_stack.len()
@@ -1173,29 +1531,32 @@ impl WasmInterpreter<'_> {
                     self.func_index = current_function;
                     Ok(())
                 })
-            })
-        } else if let Some(function) = target.dlink() {
-            let locals = unsafe { value_stack.get_range(stack_under, param_len) };
-            let result = match function(module, locals) {
-                Ok(v) => v,
-                Err(e) => return Err(self.error(e, opcode, ex_position)),
-            };
+            }),
+            WasmFunctionContent::Dynamic(function) => {
+                let locals = unsafe { value_stack.get_range(stack_under, param_len) };
+                let result = match function(module, locals) {
+                    Ok(v) => v,
+                    Err(e) => return Err(self.error(e, opcode, ex_position)),
+                };
 
-            if let Some(t) = result_types.first() {
-                if result.is_valid_type(*t) {
-                    let var = unsafe { value_stack.get_unchecked_mut(stack_under) };
-                    *var = WasmUnionValue::from(result);
-                } else {
-                    return Err(self.error(
-                        WasmRuntimeErrorKind::TypeMismatch,
-                        opcode,
-                        ex_position,
-                    ));
+                if let Some(t) = result_types.first() {
+                    if result.is_valid_type(*t) {
+                        let var = unsafe { value_stack.get_unchecked_mut(stack_under) };
+                        *var = WasmUnionValue::from(result);
+                    } else {
+                        return Err(self.error(
+                            WasmRuntimeErrorKind::TypeMismatch,
+                            opcode,
+                            ex_position,
+                        ));
+                    }
                 }
+                Ok(())
             }
-            Ok(())
-        } else {
-            Err(self.error(WasmRuntimeErrorKind::NoMethod, opcode, ex_position))
+
+            WasmFunctionContent::Unresolved => {
+                Err(self.error(WasmRuntimeErrorKind::NoMethod, opcode, ex_position))
+            }
         }
     }
 }
@@ -1249,9 +1610,13 @@ pub trait WasmInvocation {
 impl WasmInvocation for WasmRunnable<'_> {
     fn invoke(&self, params: &[WasmValue]) -> Result<Option<WasmValue>, WasmRuntimeError> {
         let function = self.function();
-        let code_block = function
-            .code_block()
-            .ok_or(WasmRuntimeError::from(WasmRuntimeErrorKind::NoMethod))?;
+
+        let code_block = match function.content() {
+            WasmFunctionContent::CodeBlock(v) => Ok(v),
+            WasmFunctionContent::Unresolved | WasmFunctionContent::Dynamic(_) => {
+                Err(WasmRuntimeErrorKind::NoMethod)
+            }
+        }?;
 
         let mut locals = Vec::new();
         locals.resize(
@@ -1461,6 +1826,8 @@ pub union StackTop {
     i32: i32,
     u64: u64,
     i64: i64,
+    f32: f32,
+    f64: f64,
 }
 
 impl StackTop {
@@ -1500,6 +1867,16 @@ impl StackTop {
     }
 
     #[inline]
+    pub const fn from_f32(v: f32) -> Self {
+        Self { f32: v }
+    }
+
+    #[inline]
+    pub const fn from_f64(v: f64) -> Self {
+        Self { f64: v }
+    }
+
+    #[inline]
     pub unsafe fn get_bool(&self) -> bool {
         unsafe { self.i32 != 0 }
     }
@@ -1527,6 +1904,13 @@ impl StackTop {
     }
 
     #[inline]
+    pub unsafe fn write_u32(&mut self, val: u32) {
+        unsafe {
+            self.copy_from_i32(&Self::from(val));
+        }
+    }
+
+    #[inline]
     pub const unsafe fn get_u64(&self) -> u64 {
         unsafe { self.u64 }
     }
@@ -1538,6 +1922,35 @@ impl StackTop {
 
     #[inline]
     pub unsafe fn write_i64(&mut self, val: i64) {
+        *self = Self::from(val);
+    }
+
+    #[inline]
+    pub unsafe fn write_u64(&mut self, val: u64) {
+        *self = Self::from(val);
+    }
+
+    #[inline]
+    pub const unsafe fn get_f32(&self) -> f32 {
+        unsafe { self.f32 }
+    }
+
+    #[inline]
+    pub const unsafe fn get_f64(&self) -> f64 {
+        unsafe { self.f64 }
+    }
+
+    #[inline]
+    pub unsafe fn write_f32(&mut self, val: f32) {
+        if Self::_is_32bit_env() {
+            self.f32 = val;
+        } else {
+            *self = Self::from(val);
+        }
+    }
+
+    #[inline]
+    pub unsafe fn write_f64(&mut self, val: f64) {
         *self = Self::from(val);
     }
 
@@ -1571,7 +1984,7 @@ impl StackTop {
     }
 
     #[inline]
-    pub unsafe fn transmute(v: &mut WasmUnionValue) -> &mut Self {
+    pub fn from_union(v: &mut WasmUnionValue) -> &mut Self {
         unsafe { transmute(v) }
     }
 
@@ -1612,6 +2025,26 @@ impl StackTop {
         let val = unsafe { self.u64 };
         *self = Self::from(f(val));
     }
+
+    #[inline]
+    pub unsafe fn map_f32<F>(&mut self, f: F)
+    where
+        F: FnOnce(f32) -> f32,
+    {
+        let val = unsafe { self.f32 };
+        unsafe {
+            self.write_f32(f(val));
+        }
+    }
+
+    #[inline]
+    pub unsafe fn map_f64<F>(&mut self, f: F)
+    where
+        F: FnOnce(f64) -> f64,
+    {
+        let val = unsafe { self.f64 };
+        *self = Self::from(f(val));
+    }
 }
 
 impl From<bool> for StackTop {
@@ -1646,5 +2079,19 @@ impl From<i64> for StackTop {
     #[inline]
     fn from(v: i64) -> Self {
         Self::from_i64(v)
+    }
+}
+
+impl From<f32> for StackTop {
+    #[inline]
+    fn from(v: f32) -> Self {
+        Self::from_f32(v)
+    }
+}
+
+impl From<f64> for StackTop {
+    #[inline]
+    fn from(v: f64) -> Self {
+        Self::from_f64(v)
     }
 }

@@ -4,7 +4,7 @@
 TARGETS	= tester.wasm
 
 .wat.wasm:
-	wat2wasm $<
+	wat2wasm $< --debug-names
 
 all: $(TARGETS)
 

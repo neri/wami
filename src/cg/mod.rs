@@ -3,7 +3,8 @@ pub mod intr;
 
 use self::intcode::{ExceptionPosition, WasmImc, WasmIntMnemonic};
 use crate::{
-    leb128::*, opcode::*, WasmBlockType, WasmDecodeErrorKind, WasmMemArg, WasmModule, WasmValType,
+    leb128::*, opcode::*, WasmBlockType, WasmDecodeErrorKind, WasmMemArg, WasmModule,
+    WasmTypeIndex, WasmValType,
 };
 use alloc::{boxed::Box, vec::Vec};
 use bitflags::*;
@@ -64,17 +65,17 @@ impl WasmCodeBlock {
     pub fn generate(
         func_index: usize,
         file_position: usize,
-        stream: &mut Leb128Reader,
+        reader: &mut Leb128Reader,
         param_types: &[WasmValType],
         result_types: &[WasmValType],
         module: &WasmModule,
     ) -> Result<Self, WasmDecodeErrorKind> {
         let local_types = {
-            let n_local_var_types = stream.read_unsigned()? as usize;
+            let n_local_var_types: usize = reader.read()?;
             let mut local_var_types = Vec::with_capacity(n_local_var_types);
             for _ in 0..n_local_var_types {
-                let repeat = stream.read_unsigned()?;
-                let val = WasmValType::from_u64(stream.read()?)?;
+                let repeat = reader.read_unsigned()?;
+                let val = WasmValType::from_u64(reader.read()?)?;
                 for _ in 0..repeat {
                     local_var_types.push(val);
                 }
@@ -98,8 +99,8 @@ impl WasmCodeBlock {
         loop {
             max_stack = usize::max(max_stack, value_stack.len());
             max_block_level = usize::max(max_block_level, block_stack.len());
-            let position = ExceptionPosition::new(stream.position());
-            let opcode = WasmOpcode::read_from(stream)?;
+            let position = ExceptionPosition::new(reader.position());
+            let opcode = WasmOpcode::read_from(reader)?;
 
             // match opcode.proposal_type() {
             //     WasmProposalType::Mvp => {}
@@ -112,14 +113,14 @@ impl WasmCodeBlock {
             // }
 
             macro_rules! MEM_LOAD {
-                ($val_type:ident, $mnemonic:ident, $opcode:ident, $module:ident, $stream:ident, $position:ident, $int_codes:ident, $value_stack:ident,) => {
+                ($val_type:ident, $mnemonic:ident, $opcode:ident, $module:ident, $reader:ident, $position:ident, $int_codes:ident, $value_stack:ident,) => {
                     #[cfg(test)]
                     assert_eq!($opcode, WasmSingleOpcode::$mnemonic);
 
                     if !$module.has_memory() {
                         return Err(WasmDecodeErrorKind::OutOfMemory);
                     }
-                    let arg: WasmMemArg = $stream.read()?;
+                    let arg: WasmMemArg = $reader.read()?;
                     let a = $value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
                     if a != WasmValType::I32 {
                         return Err(WasmDecodeErrorKind::TypeMismatch);
@@ -132,14 +133,14 @@ impl WasmCodeBlock {
                 };
             }
             macro_rules! MEM_STORE {
-                ($val_type:ident, $mnemonic:ident, $opcode:ident, $module:ident, $stream:ident, $position:ident, $int_codes:ident, $value_stack:ident,) => {
+                ($val_type:ident, $mnemonic:ident, $opcode:ident, $module:ident, $reader:ident, $position:ident, $int_codes:ident, $value_stack:ident,) => {
                     #[cfg(test)]
                     assert_eq!($opcode, WasmSingleOpcode::$mnemonic);
 
                     if !$module.has_memory() {
                         return Err(WasmDecodeErrorKind::OutOfMemory);
                     }
-                    let arg: WasmMemArg = $stream.read()?;
+                    let arg: WasmMemArg = $reader.read()?;
                     let d = $value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
                     let i = $value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
                     if i != WasmValType::I32 && d != WasmValType::$val_type {
@@ -167,9 +168,9 @@ impl WasmCodeBlock {
                 };
             }
             macro_rules! UNARY2 {
-                ($in_type:ident, $out_type:ident, $mnemonic:ident, $opcode:ident, $position:ident, $int_codes:ident, $value_stack:ident,) => {
+                ($in_type:ident, $out_type:ident, $namespace:ident, $mnemonic:ident, $opcode:ident, $position:ident, $int_codes:ident, $value_stack:ident,) => {
                     #[cfg(test)]
-                    assert_eq!($opcode, WasmSingleOpcode::$mnemonic);
+                    assert_eq!($opcode, $namespace::$mnemonic);
 
                     let a = $value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
                     if a != WasmValType::$in_type {
@@ -180,6 +181,18 @@ impl WasmCodeBlock {
                         $value_stack.len().into(),
                     ));
                     $value_stack.push(WasmValType::$out_type);
+                };
+                ($in_type:ident, $out_type:ident, $mnemonic:ident, $opcode:ident, $position:ident, $int_codes:ident, $value_stack:ident,) => {
+                    UNARY2!(
+                        $in_type,
+                        $out_type,
+                        WasmSingleOpcode,
+                        $mnemonic,
+                        $opcode,
+                        $position,
+                        $int_codes,
+                        $value_stack,
+                    )
                 };
             }
             macro_rules! BIN_CMP {
@@ -245,7 +258,7 @@ impl WasmCodeBlock {
 
                     WasmSingleOpcode::Block => {
                         let target = blocks.len();
-                        let block_type = WasmBlockType::from_i64(stream.read()?)?;
+                        let block_type = WasmBlockType::from_i64(reader.read()?)?;
                         let block = RefCell::new(BlockContext {
                             inst_type: BlockInstType::Block,
                             block_type,
@@ -271,7 +284,7 @@ impl WasmCodeBlock {
                     }
                     WasmSingleOpcode::Loop => {
                         let target = blocks.len();
-                        let block_type = WasmBlockType::from_i64(stream.read()?)?;
+                        let block_type = WasmBlockType::from_i64(reader.read()?)?;
                         let block = RefCell::new(BlockContext {
                             inst_type: BlockInstType::Loop,
                             block_type,
@@ -300,7 +313,7 @@ impl WasmCodeBlock {
                         if cc != WasmValType::I32 {
                             return Err(WasmDecodeErrorKind::TypeMismatch);
                         }
-                        let block_type = WasmBlockType::from_i64(stream.read()?)?;
+                        let block_type = WasmBlockType::from_i64(reader.read()?)?;
                         let block = RefCell::new(BlockContext {
                             inst_type: BlockInstType::If,
                             block_type,
@@ -375,7 +388,7 @@ impl WasmCodeBlock {
                                 }
                             } else {
                                 int_codes.push(WasmImc::new(
-                                    WasmIntMnemonic::ReturnV,
+                                    WasmIntMnemonic::ReturnN,
                                     StackLevel(value_stack.len() - 1),
                                 ));
                             }
@@ -384,7 +397,7 @@ impl WasmCodeBlock {
                     }
 
                     WasmSingleOpcode::Br => {
-                        let br = stream.read_unsigned()? as usize;
+                        let br = reader.read_unsigned()? as usize;
                         let target = block_stack
                             .get(block_stack.len() - br - 1)
                             .ok_or(WasmDecodeErrorKind::OutOfBranch)?;
@@ -394,7 +407,7 @@ impl WasmCodeBlock {
                         ));
                     }
                     WasmSingleOpcode::BrIf => {
-                        let br = stream.read_unsigned()? as usize;
+                        let br = reader.read_unsigned()? as usize;
                         let target = block_stack
                             .get(block_stack.len() - br - 1)
                             .ok_or(WasmDecodeErrorKind::OutOfBranch)?;
@@ -408,10 +421,10 @@ impl WasmCodeBlock {
                         ));
                     }
                     WasmSingleOpcode::BrTable => {
-                        let table_len = 1 + stream.read_unsigned()? as usize;
+                        let table_len = 1 + reader.read_unsigned()? as usize;
                         let mut table = Vec::with_capacity(table_len);
                         for _ in 0..table_len {
-                            let br = stream.read_unsigned()? as usize;
+                            let br = reader.read_unsigned()? as usize;
                             let target = block_stack
                                 .get(block_stack.len() - br - 1)
                                 .ok_or(WasmDecodeErrorKind::OutOfBranch)?;
@@ -450,7 +463,7 @@ impl WasmCodeBlock {
                             }
                         } else {
                             int_codes.push(WasmImc::new(
-                                WasmIntMnemonic::ReturnV,
+                                WasmIntMnemonic::ReturnN,
                                 StackLevel(value_stack.len() - 1),
                             ));
                         }
@@ -458,7 +471,7 @@ impl WasmCodeBlock {
 
                     WasmSingleOpcode::Call => {
                         flags.remove(WasmBlockFlag::LEAF_FUNCTION);
-                        let func_index = stream.read_unsigned()? as usize;
+                        let func_index = reader.read_unsigned()? as usize;
                         let function = module
                             .functions()
                             .get(func_index)
@@ -477,8 +490,8 @@ impl WasmCodeBlock {
                     }
                     WasmSingleOpcode::CallIndirect => {
                         flags.remove(WasmBlockFlag::LEAF_FUNCTION);
-                        let type_index = stream.read_unsigned()? as usize;
-                        let _reserved = stream.read_unsigned()? as usize;
+                        let type_index = WasmTypeIndex(reader.read()?);
+                        let _reserved = reader.read_unsigned()?;
                         let func_type = module
                             .type_by_ref(type_index)
                             .ok_or(WasmDecodeErrorKind::InvalidData)?;
@@ -518,7 +531,7 @@ impl WasmCodeBlock {
                     }
 
                     WasmSingleOpcode::LocalGet => {
-                        let local_ref = stream.read_unsigned()? as usize;
+                        let local_ref = reader.read_unsigned()? as usize;
                         let val = *local_types
                             .get(local_ref)
                             .ok_or(WasmDecodeErrorKind::InvalidLocal)?;
@@ -529,7 +542,7 @@ impl WasmCodeBlock {
                         value_stack.push(val);
                     }
                     WasmSingleOpcode::LocalSet => {
-                        let local_ref = stream.read_unsigned()? as usize;
+                        let local_ref = reader.read_unsigned()? as usize;
                         let val = *local_types
                             .get(local_ref)
                             .ok_or(WasmDecodeErrorKind::InvalidLocal)?;
@@ -543,7 +556,7 @@ impl WasmCodeBlock {
                         ));
                     }
                     WasmSingleOpcode::LocalTee => {
-                        let local_ref = stream.read_unsigned()? as usize;
+                        let local_ref = reader.read_unsigned()? as usize;
                         let val = *local_types
                             .get(local_ref)
                             .ok_or(WasmDecodeErrorKind::InvalidLocal)?;
@@ -558,7 +571,7 @@ impl WasmCodeBlock {
                     }
 
                     WasmSingleOpcode::GlobalGet => {
-                        let global_ref = stream.read_unsigned()? as usize;
+                        let global_ref = reader.read_unsigned()? as usize;
                         let val_type = module
                             .globals()
                             .get(global_ref)
@@ -571,7 +584,7 @@ impl WasmCodeBlock {
                         value_stack.push(val_type);
                     }
                     WasmSingleOpcode::GlobalSet => {
-                        let global_ref = stream.read_unsigned()? as usize;
+                        let global_ref = reader.read_unsigned()? as usize;
                         let global = module
                             .globals()
                             .get(global_ref)
@@ -593,106 +606,102 @@ impl WasmCodeBlock {
 
                     WasmSingleOpcode::I32Load => {
                         #[rustfmt::skip]
-                        MEM_LOAD!(I32, I32Load, opcode, module, stream, position, int_codes, value_stack, );
+                        MEM_LOAD!(I32, I32Load, opcode, module, reader, position, int_codes, value_stack, );
                     }
                     WasmSingleOpcode::I32Load8S => {
                         #[rustfmt::skip]
-                        MEM_LOAD!(I32, I32Load8S, opcode, module, stream, position, int_codes, value_stack, );
+                        MEM_LOAD!(I32, I32Load8S, opcode, module, reader, position, int_codes, value_stack, );
                     }
                     WasmSingleOpcode::I32Load8U => {
                         #[rustfmt::skip]
-                        MEM_LOAD!(I32, I32Load8U, opcode, module, stream, position, int_codes, value_stack, );
+                        MEM_LOAD!(I32, I32Load8U, opcode, module, reader, position, int_codes, value_stack, );
                     }
                     WasmSingleOpcode::I32Load16S => {
                         #[rustfmt::skip]
-                        MEM_LOAD!(I32, I32Load16S, opcode, module, stream, position, int_codes, value_stack, );
+                        MEM_LOAD!(I32, I32Load16S, opcode, module, reader, position, int_codes, value_stack, );
                     }
                     WasmSingleOpcode::I32Load16U => {
                         #[rustfmt::skip]
-                        MEM_LOAD!(I32, I32Load16U, opcode, module, stream, position, int_codes, value_stack, );
+                        MEM_LOAD!(I32, I32Load16U, opcode, module, reader, position, int_codes, value_stack, );
                     }
 
                     WasmSingleOpcode::I64Load => {
                         #[rustfmt::skip]
-                        MEM_LOAD!(I64, I64Load, opcode, module, stream, position, int_codes, value_stack, );
+                        MEM_LOAD!(I64, I64Load, opcode, module, reader, position, int_codes, value_stack, );
                     }
                     WasmSingleOpcode::I64Load8S => {
                         #[rustfmt::skip]
-                        MEM_LOAD!(I64, I64Load8S, opcode, module, stream, position, int_codes, value_stack, );
+                        MEM_LOAD!(I64, I64Load8S, opcode, module, reader, position, int_codes, value_stack, );
                     }
                     WasmSingleOpcode::I64Load8U => {
                         #[rustfmt::skip]
-                        MEM_LOAD!(I64, I64Load8U, opcode, module, stream, position, int_codes, value_stack, );
+                        MEM_LOAD!(I64, I64Load8U, opcode, module, reader, position, int_codes, value_stack, );
                     }
                     WasmSingleOpcode::I64Load16S => {
                         #[rustfmt::skip]
-                        MEM_LOAD!(I64, I64Load16S, opcode, module, stream, position, int_codes, value_stack, );
+                        MEM_LOAD!(I64, I64Load16S, opcode, module, reader, position, int_codes, value_stack, );
                     }
                     WasmSingleOpcode::I64Load16U => {
                         #[rustfmt::skip]
-                        MEM_LOAD!(I64, I64Load16U, opcode, module, stream, position, int_codes, value_stack, );
+                        MEM_LOAD!(I64, I64Load16U, opcode, module, reader, position, int_codes, value_stack, );
                     }
                     WasmSingleOpcode::I64Load32S => {
                         #[rustfmt::skip]
-                        MEM_LOAD!(I64, I64Load32S, opcode, module, stream, position, int_codes, value_stack, );
+                        MEM_LOAD!(I64, I64Load32S, opcode, module, reader, position, int_codes, value_stack, );
                     }
                     WasmSingleOpcode::I64Load32U => {
                         #[rustfmt::skip]
-                        MEM_LOAD!(I64, I64Load32U, opcode, module, stream, position, int_codes, value_stack, );
+                        MEM_LOAD!(I64, I64Load32U, opcode, module, reader, position, int_codes, value_stack, );
                     }
 
                     WasmSingleOpcode::I32Store => {
                         #[rustfmt::skip]
-                        MEM_STORE!(I32, I32Store, opcode, module, stream, position, int_codes, value_stack, );
+                        MEM_STORE!(I32, I32Store, opcode, module, reader, position, int_codes, value_stack, );
                     }
                     WasmSingleOpcode::I32Store8 => {
                         #[rustfmt::skip]
-                        MEM_STORE!(I32, I32Store8, opcode, module, stream, position, int_codes, value_stack, );
+                        MEM_STORE!(I32, I32Store8, opcode, module, reader, position, int_codes, value_stack, );
                     }
                     WasmSingleOpcode::I32Store16 => {
                         #[rustfmt::skip]
-                        MEM_STORE!(I32, I32Store16, opcode, module, stream, position, int_codes, value_stack, );
+                        MEM_STORE!(I32, I32Store16, opcode, module, reader, position, int_codes, value_stack, );
                     }
                     WasmSingleOpcode::I64Store => {
                         #[rustfmt::skip]
-                        MEM_STORE!(I64, I64Store, opcode, module, stream, position, int_codes, value_stack, );
+                        MEM_STORE!(I64, I64Store, opcode, module, reader, position, int_codes, value_stack, );
                     }
                     WasmSingleOpcode::I64Store8 => {
                         #[rustfmt::skip]
-                        MEM_STORE!(I64, I64Store8, opcode, module, stream, position, int_codes, value_stack, );
+                        MEM_STORE!(I64, I64Store8, opcode, module, reader, position, int_codes, value_stack, );
                     }
                     WasmSingleOpcode::I64Store16 => {
                         #[rustfmt::skip]
-                        MEM_STORE!(I64, I64Store16, opcode, module, stream, position, int_codes, value_stack, );
+                        MEM_STORE!(I64, I64Store16, opcode, module, reader, position, int_codes, value_stack, );
                     }
                     WasmSingleOpcode::I64Store32 => {
                         #[rustfmt::skip]
-                        MEM_STORE!(I64, I64Store32, opcode, module, stream, position, int_codes, value_stack, );
+                        MEM_STORE!(I64, I64Store32, opcode, module, reader, position, int_codes, value_stack, );
                     }
 
-                    #[cfg(feature = "float")]
                     WasmSingleOpcode::F32Load => {
                         #[rustfmt::skip]
-                        MEM_LOAD!(F32, F32Load, opcode, module, stream, position, int_codes, value_stack, );
+                        MEM_LOAD!(F32, F32Load, opcode, module, reader, position, int_codes, value_stack, );
                     }
-                    #[cfg(feature = "float")]
                     WasmSingleOpcode::F64Load => {
                         #[rustfmt::skip]
-                        MEM_LOAD!(F64, F64Load, opcode, module, stream, position, int_codes, value_stack, );
+                        MEM_LOAD!(F64, F64Load, opcode, module, reader, position, int_codes, value_stack, );
                     }
-                    #[cfg(feature = "float")]
                     WasmSingleOpcode::F32Store => {
                         #[rustfmt::skip]
-                        MEM_STORE!(F32, F32Store, opcode, module, stream, position, int_codes, value_stack, );
+                        MEM_STORE!(F32, F32Store, opcode, module, reader, position, int_codes, value_stack, );
                     }
-                    #[cfg(feature = "float")]
                     WasmSingleOpcode::F64Store => {
                         #[rustfmt::skip]
-                        MEM_STORE!(F64, I64Store, opcode, module, stream, position, int_codes, value_stack, );
+                        MEM_STORE!(F64, F64Store, opcode, module, reader, position, int_codes, value_stack, );
                     }
 
                     WasmSingleOpcode::MemorySize => {
-                        let index = stream.read_unsigned()? as usize;
+                        let index = reader.read_unsigned()? as usize;
                         if index >= module.memories().len() {
                             return Err(WasmDecodeErrorKind::OutOfMemory);
                         }
@@ -704,7 +713,7 @@ impl WasmCodeBlock {
                     }
 
                     WasmSingleOpcode::MemoryGrow => {
-                        let index = stream.read_unsigned()? as usize;
+                        let index = reader.read_unsigned()? as usize;
                         if index >= module.memories().len() {
                             return Err(WasmDecodeErrorKind::OutOfMemory);
                         }
@@ -719,10 +728,7 @@ impl WasmCodeBlock {
                     }
 
                     WasmSingleOpcode::I32Const => {
-                        let val = stream.read_signed()?;
-                        let val: i32 = val
-                            .try_into()
-                            .map_err(|_| WasmDecodeErrorKind::InvalidData)?;
+                        let val: i32 = reader.read()?;
                         int_codes.push(WasmImc::new(
                             WasmIntMnemonic::I32Const(val),
                             value_stack.len().into(),
@@ -730,25 +736,23 @@ impl WasmCodeBlock {
                         value_stack.push(WasmValType::I32);
                     }
                     WasmSingleOpcode::I64Const => {
-                        let val = stream.read_signed()?;
+                        let val: i64 = reader.read()?;
                         int_codes.push(WasmImc::new(
                             WasmIntMnemonic::I64Const(val),
                             value_stack.len().into(),
                         ));
                         value_stack.push(WasmValType::I64);
                     }
-                    #[cfg(feature = "float")]
                     WasmSingleOpcode::F32Const => {
-                        let val = stream.read_f32()?;
+                        let val = reader.read_f32()?;
                         int_codes.push(WasmImc::new(
                             WasmIntMnemonic::F32Const(val),
                             value_stack.len().into(),
                         ));
                         value_stack.push(WasmValType::F32);
                     }
-                    #[cfg(feature = "float")]
                     WasmSingleOpcode::F64Const => {
-                        let val = stream.read_f64()?;
+                        let val = reader.read_f64()?;
                         int_codes.push(WasmImc::new(
                             WasmIntMnemonic::F64Const(val),
                             value_stack.len().into(),
@@ -1035,224 +1039,267 @@ impl WasmCodeBlock {
                         UNARY2!(I32, I64, I64ExtendI32U, opcode, position, int_codes, value_stack,);
                     }
 
-                    // [f32] -> [i32]
-                    #[cfg(feature = "float")]
-                    WasmSingleOpcode::I32TruncF32S | WasmSingleOpcode::I32TruncF32U => {
-                        let a = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                        if a != WasmValType::F32 {
-                            return Err(WasmDecodeErrorKind::TypeMismatch);
-                        }
-                        value_stack.push(WasmValType::I32);
-                    }
-
                     // [f32, f32] -> [i32]
-                    #[cfg(feature = "float")]
-                    WasmSingleOpcode::F32Eq
-                    | WasmSingleOpcode::F32Ne
-                    | WasmSingleOpcode::F32Lt
-                    | WasmSingleOpcode::F32Gt
-                    | WasmSingleOpcode::F32Le
-                    | WasmSingleOpcode::F32Ge => {
-                        let a = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                        let b = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                        if a != b || a != WasmValType::F32 {
-                            return Err(WasmDecodeErrorKind::TypeMismatch);
-                        }
-                        value_stack.push(WasmValType::I32);
+                    WasmSingleOpcode::F32Eq => {
+                        #[rustfmt::skip]
+                        BIN_CMP!(F32, F32Eq, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F32Ne => {
+                        #[rustfmt::skip]
+                        BIN_CMP!(F32, F32Ne, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F32Lt => {
+                        #[rustfmt::skip]
+                        BIN_CMP!(F32, F32Lt, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F32Gt => {
+                        #[rustfmt::skip]
+                        BIN_CMP!(F32, F32Gt, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F32Le => {
+                        #[rustfmt::skip]
+                        BIN_CMP!(F32, F32Le, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F32Ge => {
+                        #[rustfmt::skip]
+                        BIN_CMP!(F32, F32Ge, opcode, position, int_codes, value_stack,);
                     }
 
                     // [f32] -> [f32]
-                    #[cfg(feature = "float")]
-                    WasmSingleOpcode::F32Abs
-                    | WasmSingleOpcode::F32Neg
-                    | WasmSingleOpcode::F32Ceil
-                    | WasmSingleOpcode::F32Floor
-                    | WasmSingleOpcode::F32Trunc
-                    | WasmSingleOpcode::F32Nearest
-                    | WasmSingleOpcode::F32Sqrt => {
-                        let a = *value_stack.last().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                        if a != WasmValType::I32 {
-                            return Err(WasmDecodeErrorKind::TypeMismatch);
-                        }
+                    WasmSingleOpcode::F32Abs => {
+                        #[rustfmt::skip]
+                        UNARY!(F32, F32Abs, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F32Neg => {
+                        #[rustfmt::skip]
+                        UNARY!(F32, F32Neg, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F32Ceil => {
+                        #[rustfmt::skip]
+                        UNARY!(F32, F32Ceil, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F32Floor => {
+                        #[rustfmt::skip]
+                        UNARY!(F32, F32Floor, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F32Trunc => {
+                        #[rustfmt::skip]
+                        UNARY!(F32, F32Trunc, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F32Nearest => {
+                        #[rustfmt::skip]
+                        UNARY!(F32, F32Nearest, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F32Sqrt => {
+                        #[rustfmt::skip]
+                        UNARY!(F32, F32Sqrt, opcode, position, int_codes, value_stack,);
                     }
 
                     // [f32, f32] -> [f32]
-                    #[cfg(feature = "float")]
-                    WasmSingleOpcode::F32Add
-                    | WasmSingleOpcode::F32Sub
-                    | WasmSingleOpcode::F32Mul
-                    | WasmSingleOpcode::F32Div
-                    | WasmSingleOpcode::F32Min
-                    | WasmSingleOpcode::F32Max
-                    | WasmSingleOpcode::F32Copysign => {
-                        let a = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                        let b = *value_stack.last().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                        if a != b || a != WasmValType::F32 {
-                            return Err(WasmDecodeErrorKind::TypeMismatch);
-                        }
+                    WasmSingleOpcode::F32Add => {
+                        #[rustfmt::skip]
+                        BIN_OP!(F32, F32Add, opcode, position, int_codes, value_stack,);
                     }
-
-                    // [f64] -> [i32]
-                    #[cfg(feature = "float")]
-                    WasmSingleOpcode::I32TruncF64S | WasmSingleOpcode::I32TruncF64U => {
-                        let a = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                        if a != WasmValType::F64 {
-                            return Err(WasmDecodeErrorKind::TypeMismatch);
-                        }
-                        value_stack.push(WasmValType::I32);
+                    WasmSingleOpcode::F32Sub => {
+                        #[rustfmt::skip]
+                        BIN_OP!(F32, F32Sub, opcode, position, int_codes, value_stack,);
                     }
-
-                    // [f64] -> [i64]
-                    #[cfg(feature = "float")]
-                    WasmSingleOpcode::I64TruncF32S
-                    | WasmSingleOpcode::I64TruncF32U
-                    | WasmSingleOpcode::I64TruncF64S
-                    | WasmSingleOpcode::I64TruncF64U => {
-                        let a = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                        if a != WasmValType::F64 {
-                            return Err(WasmDecodeErrorKind::TypeMismatch);
-                        }
-                        value_stack.push(WasmValType::I64);
+                    WasmSingleOpcode::F32Mul => {
+                        #[rustfmt::skip]
+                        BIN_OP!(F32, F32Mul, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F32Div => {
+                        #[rustfmt::skip]
+                        BIN_OP!(F32, F32Div, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F32Min => {
+                        #[rustfmt::skip]
+                        BIN_OP!(F32, F32Min, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F32Max => {
+                        #[rustfmt::skip]
+                        BIN_OP!(F32, F32Max, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F32Copysign => {
+                        #[rustfmt::skip]
+                        BIN_OP!(F32, F32Copysign, opcode, position, int_codes, value_stack,);
                     }
 
                     // [f64, f64] -> [i32]
-                    #[cfg(feature = "float")]
-                    WasmSingleOpcode::F64Eq
-                    | WasmSingleOpcode::F64Ne
-                    | WasmSingleOpcode::F64Lt
-                    | WasmSingleOpcode::F64Gt
-                    | WasmSingleOpcode::F64Le
-                    | WasmSingleOpcode::F64Ge => {
-                        let a = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                        let b = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                        if a != b || a != WasmValType::F64 {
-                            return Err(WasmDecodeErrorKind::TypeMismatch);
-                        }
-                        value_stack.push(WasmValType::I32);
+                    WasmSingleOpcode::F64Eq => {
+                        #[rustfmt::skip]
+                        BIN_CMP!(F64, F64Eq, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F64Ne => {
+                        #[rustfmt::skip]
+                        BIN_CMP!(F64, F64Ne, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F64Lt => {
+                        #[rustfmt::skip]
+                        BIN_CMP!(F64, F64Lt, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F64Gt => {
+                        #[rustfmt::skip]
+                        BIN_CMP!(F64, F64Gt, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F64Le => {
+                        #[rustfmt::skip]
+                        BIN_CMP!(F64, F64Le, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F64Ge => {
+                        #[rustfmt::skip]
+                        BIN_CMP!(F64, F64Ge, opcode, position, int_codes, value_stack,);
                     }
 
                     // [f64] -> [f64]
-                    #[cfg(feature = "float")]
-                    WasmSingleOpcode::F64Abs
-                    | WasmSingleOpcode::F64Neg
-                    | WasmSingleOpcode::F64Ceil
-                    | WasmSingleOpcode::F64Floor
-                    | WasmSingleOpcode::F64Trunc
-                    | WasmSingleOpcode::F64Nearest
-                    | WasmSingleOpcode::F64Sqrt => {
-                        let a = *value_stack.last().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                        if a != WasmValType::F64 {
-                            return Err(WasmDecodeErrorKind::TypeMismatch);
-                        }
+                    WasmSingleOpcode::F64Abs => {
+                        #[rustfmt::skip]
+                        UNARY!(F64, F64Abs, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F64Neg => {
+                        #[rustfmt::skip]
+                        UNARY!(F64, F64Neg, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F64Ceil => {
+                        #[rustfmt::skip]
+                        UNARY!(F64, F64Ceil, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F64Floor => {
+                        #[rustfmt::skip]
+                        UNARY!(F64, F64Floor, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F64Trunc => {
+                        #[rustfmt::skip]
+                        UNARY!(F64, F64Trunc, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F64Nearest => {
+                        #[rustfmt::skip]
+                        UNARY!(F64, F64Nearest, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F64Sqrt => {
+                        #[rustfmt::skip]
+                        UNARY!(F64, F64Sqrt, opcode, position, int_codes, value_stack,);
                     }
 
                     // [f64, f64] -> [f64]
-                    #[cfg(feature = "float")]
-                    WasmSingleOpcode::F64Add
-                    | WasmSingleOpcode::F64Sub
-                    | WasmSingleOpcode::F64Mul
-                    | WasmSingleOpcode::F64Div
-                    | WasmSingleOpcode::F64Min
-                    | WasmSingleOpcode::F64Max
-                    | WasmSingleOpcode::F64Copysign => {
-                        let a = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                        let b = *value_stack.last().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                        if a != b || a != WasmValType::F64 {
-                            return Err(WasmDecodeErrorKind::TypeMismatch);
-                        }
+                    WasmSingleOpcode::F64Add => {
+                        #[rustfmt::skip]
+                        BIN_OP!(F64, F64Add, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F64Sub => {
+                        #[rustfmt::skip]
+                        BIN_OP!(F64, F64Sub, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F64Mul => {
+                        #[rustfmt::skip]
+                        BIN_OP!(F64, F64Mul, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F64Div => {
+                        #[rustfmt::skip]
+                        BIN_OP!(F64, F64Div, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F64Min => {
+                        #[rustfmt::skip]
+                        BIN_OP!(F64, F64Min, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F64Max => {
+                        #[rustfmt::skip]
+                        BIN_OP!(F64, F64Max, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F64Copysign => {
+                        #[rustfmt::skip]
+                        BIN_OP!(F64, F64Copysign, opcode, position, int_codes, value_stack,);
                     }
 
-                    // [i32] -> [f32]
-                    #[cfg(feature = "float")]
-                    WasmSingleOpcode::F32ConvertI32S | WasmSingleOpcode::F32ConvertI32U => {
-                        let a = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                        if a != WasmValType::I32 {
-                            return Err(WasmDecodeErrorKind::TypeMismatch);
-                        }
-                        value_stack.push(WasmValType::F32);
+                    // [f32] -> [i32]
+                    WasmSingleOpcode::I32TruncF32S => {
+                        #[rustfmt::skip]
+                        UNARY2!(F32, I32, I32TruncF32S, opcode, position, int_codes, value_stack,);
                     }
-
-                    // [i64] -> [f32]
-                    #[cfg(feature = "float")]
-                    WasmSingleOpcode::F32ConvertI64S | WasmSingleOpcode::F32ConvertI64U => {
-                        let a = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                        if a != WasmValType::I64 {
-                            return Err(WasmDecodeErrorKind::TypeMismatch);
-                        }
-                        value_stack.push(WasmValType::F32);
+                    WasmSingleOpcode::I32TruncF32U => {
+                        #[rustfmt::skip]
+                        UNARY2!(F32, I32, I32TruncF32U, opcode, position, int_codes, value_stack,);
                     }
-
-                    // [f64] -> [f32]
-                    #[cfg(feature = "float")]
+                    WasmSingleOpcode::I32TruncF64S => {
+                        #[rustfmt::skip]
+                        UNARY2!(F64, I32, I32TruncF64S, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::I32TruncF64U => {
+                        #[rustfmt::skip]
+                        UNARY2!(F64, I32, I32TruncF64U, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::I64TruncF32S => {
+                        #[rustfmt::skip]
+                        UNARY2!(F32, I64, I64TruncF32S, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::I64TruncF32U => {
+                        #[rustfmt::skip]
+                        UNARY2!(F32, I64, I64TruncF32U, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::I64TruncF64S => {
+                        #[rustfmt::skip]
+                        UNARY2!(F64, I64, I64TruncF64S, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::I64TruncF64U => {
+                        #[rustfmt::skip]
+                        UNARY2!(F64, I64, I64TruncF64U, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F32ConvertI32S => {
+                        #[rustfmt::skip]
+                        UNARY2!(I32, F32, F32ConvertI32S, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F32ConvertI32U => {
+                        #[rustfmt::skip]
+                        UNARY2!(I32, F32, F32ConvertI32U, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F32ConvertI64S => {
+                        #[rustfmt::skip]
+                        UNARY2!(I64, F32, F32ConvertI64S, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F32ConvertI64U => {
+                        #[rustfmt::skip]
+                        UNARY2!(I64, F32, F32ConvertI64U, opcode, position, int_codes, value_stack,);
+                    }
                     WasmSingleOpcode::F32DemoteF64 => {
-                        let a = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                        if a != WasmValType::F64 {
-                            return Err(WasmDecodeErrorKind::TypeMismatch);
-                        }
-                        value_stack.push(WasmValType::F32);
+                        #[rustfmt::skip]
+                        UNARY2!(F64, F32, F32DemoteF64, opcode, position, int_codes, value_stack,);
                     }
-
-                    // [i32] -> [f64]
-                    #[cfg(feature = "float")]
-                    WasmSingleOpcode::F64ConvertI32S | WasmSingleOpcode::F64ConvertI32U => {
-                        let a = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                        if a != WasmValType::I32 {
-                            return Err(WasmDecodeErrorKind::TypeMismatch);
-                        }
-                        value_stack.push(WasmValType::F64);
+                    WasmSingleOpcode::F64ConvertI32S => {
+                        #[rustfmt::skip]
+                        UNARY2!(I32, F64, F64ConvertI32S, opcode, position, int_codes, value_stack,);
                     }
-
-                    // [i64] -> [f64]
-                    #[cfg(feature = "float")]
-                    WasmSingleOpcode::F64ConvertI64S | WasmSingleOpcode::F64ConvertI64U => {
-                        let a = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                        if a != WasmValType::I64 {
-                            return Err(WasmDecodeErrorKind::TypeMismatch);
-                        }
-                        value_stack.push(WasmValType::F64);
+                    WasmSingleOpcode::F64ConvertI32U => {
+                        #[rustfmt::skip]
+                        UNARY2!(I32, F64, F64ConvertI32U, opcode, position, int_codes, value_stack,);
                     }
-
-                    // [f32] -> [f64]
-                    #[cfg(feature = "float")]
+                    WasmSingleOpcode::F64ConvertI64S => {
+                        #[rustfmt::skip]
+                        UNARY2!(I64, F64, F64ConvertI64S, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmSingleOpcode::F64ConvertI64U => {
+                        #[rustfmt::skip]
+                        UNARY2!(I64, F64, F64ConvertI64U, opcode, position, int_codes, value_stack,);
+                    }
                     WasmSingleOpcode::F64PromoteF32 => {
-                        let a = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                        if a != WasmValType::F32 {
-                            return Err(WasmDecodeErrorKind::TypeMismatch);
-                        }
-                        value_stack.push(WasmValType::F64);
+                        #[rustfmt::skip]
+                        UNARY2!(F32, F64, F64PromoteF32, opcode, position, int_codes, value_stack,);
                     }
 
-                    #[cfg(feature = "float")]
                     WasmSingleOpcode::I32ReinterpretF32 => {
-                        let a = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                        if a != WasmValType::F32 {
-                            return Err(WasmDecodeErrorKind::TypeMismatch);
-                        }
-                        value_stack.push(WasmValType::I32);
+                        #[rustfmt::skip]
+                        UNARY2!(F32, I32, I32ReinterpretF32, opcode, position, int_codes, value_stack,);
                     }
-                    #[cfg(feature = "float")]
                     WasmSingleOpcode::I64ReinterpretF64 => {
-                        let a = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                        if a != WasmValType::F64 {
-                            return Err(WasmDecodeErrorKind::TypeMismatch);
-                        }
-                        value_stack.push(WasmValType::I64);
+                        #[rustfmt::skip]
+                        UNARY2!(F64, I64, I64ReinterpretF64, opcode, position, int_codes, value_stack,);
                     }
-                    #[cfg(feature = "float")]
                     WasmSingleOpcode::F32ReinterpretI32 => {
-                        let a = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                        if a != WasmValType::I32 {
-                            return Err(WasmDecodeErrorKind::TypeMismatch);
-                        }
-                        value_stack.push(WasmValType::F32);
+                        #[rustfmt::skip]
+                        UNARY2!(I32, F32, F32ReinterpretI32, opcode, position, int_codes, value_stack,);
                     }
-                    #[cfg(feature = "float")]
                     WasmSingleOpcode::F64ReinterpretI64 => {
-                        let a = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                        if a != WasmValType::I64 {
-                            return Err(WasmDecodeErrorKind::TypeMismatch);
-                        }
-                        value_stack.push(WasmValType::F64);
+                        #[rustfmt::skip]
+                        UNARY2!(I64, F64, F64ReinterpretI64, opcode, position, int_codes, value_stack,);
                     }
 
                     WasmSingleOpcode::PrefixFC | WasmSingleOpcode::PrefixFD => unreachable!(),
@@ -1261,15 +1308,48 @@ impl WasmCodeBlock {
                 },
 
                 WasmOpcode::PrefixFC(opcode) => match opcode {
+                    WasmOpcodeFC::I32TruncSatF32S => {
+                        #[rustfmt::skip]
+                        UNARY2!(F32, I32, WasmOpcodeFC, I32TruncSatF32S, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmOpcodeFC::I32TruncSatF32U => {
+                        #[rustfmt::skip]
+                        UNARY2!(F32, I32, WasmOpcodeFC, I32TruncSatF32U, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmOpcodeFC::I32TruncSatF64S => {
+                        #[rustfmt::skip]
+                        UNARY2!(F64, I32, WasmOpcodeFC, I32TruncSatF64S, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmOpcodeFC::I32TruncSatF64U => {
+                        #[rustfmt::skip]
+                        UNARY2!(F64, I32, WasmOpcodeFC, I32TruncSatF64U, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmOpcodeFC::I64TruncSatF32S => {
+                        #[rustfmt::skip]
+                        UNARY2!(F32, I64, WasmOpcodeFC, I64TruncSatF32S, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmOpcodeFC::I64TruncSatF32U => {
+                        #[rustfmt::skip]
+                        UNARY2!(F32, I64, WasmOpcodeFC, I64TruncSatF32U, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmOpcodeFC::I64TruncSatF64S => {
+                        #[rustfmt::skip]
+                        UNARY2!(F64, I64, WasmOpcodeFC, I64TruncSatF64S, opcode, position, int_codes, value_stack,);
+                    }
+                    WasmOpcodeFC::I64TruncSatF64U => {
+                        #[rustfmt::skip]
+                        UNARY2!(F64, I64, WasmOpcodeFC, I64TruncSatF64U, opcode, position, int_codes, value_stack,);
+                    }
+
                     WasmOpcodeFC::MemoryCopy => {
                         if !module.has_memory() {
                             return Err(WasmDecodeErrorKind::OutOfMemory);
                         }
-                        let memory_dst = stream.read_unsigned()? as usize;
+                        let memory_dst = reader.read_unsigned()? as usize;
                         if memory_dst >= module.memories().len() {
                             return Err(WasmDecodeErrorKind::OutOfMemory);
                         }
-                        let memory_src = stream.read_unsigned()? as usize;
+                        let memory_src = reader.read_unsigned()? as usize;
                         if memory_src >= module.memories().len() {
                             return Err(WasmDecodeErrorKind::OutOfMemory);
                         }
@@ -1291,7 +1371,7 @@ impl WasmCodeBlock {
                         if !module.has_memory() {
                             return Err(WasmDecodeErrorKind::OutOfMemory);
                         }
-                        let index = stream.read_unsigned()? as usize;
+                        let index = reader.read_unsigned()? as usize;
                         if index >= module.memories().len() {
                             return Err(WasmDecodeErrorKind::OutOfMemory);
                         }
@@ -1309,8 +1389,13 @@ impl WasmCodeBlock {
                         ));
                     }
 
-                    #[allow(unreachable_patterns)]
-                    _ => return Err(WasmDecodeErrorKind::UnsupportedOpCode(opcode.into())),
+                    WasmOpcodeFC::MemoryInit
+                    | WasmOpcodeFC::DataDrop
+                    | WasmOpcodeFC::TableInit
+                    | WasmOpcodeFC::ElemDrop
+                    | WasmOpcodeFC::TableCopy => {
+                        return Err(WasmDecodeErrorKind::UnsupportedOpCode(opcode.into()))
+                    }
                 },
 
                 WasmOpcode::PrefixFD(_) => {
@@ -1320,7 +1405,7 @@ impl WasmCodeBlock {
         }
 
         int_codes.push(WasmImc::new(
-            WasmIntMnemonic::Unreachable(ExceptionPosition::new(stream.position())),
+            WasmIntMnemonic::Unreachable(ExceptionPosition::new(reader.position())),
             value_stack.len().into(),
         ));
 

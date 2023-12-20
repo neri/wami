@@ -148,13 +148,13 @@ impl WebAssembly {
         let n_items: usize = section.reader.read()?;
         for _ in 0..n_items {
             let mut import = WasmImport::from_reader(&mut section.reader)?;
-            match import.index {
-                WasmImportIndex::Type(index) => {
+            match import.desc {
+                WasmImportDescriptor::Type(index) => {
                     import.func_ref = self.module.n_ext_func;
                     let func_type = self
                         .module
                         .types
-                        .get(index)
+                        .get(index.0)
                         .ok_or(WasmDecodeErrorKind::InvalidType)?;
                     let dlink = match resolver(import.mod_name(), import.name(), func_type) {
                         ImportResult::Ok(v) => v,
@@ -174,7 +174,7 @@ impl WebAssembly {
                     ));
                     self.module.n_ext_func += 1;
                 }
-                WasmImportIndex::Memory(memtype) => {
+                WasmImportDescriptor::Memory(memtype) => {
                     self.module.memories[0] = WasmMemory::new(memtype);
                 }
             }
@@ -188,11 +188,11 @@ impl WebAssembly {
         let n_items: usize = section.reader.read()?;
         let base_index = self.module.imports.len();
         for index in 0..n_items {
-            let type_index: usize = section.reader.read()?;
+            let type_index = WasmTypeIndex(section.reader.read()?);
             let func_type = self
                 .module
                 .types
-                .get(type_index)
+                .get(type_index.0)
                 .ok_or(WasmDecodeErrorKind::InvalidType)?;
             self.module.functions.push(WasmFunction::internal(
                 base_index + index,
@@ -212,7 +212,7 @@ impl WebAssembly {
                 self.module
                     .functions
                     .get_mut(index)
-                    .map(|v| v.origin = WasmFunctionOrigin::Export(i));
+                    .map(|v| v.origin = WasmFunctionOrigin::Exported(i));
             }
             self.module.exports.push(export);
         }
@@ -268,15 +268,15 @@ impl WebAssembly {
         for i in 0..n_items {
             let index = i + self.module.n_ext_func;
             let module = &mut self.module;
+
             let func_def = module
                 .functions
                 .get(index)
-                .ok_or(WasmDecodeErrorKind::InvalidData)?;
-            let length = section.reader.read_unsigned()? as usize;
+                .ok_or(WasmDecodeErrorKind::OutOfFunction)?;
+            let length: usize = section.reader.read()?;
             let file_position = section.file_position() + section.reader.position();
-            let blob = section.reader.read_bytes(length)?;
-            let mut reader = Leb128Reader::from_slice(blob);
-            let body = WasmCodeBlock::generate(
+            let mut reader = section.reader.sub_slice(length).unwrap();
+            let code_block = WasmCodeBlock::generate(
                 index,
                 file_position,
                 &mut reader,
@@ -285,7 +285,11 @@ impl WebAssembly {
                 module,
             )?;
 
-            self.module.functions[index].code_block = Some(body);
+            module
+                .functions
+                .get_mut(index)
+                .ok_or(WasmDecodeErrorKind::OutOfFunction)
+                .and_then(|v| v.set_code_block(code_block))?;
         }
         Ok(())
     }
@@ -407,13 +411,8 @@ impl WasmModule {
     }
 
     #[inline]
-    pub fn types(&self) -> &[WasmType] {
-        self.types.as_slice()
-    }
-
-    #[inline]
-    pub fn type_by_ref(&self, index: usize) -> Option<&WasmType> {
-        self.types.get(index)
+    pub fn type_by_ref(&self, index: WasmTypeIndex) -> Option<&WasmType> {
+        self.types.get(index.0)
     }
 
     #[inline]
@@ -499,9 +498,11 @@ impl WasmModule {
         Err(WasmRuntimeErrorKind::NoMethod)
     }
 
-    #[inline]
-    pub(crate) fn codeblock(&self, index: usize) -> Option<&WasmCodeBlock> {
-        self.functions.get(index).and_then(|v| v.code_block())
+    pub(crate) fn func_position(&self, index: usize) -> Option<usize> {
+        self.functions.get(index).and_then(|v| match v.content() {
+            WasmFunctionContent::CodeBlock(v) => Some(v.file_position()),
+            _ => None,
+        })
     }
 
     #[inline]
@@ -654,16 +655,36 @@ pub enum WasmValType {
     I64 = 0x7E,
     F32 = 0x7D,
     F64 = 0x7C,
+    // V128 = 0x7B,
+    // FuncRef = 0x70,
+    // ExternRef = 0x6F,
 }
 
 impl WasmValType {
     #[inline]
     pub const fn from_u64(v: u64) -> Result<Self, WasmDecodeErrorKind> {
         match v {
-            0x7F => Ok(WasmValType::I32),
-            0x7E => Ok(WasmValType::I64),
-            0x7D => Ok(WasmValType::F32),
-            0x7C => Ok(WasmValType::F64),
+            0x7F => Ok(Self::I32),
+            0x7E => Ok(Self::I64),
+            0x7D => Ok(Self::F32),
+            0x7C => Ok(Self::F64),
+            // 0x7B => Ok(Self::V128),
+            // 0x70 => Ok(Self::FuncRef),
+            // 0x6F => Ok(Self::ExternRef),
+            _ => Err(WasmDecodeErrorKind::UnexpectedToken),
+        }
+    }
+
+    #[inline]
+    pub const fn from_i64(v: i64) -> Result<Self, WasmDecodeErrorKind> {
+        match v {
+            -1 => Ok(Self::I32),
+            -2 => Ok(Self::I64),
+            -3 => Ok(Self::F32),
+            -4 => Ok(Self::F64),
+            // -5 => Ok(Self::V128),
+            // -16 => Ok(Self::FuncRef),
+            // -17 => Ok(Self::ExternRef),
             _ => Err(WasmDecodeErrorKind::UnexpectedToken),
         }
     }
@@ -671,10 +692,12 @@ impl WasmValType {
     #[inline]
     pub fn mnemonic(&self) -> char {
         match *self {
-            WasmValType::I32 => 'i',
-            WasmValType::I64 => 'l',
-            WasmValType::F32 => 'f',
-            WasmValType::F64 => 'd',
+            Self::I32 => 'i',
+            Self::I64 => 'l',
+            Self::F32 => 'f',
+            Self::F64 => 'd',
+            // Self::V128 => 'v',
+            // Self::FuncRef | Self::ExternRef => '_',
         }
     }
 }
@@ -713,10 +736,13 @@ impl fmt::Display for WasmValType {
             f,
             "{}",
             match *self {
-                WasmValType::I32 => "i32",
-                WasmValType::I64 => "i64",
-                WasmValType::F32 => "f32",
-                WasmValType::F64 => "f64",
+                Self::I32 => "i32",
+                Self::I64 => "i64",
+                Self::F32 => "f32",
+                Self::F64 => "f64",
+                // Self::V128 => "v128",
+                // Self::FuncRef => "func",
+                // Self::ExternRef => "extern",
             }
         )
     }
@@ -1042,15 +1068,37 @@ impl WasmMemory {
     }
 
     #[cfg(test)]
+    pub(crate) fn read_i32(&self, offset: usize) -> i32 {
+        self.read_u32(offset) as i32
+    }
+
+    #[cfg(test)]
     pub(crate) fn read_u32(&self, offset: usize) -> u32 {
         let slice = &self.as_slice()[offset..offset + 4].try_into().unwrap();
         u32::from_le_bytes(*slice)
     }
 
     #[cfg(test)]
+    pub(crate) fn read_f32(&self, offset: usize) -> f32 {
+        let slice = &self.as_slice()[offset..offset + 4].try_into().unwrap();
+        f32::from_le_bytes(*slice)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn read_i64(&self, offset: usize) -> i64 {
+        self.read_u64(offset) as i64
+    }
+
+    #[cfg(test)]
     pub(crate) fn read_u64(&self, offset: usize) -> u64 {
         let slice = &self.as_slice()[offset..offset + 8].try_into().unwrap();
         u64::from_le_bytes(*slice)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn read_f64(&self, offset: usize) -> f64 {
+        let slice = &self.as_slice()[offset..offset + 8].try_into().unwrap();
+        f64::from_le_bytes(*slice)
     }
 }
 
@@ -1094,18 +1142,30 @@ impl WasmTable {
 /// It appears as the third section (`0x03`) in the WebAssembly binary.
 pub struct WasmFunction {
     index: usize,
-    type_index: usize,
+    type_index: WasmTypeIndex,
     func_type: WasmType,
     origin: WasmFunctionOrigin,
-    code_block: Option<WasmCodeBlock>,
-    dlink: Option<WasmDynFunc>,
+    content: WasmFunctionContent,
+}
+
+#[derive(Debug, Copy, Clone)]
+enum WasmFunctionOrigin {
+    Internal,
+    Exported(usize),
+    Imported(usize),
+}
+
+pub(crate) enum WasmFunctionContent {
+    Unresolved,
+    CodeBlock(WasmCodeBlock),
+    Dynamic(WasmDynFunc),
 }
 
 impl WasmFunction {
     #[inline]
     fn from_import(
         index: usize,
-        type_index: usize,
+        type_index: WasmTypeIndex,
         func_type: WasmType,
         dlink: WasmDynFunc,
     ) -> Self {
@@ -1113,21 +1173,19 @@ impl WasmFunction {
             index,
             type_index,
             func_type,
-            origin: WasmFunctionOrigin::Import(index),
-            code_block: None,
-            dlink: Some(dlink),
+            origin: WasmFunctionOrigin::Imported(index),
+            content: WasmFunctionContent::Dynamic(dlink),
         }
     }
 
     #[inline]
-    fn internal(index: usize, type_index: usize, func_type: WasmType) -> Self {
+    fn internal(index: usize, type_index: WasmTypeIndex, func_type: WasmType) -> Self {
         Self {
             index,
             type_index,
             func_type,
             origin: WasmFunctionOrigin::Internal,
-            code_block: None,
-            dlink: None,
+            content: WasmFunctionContent::Unresolved,
         }
     }
 
@@ -1137,7 +1195,7 @@ impl WasmFunction {
     }
 
     #[inline]
-    pub const fn type_index(&self) -> usize {
+    pub const fn type_index(&self) -> WasmTypeIndex {
         self.type_index
     }
 
@@ -1152,26 +1210,27 @@ impl WasmFunction {
     }
 
     #[inline]
-    pub const fn origin(&self) -> WasmFunctionOrigin {
-        self.origin
+    pub(crate) fn content(&self) -> &WasmFunctionContent {
+        &self.content
     }
 
-    #[inline]
-    pub const fn code_block(&self) -> Option<&WasmCodeBlock> {
-        self.code_block.as_ref()
+    pub(crate) fn set_code_block(
+        &mut self,
+        code_block: WasmCodeBlock,
+    ) -> Result<(), WasmDecodeErrorKind> {
+        match self.origin {
+            WasmFunctionOrigin::Internal | WasmFunctionOrigin::Exported(_) => match self.content {
+                WasmFunctionContent::Unresolved => {
+                    self.content = WasmFunctionContent::CodeBlock(code_block);
+                    Ok(())
+                }
+                WasmFunctionContent::CodeBlock(_) | WasmFunctionContent::Dynamic(_) => {
+                    Err(WasmDecodeErrorKind::InternalInconsistency)
+                }
+            },
+            WasmFunctionOrigin::Imported(_) => Err(WasmDecodeErrorKind::OutOfFunction),
+        }
     }
-
-    #[inline]
-    pub fn dlink(&self) -> Option<WasmDynFunc> {
-        self.dlink
-    }
-}
-
-#[derive(Debug, Copy, Clone)]
-pub enum WasmFunctionOrigin {
-    Internal,
-    Export(usize),
-    Import(usize),
 }
 
 /// A type that holds the signature of a function that combines a list of argument types with a list of return types.
@@ -1182,6 +1241,10 @@ pub struct WasmType {
     param_types: SmallVec<[WasmValType; 8]>,
     result_types: SmallVec<[WasmValType; 8]>,
 }
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct WasmTypeIndex(pub(crate) usize);
 
 impl WasmType {
     fn from_reader(reader: &mut Leb128Reader) -> Result<Self, WasmDecodeErrorKind> {
@@ -1261,9 +1324,6 @@ impl fmt::Display for WasmType {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct WasmTypeIndex(pub usize);
-
 /// WebAssembly import object
 ///
 /// It appears as the second section (`0x02`) in the WebAssembly binary.
@@ -1271,7 +1331,7 @@ pub struct WasmTypeIndex(pub usize);
 pub struct WasmImport {
     mod_name: String,
     name: String,
-    index: WasmImportIndex,
+    desc: WasmImportDescriptor,
     func_ref: usize,
 }
 
@@ -1280,12 +1340,12 @@ impl WasmImport {
     fn from_reader(reader: &mut Leb128Reader) -> Result<Self, WasmDecodeErrorKind> {
         let mod_name = reader.get_string()?;
         let name = reader.get_string()?;
-        let index = WasmImportIndex::from_reader(reader)?;
+        let desc = WasmImportDescriptor::from_reader(reader)?;
 
         Ok(Self {
             mod_name,
             name,
-            index,
+            desc,
             func_ref: 0,
         })
     }
@@ -1301,35 +1361,33 @@ impl WasmImport {
     }
 
     #[inline]
-    pub const fn index(&self) -> WasmImportIndex {
-        self.index
+    pub const fn desc(&self) -> WasmImportDescriptor {
+        self.desc
     }
 }
 
 #[derive(Debug, Copy, Clone)]
-pub enum WasmImportIndex {
-    Type(usize),
+pub enum WasmImportDescriptor {
+    Type(WasmTypeIndex),
     // Table(usize),
     Memory(WasmLimit),
     // Global(usize),
 }
 
-impl WasmImportIndex {
+impl WasmImportDescriptor {
     #[inline]
     fn from_reader(mut reader: &mut Leb128Reader) -> Result<Self, WasmDecodeErrorKind> {
-        reader
-            .read_unsigned()
-            .map_err(|v| v.into())
-            .and_then(|v| match v {
-                0 => reader
-                    .read_unsigned()
-                    .map(|v| Self::Type(v as usize))
-                    .map_err(|v| v.into()),
-                // 1 => reader.read_unsigned().map(|v| Self::Table(v as usize)),
-                2 => WasmLimit::from_reader(&mut reader, true).map(|v| Self::Memory(v)),
-                // 3 => reader.read_unsigned().map(|v| Self::Global(v as usize)),
-                _ => Err(WasmDecodeErrorKind::UnexpectedToken),
-            })
+        let import_type = reader.read()?;
+        match import_type {
+            0 => reader
+                .read()
+                .map(|v| Self::Type(WasmTypeIndex(v)))
+                .map_err(|v| v.into()),
+            // 1 => reader.read_unsigned().map(|v| Self::Table(v as usize)),
+            2 => WasmLimit::from_reader(&mut reader, true).map(|v| Self::Memory(v)),
+            // 3 => reader.read_unsigned().map(|v| Self::Global(v as usize)),
+            _ => Err(WasmDecodeErrorKind::UnexpectedToken),
+        }
     }
 }
 
@@ -1424,6 +1482,8 @@ pub enum WasmDecodeErrorKind {
     OutOfBranch,
     /// Accessing non-existent memory
     OutOfMemory,
+    /// Code Section
+    OutOfFunction,
     /// The type of the value stack does not match.
     TypeMismatch,
     /// Termination of invalid blocks

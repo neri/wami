@@ -397,6 +397,7 @@ pub enum WasmProposalType {
     TailCall,
     MvpFloat,
     SignExtend,
+    NontrappingFloatToIntConversion,
     BulkMemoryOperations,
     Simd,
     Prefixed,

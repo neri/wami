@@ -8,9 +8,8 @@ use crate::{
     WasmValType, *,
 };
 use alloc::borrow::ToOwned;
-
-#[cfg(feature = "float")]
 use core::f64::consts::PI;
+use num_traits::Zero;
 
 #[test]
 fn instantiate() {
@@ -1347,9 +1346,26 @@ fn name() {
 }
 
 #[test]
-#[cfg(feature = "float")]
-fn float_reinterpret() {
-    let slice = [1, 1, 0x7F, 0x20, 0x01, 0xbe, 0x0B];
+fn float32() {
+    let slice = [0, 0x43, 0xdb, 0x0f, 0x49, 0x40, 0x0B];
+    let param_types = [];
+    let result_types = [WasmValType::F32];
+    let mut stream = Leb128Reader::from_slice(&slice);
+    let module = WasmModule::new();
+    let info =
+        WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
+    let mut interp = WasmInterpreter::new(&module);
+
+    let mut locals = [];
+    let result = interp
+        .invoke(0, &info, &mut locals, &result_types)
+        .unwrap()
+        .unwrap()
+        .get_f32()
+        .unwrap();
+    assert_eq!(result, 3.1415927);
+
+    let slice = [0, 0x20, 0x00, 0xbe, 0x0B];
     let param_types = [WasmValType::I32];
     let result_types = [WasmValType::F32];
     let mut stream = Leb128Reader::from_slice(&slice);
@@ -1367,7 +1383,7 @@ fn float_reinterpret() {
         .unwrap();
     assert_eq!(result, 3.1415927);
 
-    let slice = [1, 1, 0x7D, 0x20, 0x01, 0xbc, 0x0B];
+    let slice = [0, 0x20, 0x00, 0xbc, 0x0B];
     let param_types = [WasmValType::F32];
     let result_types = [WasmValType::I32];
     let mut stream = Leb128Reader::from_slice(&slice);
@@ -1387,9 +1403,651 @@ fn float_reinterpret() {
 }
 
 #[test]
-#[cfg(feature = "float")]
-fn float64_reinterpret() {
-    let slice = [1, 1, 0x7E, 0x20, 0x01, 0xbf, 0x0B];
+fn float32_opr() {
+    let module = WebAssembly::instantiate(
+        include_bytes!("../test/tester.wasm"),
+        |_, _, _| unreachable!(),
+    )
+    .unwrap();
+
+    const SIGN_BITS: u32 = 0x8000_0000;
+    const ZERO_BITS: u32 = 0;
+    const NEG_ZERO_BITS: u32 = SIGN_BITS;
+
+    for val in [
+        0.0f64,
+        -0.0f64,
+        0.24,
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.5,
+        3.0,
+        3.5,
+        4.0,
+        -0.25,
+        -0.5,
+        -0.75,
+        -1.0,
+        -1.25,
+        -1.5,
+        -1.75,
+        -2.0,
+        -2.5,
+        -3.0,
+        -3.5,
+        -4.0,
+        1.1920929E-7,
+        1.17549435E-38,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::NAN,
+        PI,
+        2_147_483_647.0,
+        2_147_483_648.0,
+        -2_147_483_647.0,
+        -2_147_483_648.0,
+        -2_147_483_649.0,
+        4_294_967_295.0,
+        4_294_967_296.0,
+        -3_000_000_000.0,
+        5_000_000_000.0,
+    ] {
+        let fval = val as f32;
+        let i32val = fval as i32;
+        let u32val = fval as u32;
+        let i64val = fval as i64;
+        let u64val = fval as u64;
+
+        module.memory(0).unwrap().as_mut_slice().fill(0xCC);
+        let result = module
+            .func("test_unary_f32")
+            .unwrap()
+            .invoke(&[
+                fval.into(),
+                i32val.into(),
+                u32val.into(),
+                i64val.into(),
+                u64val.into(),
+            ])
+            .unwrap()
+            .unwrap()
+            .get_i32()
+            .unwrap();
+        assert_eq!(result, 0x98);
+
+        let memory = module.memory(0).unwrap();
+
+        assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
+        assert_eq!(memory.read_u64(8), 0xCCCC_CCCC_CCCC_CCCC);
+
+        if val.is_nan() {
+        } else if val <= i32::MIN as f64 {
+            assert_eq!(memory.read_i32(0x18), i32::MIN);
+        } else if val >= i32::MAX as f64 {
+            assert_eq!(memory.read_i32(0x18), i32::MAX);
+        } else {
+            assert_eq!(memory.read_i32(0x10), i32val);
+            assert_eq!(memory.read_i32(0x18), i32val);
+        }
+
+        if val.is_nan() {
+        } else if val <= 0.0 {
+            assert_eq!(memory.read_u32(0x1C), 0);
+        } else if val >= u32::MAX as f64 {
+            assert_eq!(memory.read_u32(0x1C), u32::MAX);
+        } else {
+            assert_eq!(memory.read_u32(0x14), u32val);
+            assert_eq!(memory.read_u32(0x1C), u32val);
+        }
+
+        if val.is_nan() {
+        } else if val <= i64::MIN as f64 {
+            assert_eq!(memory.read_i64(0x30), i64::MIN);
+        } else if val >= i64::MAX as f64 {
+            assert_eq!(memory.read_i64(0x30), i64::MAX);
+        } else {
+            assert_eq!(memory.read_i64(0x20), i64val);
+            assert_eq!(memory.read_i64(0x30), i64val);
+        }
+
+        if val.is_nan() {
+        } else if val <= 0.0 {
+            assert_eq!(memory.read_u64(0x38), 0);
+        } else if val >= u64::MAX as f64 {
+            assert_eq!(memory.read_u64(0x38), u64::MAX);
+        } else {
+            assert_eq!(memory.read_u64(0x28), u64val);
+            assert_eq!(memory.read_u64(0x38), u64val);
+        }
+
+        assert_eq!(memory.read_f32(0x40), i32val as f32);
+        assert_eq!(memory.read_f32(0x44), u32val as f32);
+        assert_eq!(memory.read_f32(0x48), i64val as f32);
+        assert_eq!(memory.read_f32(0x4C), u64val as f32);
+
+        if fval.is_nan() {
+            assert!(memory.read_f64(0x50).is_nan());
+        } else {
+            assert_eq!(memory.read_f64(0x50), fval as f64);
+        }
+
+        // fabs
+        let fabs = memory.read_f32(0x80);
+        assert!(fabs.is_sign_positive());
+        if fval.is_nan() {
+            assert!(fabs.is_nan());
+        } else if fval.is_infinite() {
+            assert_eq!(fabs, f32::INFINITY);
+        } else {
+            assert_eq!(fabs, fval.abs());
+        }
+
+        // fneg
+        let fneg = memory.read_f32(0x84);
+        assert_eq!(fneg.is_sign_positive(), fval.is_sign_negative(),);
+        if fval.is_nan() {
+            assert!(fneg.is_nan());
+        } else if fval.is_infinite() {
+            assert!(fneg.is_infinite());
+        } else {
+            assert_eq!(fneg, 0.0 - fval);
+        }
+
+        // fceil
+        let fceil = memory.read_f32(0x88);
+        if fval.is_nan() {
+            assert!(fceil.is_nan());
+        } else if fval.is_infinite() {
+            assert!(fceil.is_infinite());
+        } else if fval.is_zero() {
+            assert_eq!(fceil, fval);
+        } else if fval > 0.0 && fval <= 1.0 {
+            assert_eq!(fceil, 1.0);
+        } else if fval > 1.0 && fval <= 2.0 {
+            assert_eq!(fceil, 2.0);
+        } else if fval > 2.0 && fval <= 3.0 {
+            assert_eq!(fceil, 3.0);
+        } else if fval > 3.0 && fval <= 4.0 {
+            assert_eq!(fceil, 4.0);
+        } else if fval > -1.0 && fval < 0.0 {
+            assert_eq!(fceil, 0.0);
+        } else if fval > -2.0 && fval <= -1.0 {
+            assert_eq!(fceil, -1.0);
+        } else if fval > -3.0 && fval <= -2.0 {
+            assert_eq!(fceil, -2.0);
+        } else if fval > -4.0 && fval <= -3.0 {
+            assert_eq!(fceil, -3.0);
+        } else {
+            assert_eq!(fceil, fval.ceil());
+        }
+
+        // ffloor
+        let ffloor = memory.read_f32(0x8C);
+        if fval.is_nan() {
+            assert!(ffloor.is_nan());
+        } else if fval.is_infinite() {
+            assert!(ffloor.is_infinite());
+        } else if fval.is_zero() {
+            assert_eq!(ffloor, fval);
+        } else if fval > 0.0 && fval < 1.0 {
+            assert_eq!(ffloor, 0.0);
+        } else if fval >= 1.0 && fval < 2.0 {
+            assert_eq!(ffloor, 1.0);
+        } else if fval >= 2.0 && fval < 3.0 {
+            assert_eq!(ffloor, 2.0);
+        } else if fval >= 3.0 && fval < 4.0 {
+            assert_eq!(ffloor, 3.0);
+        } else if fval < 0.0 && fval > -1.0 {
+            assert_eq!(ffloor, -1.0);
+        } else if fval < -1.0 && fval >= -2.0 {
+            assert_eq!(ffloor, -2.0);
+        } else if fval < -2.0 && fval >= -3.0 {
+            assert_eq!(ffloor, -3.0);
+        } else if fval < -3.0 && fval >= -4.0 {
+            assert_eq!(ffloor, -4.0);
+        } else {
+            assert_eq!(ffloor, fval.floor());
+        }
+
+        // ftrunc
+        let ftrunc = memory.read_f32(0x90);
+        if fval.is_nan() {
+            assert!(ftrunc.is_nan());
+        } else if fval.is_infinite() {
+            assert!(ftrunc.is_infinite());
+        } else if fval.is_zero() {
+            assert_eq!(ftrunc, fval);
+        } else if fval > 0.0 && fval < 1.0 {
+            assert_eq!(ftrunc, 0.0);
+        } else if fval >= 1.0 && fval < 2.0 {
+            assert_eq!(ftrunc, 1.0);
+        } else if fval >= 2.0 && fval < 3.0 {
+            assert_eq!(ftrunc, 2.0);
+        } else if fval >= 3.0 && fval < 4.0 {
+            assert_eq!(ftrunc, 3.0);
+        } else if fval < 0.0 && fval > -1.0 {
+            assert_eq!(ftrunc, -0.0);
+        } else if fval <= -1.0 && fval > -2.0 {
+            assert_eq!(ftrunc, -1.0);
+        } else if fval <= -2.0 && fval > -3.0 {
+            assert_eq!(ftrunc, -2.0);
+        } else if fval <= -3.0 && fval > -4.0 {
+            assert_eq!(ftrunc, -3.0);
+        } else {
+            assert_eq!(ftrunc, fval.trunc());
+        }
+
+        // fnearest
+        let fnearest = memory.read_f32(0x94);
+        if fval.is_nan() {
+            assert!(fnearest.is_nan());
+        } else if fval.is_infinite() {
+            assert!(fnearest.is_infinite());
+        } else if fval.is_zero() {
+            assert_eq!(fnearest, fval);
+        } else if fval > 0.0 && fval <= 0.5 {
+            assert_eq!(fnearest, 0.0);
+        } else if fval > 0.5 && fval < 1.5 {
+            assert_eq!(fnearest, 1.0);
+        } else if fval >= 1.5 && fval <= 2.5 {
+            assert_eq!(fnearest, 2.0);
+        } else if fval > 2.5 && fval < 3.5 {
+            assert_eq!(fnearest, 3.0);
+        } else if fval >= 3.5 && fval <= 4.5 {
+            assert_eq!(fnearest, 4.0);
+        } else if fval < 0.0 && fval >= -0.5 {
+            assert_eq!(fnearest, -0.0);
+        } else if fval < -0.5 && fval > -1.5 {
+            assert_eq!(fnearest, -1.0);
+        } else if fval <= -1.5 && fval >= -2.5 {
+            assert_eq!(fnearest, -2.0);
+        } else if fval < -2.5 && fval > -3.5 {
+            assert_eq!(fnearest, -3.0);
+        } else if fval <= -3.5 && fval >= -4.5 {
+            assert_eq!(fnearest, -4.0);
+        } else {
+            // TODO: not stable
+            // assert_eq!(fnearest, fval.round_ties_even());
+        }
+
+        // fsqrt
+        let fsqrt = memory.read_f32(0x98);
+        if fval.is_nan() {
+            assert!(fsqrt.is_nan());
+        } else if fval.is_zero() {
+            assert_eq!(fsqrt.to_bits(), fval.to_bits());
+        } else if fval.is_sign_negative() {
+            assert!(fsqrt.is_nan());
+        } else if fval.is_infinite() {
+            assert!(fsqrt.is_sign_positive());
+            assert!(fsqrt.is_infinite());
+        } else {
+            assert!(fsqrt.is_sign_positive());
+            assert_eq!(fsqrt, fval.sqrt());
+        }
+
+        assert_eq!(memory.read_u32(0x9C), 0xCCCC_CCCC);
+        assert_eq!(memory.read_u64(0xA0), 0xCCCC_CCCC_CCCC_CCCC);
+        assert_eq!(memory.read_u64(0xA8), 0xCCCC_CCCC_CCCC_CCCC);
+    }
+
+    let values = [
+        0.0,
+        -0.0,
+        0.5,
+        1.0,
+        1.5,
+        2.0,
+        -0.5,
+        -1.0,
+        -1.5,
+        -2.0,
+        1.1920929E-7,
+        1.17549435E-38,
+        f32::INFINITY,
+        f32::NEG_INFINITY,
+        f32::NAN,
+        core::f32::consts::PI,
+    ];
+
+    for lhs in &values {
+        for rhs in &values {
+            let lhs = *lhs;
+            let rhs = *rhs;
+
+            module.memory(0).unwrap().as_mut_slice().fill(0xCC);
+            let result = module
+                .func("test_bin_f32")
+                .unwrap()
+                .invoke(&[lhs.into(), rhs.into()])
+                .unwrap()
+                .unwrap()
+                .get_i32()
+                .unwrap();
+            assert_eq!(result, 0x40);
+
+            let memory = module.memory(0).unwrap();
+
+            assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
+            assert_eq!(memory.read_u64(8), 0xCCCC_CCCC_CCCC_CCCC);
+
+            // feq
+            let test = memory.read_u32(0x10);
+            if lhs.is_nan() || rhs.is_nan() {
+                assert_eq!(test, 0);
+            } else if lhs.is_zero() && rhs.is_zero() {
+                assert_eq!(test, 1);
+            } else {
+                assert_eq!(test, (lhs == rhs) as u32);
+            }
+
+            // fne
+            let test = memory.read_u32(0x14);
+            if lhs.is_nan() || rhs.is_nan() {
+                assert_eq!(test, 1);
+            } else if lhs.is_zero() && rhs.is_zero() {
+                assert_eq!(test, 0);
+            } else {
+                assert_eq!(test, (lhs != rhs) as u32);
+            }
+
+            // flt
+            let test = memory.read_u32(0x18);
+            if lhs.is_nan() || rhs.is_nan() {
+                assert_eq!(test, 0);
+            } else if lhs == rhs {
+                assert_eq!(test, 0);
+            } else if lhs == f32::INFINITY {
+                assert_eq!(test, 0);
+            } else if lhs == f32::NEG_INFINITY {
+                assert_eq!(test, 1);
+            } else if rhs == f32::INFINITY {
+                assert_eq!(test, 1);
+            } else if rhs == f32::NEG_INFINITY {
+                assert_eq!(test, 0);
+            } else if lhs.is_zero() && rhs.is_zero() {
+                assert_eq!(test, 0);
+            } else {
+                assert_eq!(test, (lhs < rhs) as u32);
+            }
+
+            // fgt
+            let test = memory.read_u32(0x1C);
+            if lhs.is_nan() || rhs.is_nan() {
+                assert_eq!(test, 0);
+            } else if lhs == rhs {
+                assert_eq!(test, 0);
+            } else if lhs == f32::INFINITY {
+                assert_eq!(test, 1);
+            } else if lhs == f32::NEG_INFINITY {
+                assert_eq!(test, 0);
+            } else if rhs == f32::INFINITY {
+                assert_eq!(test, 0);
+            } else if rhs == f32::NEG_INFINITY {
+                assert_eq!(test, 1);
+            } else if lhs.is_zero() && rhs.is_zero() {
+                assert_eq!(test, 0);
+            } else {
+                assert_eq!(test, (lhs > rhs) as u32);
+            }
+
+            // fle
+            let test = memory.read_u32(0x20);
+            if lhs.is_nan() || rhs.is_nan() {
+                assert_eq!(test, 0);
+            } else if lhs == rhs {
+                assert_eq!(test, 1);
+            } else if lhs == f32::INFINITY {
+                assert_eq!(test, 0);
+            } else if lhs == f32::NEG_INFINITY {
+                assert_eq!(test, 1);
+            } else if rhs == f32::INFINITY {
+                assert_eq!(test, 1);
+            } else if rhs == f32::NEG_INFINITY {
+                assert_eq!(test, 0);
+            } else if lhs.is_zero() && rhs.is_zero() {
+                assert_eq!(test, 1);
+            } else {
+                assert_eq!(test, (lhs <= rhs) as u32);
+            }
+
+            // fgt
+            let test = memory.read_u32(0x24);
+            if lhs.is_nan() || rhs.is_nan() {
+                assert_eq!(test, 0);
+            } else if lhs == rhs {
+                assert_eq!(test, 1);
+            } else if lhs == f32::INFINITY {
+                assert_eq!(test, 1);
+            } else if lhs == f32::NEG_INFINITY {
+                assert_eq!(test, 0);
+            } else if rhs == f32::INFINITY {
+                assert_eq!(test, 0);
+            } else if rhs == f32::NEG_INFINITY {
+                assert_eq!(test, 1);
+            } else if lhs.is_zero() && rhs.is_zero() {
+                assert_eq!(test, 1);
+            } else {
+                assert_eq!(test, (lhs >= rhs) as u32);
+            }
+
+            // fadd
+            let test = memory.read_f32(0x28);
+            if lhs.is_nan() || rhs.is_nan() {
+                assert!(test.is_nan());
+            } else if lhs == f32::INFINITY && rhs == f32::INFINITY {
+                assert_eq!(test, f32::INFINITY);
+            } else if lhs == f32::INFINITY && rhs == f32::NEG_INFINITY {
+                assert!(test.is_nan());
+            } else if lhs == f32::NEG_INFINITY && rhs == f32::INFINITY {
+                assert!(test.is_nan());
+            } else if lhs == f32::NEG_INFINITY && rhs == f32::NEG_INFINITY {
+                assert_eq!(test, f32::NEG_INFINITY);
+            } else if rhs.is_infinite() {
+                assert_eq!(test, rhs);
+            } else if lhs.is_infinite() {
+                assert_eq!(test, lhs);
+            } else if lhs.is_zero() && rhs.is_zero() {
+                if lhs.is_sign_positive() == rhs.is_sign_positive() {
+                    assert_eq!(test.is_sign_positive(), lhs.is_sign_positive(),);
+                } else {
+                    assert!(test.is_sign_positive());
+                }
+                assert!(test.is_zero());
+            } else if rhs.is_zero() {
+                assert_eq!(test, lhs);
+            } else if lhs.is_zero() {
+                assert_eq!(test, rhs);
+            } else if lhs.abs() == rhs.abs() && lhs.is_sign_positive() == rhs.is_sign_negative() {
+                assert_eq!(test.to_bits(), ZERO_BITS);
+            } else {
+                assert_eq!(test, lhs + rhs);
+            }
+
+            // fsub
+            let test = memory.read_f32(0x2C);
+            if lhs.is_nan() || rhs.is_nan() {
+                assert!(test.is_nan());
+            } else if lhs == f32::INFINITY && rhs == f32::INFINITY {
+                assert!(test.is_nan());
+            } else if lhs == f32::INFINITY && rhs == f32::NEG_INFINITY {
+                assert_eq!(test, f32::INFINITY);
+            } else if lhs == f32::NEG_INFINITY && rhs == f32::INFINITY {
+                assert_eq!(test, f32::NEG_INFINITY);
+            } else if lhs == f32::NEG_INFINITY && rhs == f32::NEG_INFINITY {
+                assert!(test.is_nan());
+            } else if lhs == f32::INFINITY {
+                assert_eq!(test, f32::INFINITY);
+            } else if lhs == f32::NEG_INFINITY {
+                assert_eq!(test, f32::NEG_INFINITY);
+            } else if rhs == f32::INFINITY {
+                assert_eq!(test, f32::NEG_INFINITY);
+            } else if rhs == f32::NEG_INFINITY {
+                assert_eq!(test, f32::INFINITY);
+            } else if lhs.is_zero() && rhs.is_zero() {
+                if lhs.is_sign_positive() == rhs.is_sign_positive() {
+                    assert!(test.is_sign_positive());
+                } else {
+                    assert_eq!(test.is_sign_positive(), lhs.is_sign_positive(),);
+                }
+                assert!(test.is_zero());
+            } else if rhs.is_zero() {
+                assert_eq!(test, lhs);
+            } else if lhs.is_zero() {
+                assert_eq!(test.is_sign_positive(), rhs.is_sign_negative(),);
+                assert_eq!(test.abs(), rhs.abs());
+            } else if lhs.abs() == rhs.abs() && lhs.is_sign_positive() == rhs.is_sign_positive() {
+                assert_eq!(test.to_bits(), ZERO_BITS);
+            } else {
+                assert_eq!(test, lhs - rhs);
+            }
+
+            // fmul
+            let test = memory.read_f32(0x30);
+            if lhs.is_nan() || rhs.is_nan() {
+                assert!(test.is_nan());
+            } else if lhs.is_zero() && rhs.is_infinite() || lhs.is_infinite() && rhs.is_zero() {
+                assert!(test.is_nan());
+            } else if lhs == f32::INFINITY && rhs == f32::INFINITY {
+                assert_eq!(test, f32::INFINITY);
+            } else if lhs == f32::INFINITY && rhs == f32::NEG_INFINITY {
+                assert_eq!(test, f32::NEG_INFINITY);
+            } else if lhs == f32::NEG_INFINITY && rhs == f32::INFINITY {
+                assert_eq!(test, f32::NEG_INFINITY);
+            } else if lhs == f32::NEG_INFINITY && rhs == f32::NEG_INFINITY {
+                assert_eq!(test, f32::INFINITY);
+            } else if lhs.is_infinite() && lhs.is_sign_positive() == rhs.is_sign_positive()
+                || rhs.is_infinite() && lhs.is_sign_positive() == rhs.is_sign_positive()
+            {
+                assert_eq!(test, f32::INFINITY);
+            } else if lhs.is_infinite() && lhs.is_sign_positive() == rhs.is_sign_negative()
+                || rhs.is_infinite() && lhs.is_sign_positive() == rhs.is_sign_negative()
+            {
+                assert_eq!(test, f32::NEG_INFINITY);
+            } else if lhs.is_zero() && rhs.is_zero() {
+                if lhs.is_sign_positive() == rhs.is_sign_positive() {
+                    assert!(test.is_sign_positive());
+                } else {
+                    assert!(test.is_sign_negative());
+                }
+                assert!(test.is_zero());
+            } else {
+                assert_eq!(test, lhs * rhs);
+            }
+
+            // fdiv
+            let test = memory.read_f32(0x34);
+            if lhs.is_nan() || rhs.is_nan() {
+                assert!(test.is_nan());
+            } else if lhs.is_infinite() && rhs.is_infinite() {
+                assert!(test.is_nan());
+            } else if lhs.is_zero() && rhs.is_zero() {
+                assert!(test.is_nan());
+            } else if lhs == f32::INFINITY && lhs.is_sign_positive() == rhs.is_sign_positive() {
+                assert_eq!(test, f32::INFINITY);
+            } else if lhs == f32::INFINITY && lhs.is_sign_positive() == rhs.is_sign_negative() {
+                assert_eq!(test, f32::NEG_INFINITY);
+            } else if rhs == f32::INFINITY && lhs.is_sign_positive() == rhs.is_sign_positive() {
+                assert_eq!(test.to_bits(), ZERO_BITS);
+            } else if rhs == f32::INFINITY && lhs.is_sign_positive() == rhs.is_sign_negative() {
+                assert_eq!(test.to_bits(), NEG_ZERO_BITS);
+            } else if lhs.is_zero() && lhs.is_sign_positive() == rhs.is_sign_positive() {
+                assert_eq!(test.to_bits(), ZERO_BITS);
+            } else if lhs.is_zero() && lhs.is_sign_positive() == rhs.is_sign_negative() {
+                assert_eq!(test.to_bits(), NEG_ZERO_BITS);
+            } else if rhs.is_zero() && lhs.is_sign_positive() == rhs.is_sign_positive() {
+                assert_eq!(test, f32::INFINITY);
+            } else if rhs.is_zero() && lhs.is_sign_positive() == rhs.is_sign_negative() {
+                assert_eq!(test, f32::NEG_INFINITY);
+            } else {
+                assert_eq!(test, lhs / rhs);
+            }
+
+            // fcopysign
+            let test = memory.read_f32(0x38);
+            if lhs.is_sign_positive() == rhs.is_sign_positive() {
+                assert_eq!(test.to_bits(), lhs.to_bits());
+            } else {
+                assert_eq!(test.to_bits(), lhs.to_bits() ^ SIGN_BITS);
+            }
+
+            // fmin
+            let test = memory.read_f32(0x3C);
+            if lhs.is_nan() || rhs.is_nan() {
+                assert!(test.is_nan());
+            } else if lhs == f32::NEG_INFINITY || rhs == f32::NEG_INFINITY {
+                assert_eq!(test, f32::NEG_INFINITY);
+            } else if lhs == f32::INFINITY {
+                assert_eq!(test.to_bits(), rhs.to_bits());
+            } else if rhs == f32::INFINITY {
+                assert_eq!(test.to_bits(), lhs.to_bits());
+            } else if lhs.is_zero()
+                && rhs.is_zero()
+                && lhs.is_sign_positive() == rhs.is_sign_negative()
+            {
+                assert_eq!(test.to_bits(), NEG_ZERO_BITS);
+            } else if lhs < rhs {
+                assert_eq!(test, lhs);
+            } else {
+                assert_eq!(test, rhs);
+            }
+
+            // fmax
+            let test = memory.read_f32(0x40);
+            if lhs.is_nan() || rhs.is_nan() {
+                assert!(test.is_nan());
+            } else if lhs == f32::INFINITY || rhs == f32::INFINITY {
+                assert_eq!(test, f32::INFINITY);
+            } else if lhs == f32::NEG_INFINITY {
+                assert_eq!(test.to_bits(), rhs.to_bits());
+            } else if rhs == f32::NEG_INFINITY {
+                assert_eq!(test.to_bits(), lhs.to_bits());
+            } else if lhs.is_zero()
+                && rhs.is_zero()
+                && lhs.is_sign_positive() == rhs.is_sign_negative()
+            {
+                assert_eq!(test.to_bits(), ZERO_BITS);
+            } else if lhs > rhs {
+                assert_eq!(test, lhs);
+            } else {
+                assert_eq!(test, rhs);
+            }
+
+            assert_eq!(memory.read_u32(0x44), 0xCCCC_CCCC);
+            assert_eq!(memory.read_u64(0x48), 0xCCCC_CCCC_CCCC_CCCC);
+            assert_eq!(memory.read_u64(0x50), 0xCCCC_CCCC_CCCC_CCCC);
+        }
+    }
+}
+
+#[test]
+fn float64() {
+    let slice = [
+        0, 0x44, 0x18, 0x2d, 0x44, 0x54, 0xfb, 0x21, 0x09, 0x40, 0x0B,
+    ];
+    let param_types = [];
+    let result_types = [WasmValType::F64];
+    let mut stream = Leb128Reader::from_slice(&slice);
+    let module = WasmModule::new();
+    let info =
+        WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
+    let mut interp = WasmInterpreter::new(&module);
+
+    let mut locals = [];
+    let result = interp
+        .invoke(0, &info, &mut locals, &result_types)
+        .unwrap()
+        .unwrap()
+        .get_f64()
+        .unwrap();
+    assert_eq!(result, PI);
+
+    let slice = [0, 0x20, 0x00, 0xbf, 0x0B];
     let param_types = [WasmValType::I64];
     let result_types = [WasmValType::F64];
     let mut stream = Leb128Reader::from_slice(&slice);
@@ -1407,7 +2065,7 @@ fn float64_reinterpret() {
         .unwrap();
     assert_eq!(result, PI);
 
-    let slice = [1, 1, 0x7C, 0x20, 0x01, 0xbd, 0x0B];
+    let slice = [0, 0x20, 0x00, 0xbd, 0x0B];
     let param_types = [WasmValType::F64];
     let result_types = [WasmValType::I64];
     let mut stream = Leb128Reader::from_slice(&slice);
@@ -1424,4 +2082,625 @@ fn float64_reinterpret() {
         .get_u64()
         .unwrap();
     assert_eq!(result, 0x400921fb54442d18u64);
+}
+
+#[test]
+fn float64_opr() {
+    let module = WebAssembly::instantiate(
+        include_bytes!("../test/tester.wasm"),
+        |_, _, _| unreachable!(),
+    )
+    .unwrap();
+
+    const SIGN_BITS: u64 = 0x8000_0000_0000_0000;
+    const ZERO_BITS: u64 = 0;
+    const NEG_ZERO_BITS: u64 = SIGN_BITS;
+
+    for val in [
+        0.0f64,
+        -0.0f64,
+        0.24,
+        0.5,
+        0.75,
+        1.0,
+        1.25,
+        1.5,
+        1.75,
+        2.0,
+        2.5,
+        3.0,
+        3.5,
+        4.0,
+        -0.25,
+        -0.5,
+        -0.75,
+        -1.0,
+        -1.25,
+        -1.5,
+        -1.75,
+        -2.0,
+        -2.5,
+        -3.0,
+        -3.5,
+        -4.0,
+        1.1920929E-7,
+        1.17549435E-38,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::NAN,
+        PI,
+        2_147_483_647.0,
+        2_147_483_648.0,
+        -2_147_483_647.0,
+        -2_147_483_648.0,
+        -2_147_483_649.0,
+        4_294_967_295.0,
+        4_294_967_296.0,
+        -3_000_000_000.0,
+        5_000_000_000.0,
+    ] {
+        let fval = val;
+        let i32val = fval as i32;
+        let u32val = fval as u32;
+        let i64val = fval as i64;
+        let u64val = fval as u64;
+
+        module.memory(0).unwrap().as_mut_slice().fill(0xCC);
+        let result = module
+            .func("test_unary_f64")
+            .unwrap()
+            .invoke(&[
+                fval.into(),
+                i32val.into(),
+                u32val.into(),
+                i64val.into(),
+                u64val.into(),
+            ])
+            .unwrap()
+            .unwrap()
+            .get_i32()
+            .unwrap();
+        assert_eq!(result, 0xB0);
+
+        let memory = module.memory(0).unwrap();
+
+        assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
+        assert_eq!(memory.read_u64(8), 0xCCCC_CCCC_CCCC_CCCC);
+
+        if val.is_nan() {
+        } else if val <= i32::MIN as f64 {
+            assert_eq!(memory.read_i32(0x18), i32::MIN);
+        } else if val >= i32::MAX as f64 {
+            assert_eq!(memory.read_i32(0x18), i32::MAX);
+        } else {
+            assert_eq!(memory.read_i32(0x10), i32val);
+            assert_eq!(memory.read_i32(0x18), i32val);
+        }
+
+        if val.is_nan() {
+        } else if val <= 0.0 {
+            assert_eq!(memory.read_u32(0x1C), 0);
+        } else if val >= u32::MAX as f64 {
+            assert_eq!(memory.read_u32(0x1C), u32::MAX);
+        } else {
+            assert_eq!(memory.read_u32(0x14), u32val);
+            assert_eq!(memory.read_u32(0x1C), u32val);
+        }
+
+        if val.is_nan() {
+        } else if val <= i64::MIN as f64 {
+            assert_eq!(memory.read_i64(0x30), i64::MIN);
+        } else if val >= i64::MAX as f64 {
+            assert_eq!(memory.read_i64(0x30), i64::MAX);
+        } else {
+            assert_eq!(memory.read_i64(0x20), i64val);
+            assert_eq!(memory.read_i64(0x30), i64val);
+        }
+
+        if val.is_nan() {
+        } else if val <= 0.0 {
+            assert_eq!(memory.read_u64(0x38), 0);
+        } else if val >= u64::MAX as f64 {
+            assert_eq!(memory.read_u64(0x38), u64::MAX);
+        } else {
+            assert_eq!(memory.read_u64(0x28), u64val);
+            assert_eq!(memory.read_u64(0x38), u64val);
+        }
+
+        assert_eq!(memory.read_f64(0x40), i32val as f64);
+        assert_eq!(memory.read_f64(0x48), u32val as f64);
+        assert_eq!(memory.read_f64(0x50), i64val as f64);
+        assert_eq!(memory.read_f64(0x58), u64val as f64);
+
+        if fval.is_nan() {
+            assert!(memory.read_f32(0x60).is_nan());
+        } else {
+            assert_eq!(memory.read_f32(0x60), fval as f32);
+        }
+
+        // fabs
+        let fabs = memory.read_f64(0x80);
+        assert!(fabs.is_sign_positive());
+        if fval.is_nan() {
+            assert!(fabs.is_nan());
+        } else if fval.is_infinite() {
+            assert_eq!(fabs, f64::INFINITY);
+        } else {
+            assert_eq!(fabs, fval.abs());
+        }
+
+        // fneg
+        let fneg = memory.read_f64(0x88);
+        assert_eq!(fneg.is_sign_positive(), fval.is_sign_negative(),);
+        if fval.is_nan() {
+            assert!(fneg.is_nan());
+        } else if fval.is_infinite() {
+            assert!(fneg.is_infinite());
+        } else {
+            assert_eq!(fneg, 0.0 - fval);
+        }
+
+        // fceil
+        let fceil = memory.read_f64(0x90);
+        if fval.is_nan() {
+            assert!(fceil.is_nan());
+        } else if fval.is_infinite() {
+            assert!(fceil.is_infinite());
+        } else if fval.is_zero() {
+            assert_eq!(fceil, fval);
+        } else if fval > 0.0 && fval <= 1.0 {
+            assert_eq!(fceil, 1.0);
+        } else if fval > 1.0 && fval <= 2.0 {
+            assert_eq!(fceil, 2.0);
+        } else if fval > 2.0 && fval <= 3.0 {
+            assert_eq!(fceil, 3.0);
+        } else if fval > 3.0 && fval <= 4.0 {
+            assert_eq!(fceil, 4.0);
+        } else if fval > -1.0 && fval < 0.0 {
+            assert_eq!(fceil, 0.0);
+        } else if fval > -2.0 && fval <= -1.0 {
+            assert_eq!(fceil, -1.0);
+        } else if fval > -3.0 && fval <= -2.0 {
+            assert_eq!(fceil, -2.0);
+        } else if fval > -4.0 && fval <= -3.0 {
+            assert_eq!(fceil, -3.0);
+        } else {
+            assert_eq!(fceil, fval.ceil());
+        }
+
+        // ffloor
+        let ffloor = memory.read_f64(0x98);
+        if fval.is_nan() {
+            assert!(ffloor.is_nan());
+        } else if fval.is_infinite() {
+            assert!(ffloor.is_infinite());
+        } else if fval.is_zero() {
+            assert_eq!(ffloor, fval);
+        } else if fval > 0.0 && fval < 1.0 {
+            assert_eq!(ffloor, 0.0);
+        } else if fval >= 1.0 && fval < 2.0 {
+            assert_eq!(ffloor, 1.0);
+        } else if fval >= 2.0 && fval < 3.0 {
+            assert_eq!(ffloor, 2.0);
+        } else if fval >= 3.0 && fval < 4.0 {
+            assert_eq!(ffloor, 3.0);
+        } else if fval < 0.0 && fval > -1.0 {
+            assert_eq!(ffloor, -1.0);
+        } else if fval < -1.0 && fval >= -2.0 {
+            assert_eq!(ffloor, -2.0);
+        } else if fval < -2.0 && fval >= -3.0 {
+            assert_eq!(ffloor, -3.0);
+        } else if fval < -3.0 && fval >= -4.0 {
+            assert_eq!(ffloor, -4.0);
+        } else {
+            assert_eq!(ffloor, fval.floor());
+        }
+
+        // ftrunc
+        let ftrunc = memory.read_f64(0xA0);
+        if fval.is_nan() {
+            assert!(ftrunc.is_nan());
+        } else if fval.is_infinite() {
+            assert!(ftrunc.is_infinite());
+        } else if fval.is_zero() {
+            assert_eq!(ftrunc, fval);
+        } else if fval > 0.0 && fval < 1.0 {
+            assert_eq!(ftrunc, 0.0);
+        } else if fval >= 1.0 && fval < 2.0 {
+            assert_eq!(ftrunc, 1.0);
+        } else if fval >= 2.0 && fval < 3.0 {
+            assert_eq!(ftrunc, 2.0);
+        } else if fval >= 3.0 && fval < 4.0 {
+            assert_eq!(ftrunc, 3.0);
+        } else if fval < 0.0 && fval > -1.0 {
+            assert_eq!(ftrunc, -0.0);
+        } else if fval <= -1.0 && fval > -2.0 {
+            assert_eq!(ftrunc, -1.0);
+        } else if fval <= -2.0 && fval > -3.0 {
+            assert_eq!(ftrunc, -2.0);
+        } else if fval <= -3.0 && fval > -4.0 {
+            assert_eq!(ftrunc, -3.0);
+        } else {
+            assert_eq!(ftrunc, fval.trunc());
+        }
+
+        // fnearest
+        let fnearest = memory.read_f64(0xA8);
+        if fval.is_nan() {
+            assert!(fnearest.is_nan());
+        } else if fval.is_infinite() {
+            assert!(fnearest.is_infinite());
+        } else if fval.is_zero() {
+            assert_eq!(fnearest, fval);
+        } else if fval > 0.0 && fval <= 0.5 {
+            assert_eq!(fnearest, 0.0);
+        } else if fval > 0.5 && fval < 1.5 {
+            assert_eq!(fnearest, 1.0);
+        } else if fval >= 1.5 && fval <= 2.5 {
+            assert_eq!(fnearest, 2.0);
+        } else if fval > 2.5 && fval < 3.5 {
+            assert_eq!(fnearest, 3.0);
+        } else if fval >= 3.5 && fval <= 4.5 {
+            assert_eq!(fnearest, 4.0);
+        } else if fval < 0.0 && fval >= -0.5 {
+            assert_eq!(fnearest, -0.0);
+        } else if fval < -0.5 && fval > -1.5 {
+            assert_eq!(fnearest, -1.0);
+        } else if fval <= -1.5 && fval >= -2.5 {
+            assert_eq!(fnearest, -2.0);
+        } else if fval < -2.5 && fval > -3.5 {
+            assert_eq!(fnearest, -3.0);
+        } else if fval <= -3.5 && fval >= -4.5 {
+            assert_eq!(fnearest, -4.0);
+        } else {
+            // TODO: not stable
+            // assert_eq!(fnearest, fval.round_ties_even());
+        }
+
+        // fsqrt
+        let fsqrt = memory.read_f64(0xB0);
+        if fval.is_nan() {
+            assert!(fsqrt.is_nan());
+        } else if fval.is_zero() {
+            assert_eq!(fsqrt.to_bits(), fval.to_bits());
+        } else if fval.is_sign_negative() {
+            assert!(fsqrt.is_nan());
+        } else if fval.is_infinite() {
+            assert!(fsqrt.is_sign_positive());
+            assert!(fsqrt.is_infinite());
+        } else {
+            assert!(fsqrt.is_sign_positive());
+            assert_eq!(fsqrt, fval.sqrt());
+        }
+
+        assert_eq!(memory.read_u64(0xB8), 0xCCCC_CCCC_CCCC_CCCC);
+        assert_eq!(memory.read_u64(0xC0), 0xCCCC_CCCC_CCCC_CCCC);
+    }
+
+    let values = [
+        0.0,
+        -0.0,
+        0.5,
+        1.0,
+        1.5,
+        2.0,
+        -0.5,
+        -1.0,
+        -1.5,
+        -2.0,
+        1.1920929E-7,
+        1.17549435E-38,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::NAN,
+        PI,
+    ];
+
+    for lhs in &values {
+        for rhs in &values {
+            let lhs = *lhs;
+            let rhs = *rhs;
+
+            module.memory(0).unwrap().as_mut_slice().fill(0xCC);
+            let result = module
+                .func("test_bin_f64")
+                .unwrap()
+                .invoke(&[lhs.into(), rhs.into()])
+                .unwrap()
+                .unwrap()
+                .get_i32()
+                .unwrap();
+            assert_eq!(result, 0x58);
+
+            let memory = module.memory(0).unwrap();
+
+            assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
+            assert_eq!(memory.read_u64(8), 0xCCCC_CCCC_CCCC_CCCC);
+
+            // feq
+            let test = memory.read_u32(0x10);
+            if lhs.is_nan() || rhs.is_nan() {
+                assert_eq!(test, 0);
+            } else if lhs.is_zero() && rhs.is_zero() {
+                assert_eq!(test, 1);
+            } else {
+                assert_eq!(test, (lhs == rhs) as u32);
+            }
+
+            // fne
+            let test = memory.read_u32(0x14);
+            if lhs.is_nan() || rhs.is_nan() {
+                assert_eq!(test, 1);
+            } else if lhs.is_zero() && rhs.is_zero() {
+                assert_eq!(test, 0);
+            } else {
+                assert_eq!(test, (lhs != rhs) as u32);
+            }
+
+            // flt
+            let test = memory.read_u32(0x18);
+            if lhs.is_nan() || rhs.is_nan() {
+                assert_eq!(test, 0);
+            } else if lhs == rhs {
+                assert_eq!(test, 0);
+            } else if lhs == f64::INFINITY {
+                assert_eq!(test, 0);
+            } else if lhs == f64::NEG_INFINITY {
+                assert_eq!(test, 1);
+            } else if rhs == f64::INFINITY {
+                assert_eq!(test, 1);
+            } else if rhs == f64::NEG_INFINITY {
+                assert_eq!(test, 0);
+            } else if lhs.is_zero() && rhs.is_zero() {
+                assert_eq!(test, 0);
+            } else {
+                assert_eq!(test, (lhs < rhs) as u32);
+            }
+
+            // fgt
+            let test = memory.read_u32(0x1C);
+            if lhs.is_nan() || rhs.is_nan() {
+                assert_eq!(test, 0);
+            } else if lhs == rhs {
+                assert_eq!(test, 0);
+            } else if lhs == f64::INFINITY {
+                assert_eq!(test, 1);
+            } else if lhs == f64::NEG_INFINITY {
+                assert_eq!(test, 0);
+            } else if rhs == f64::INFINITY {
+                assert_eq!(test, 0);
+            } else if rhs == f64::NEG_INFINITY {
+                assert_eq!(test, 1);
+            } else if lhs.is_zero() && rhs.is_zero() {
+                assert_eq!(test, 0);
+            } else {
+                assert_eq!(test, (lhs > rhs) as u32);
+            }
+
+            // fle
+            let test = memory.read_u32(0x20);
+            if lhs.is_nan() || rhs.is_nan() {
+                assert_eq!(test, 0);
+            } else if lhs == rhs {
+                assert_eq!(test, 1);
+            } else if lhs == f64::INFINITY {
+                assert_eq!(test, 0);
+            } else if lhs == f64::NEG_INFINITY {
+                assert_eq!(test, 1);
+            } else if rhs == f64::INFINITY {
+                assert_eq!(test, 1);
+            } else if rhs == f64::NEG_INFINITY {
+                assert_eq!(test, 0);
+            } else if lhs.is_zero() && rhs.is_zero() {
+                assert_eq!(test, 1);
+            } else {
+                assert_eq!(test, (lhs <= rhs) as u32);
+            }
+
+            // fgt
+            let test = memory.read_u32(0x24);
+            if lhs.is_nan() || rhs.is_nan() {
+                assert_eq!(test, 0);
+            } else if lhs == rhs {
+                assert_eq!(test, 1);
+            } else if lhs == f64::INFINITY {
+                assert_eq!(test, 1);
+            } else if lhs == f64::NEG_INFINITY {
+                assert_eq!(test, 0);
+            } else if rhs == f64::INFINITY {
+                assert_eq!(test, 0);
+            } else if rhs == f64::NEG_INFINITY {
+                assert_eq!(test, 1);
+            } else if lhs.is_zero() && rhs.is_zero() {
+                assert_eq!(test, 1);
+            } else {
+                assert_eq!(test, (lhs >= rhs) as u32);
+            }
+
+            // fadd
+            let test = memory.read_f64(0x28);
+            if lhs.is_nan() || rhs.is_nan() {
+                assert!(test.is_nan());
+            } else if lhs == f64::INFINITY && rhs == f64::INFINITY {
+                assert_eq!(test, f64::INFINITY);
+            } else if lhs == f64::INFINITY && rhs == f64::NEG_INFINITY {
+                assert!(test.is_nan());
+            } else if lhs == f64::NEG_INFINITY && rhs == f64::INFINITY {
+                assert!(test.is_nan());
+            } else if lhs == f64::NEG_INFINITY && rhs == f64::NEG_INFINITY {
+                assert_eq!(test, f64::NEG_INFINITY);
+            } else if rhs.is_infinite() {
+                assert_eq!(test, rhs);
+            } else if lhs.is_infinite() {
+                assert_eq!(test, lhs);
+            } else if lhs.is_zero() && rhs.is_zero() {
+                if lhs.is_sign_positive() == rhs.is_sign_positive() {
+                    assert_eq!(test.is_sign_positive(), lhs.is_sign_positive(),);
+                } else {
+                    assert!(test.is_sign_positive());
+                }
+                assert!(test.is_zero());
+            } else if rhs.is_zero() {
+                assert_eq!(test, lhs);
+            } else if lhs.is_zero() {
+                assert_eq!(test, rhs);
+            } else if lhs.abs() == rhs.abs() && lhs.is_sign_positive() == rhs.is_sign_negative() {
+                assert_eq!(test.to_bits(), ZERO_BITS);
+            } else {
+                assert_eq!(test, lhs + rhs);
+            }
+
+            // fsub
+            let test = memory.read_f64(0x30);
+            if lhs.is_nan() || rhs.is_nan() {
+                assert!(test.is_nan());
+            } else if lhs == f64::INFINITY && rhs == f64::INFINITY {
+                assert!(test.is_nan());
+            } else if lhs == f64::INFINITY && rhs == f64::NEG_INFINITY {
+                assert_eq!(test, f64::INFINITY);
+            } else if lhs == f64::NEG_INFINITY && rhs == f64::INFINITY {
+                assert_eq!(test, f64::NEG_INFINITY);
+            } else if lhs == f64::NEG_INFINITY && rhs == f64::NEG_INFINITY {
+                assert!(test.is_nan());
+            } else if lhs == f64::INFINITY {
+                assert_eq!(test, f64::INFINITY);
+            } else if lhs == f64::NEG_INFINITY {
+                assert_eq!(test, f64::NEG_INFINITY);
+            } else if rhs == f64::INFINITY {
+                assert_eq!(test, f64::NEG_INFINITY);
+            } else if rhs == f64::NEG_INFINITY {
+                assert_eq!(test, f64::INFINITY);
+            } else if lhs.is_zero() && rhs.is_zero() {
+                if lhs.is_sign_positive() == rhs.is_sign_positive() {
+                    assert!(test.is_sign_positive());
+                } else {
+                    assert_eq!(test.is_sign_positive(), lhs.is_sign_positive(),);
+                }
+                assert!(test.is_zero());
+            } else if rhs.is_zero() {
+                assert_eq!(test, lhs);
+            } else if lhs.is_zero() {
+                assert_eq!(test.is_sign_positive(), rhs.is_sign_negative(),);
+                assert_eq!(test.abs(), rhs.abs());
+            } else if lhs.abs() == rhs.abs() && lhs.is_sign_positive() == rhs.is_sign_positive() {
+                assert_eq!(test.to_bits(), ZERO_BITS);
+            } else {
+                assert_eq!(test, lhs - rhs);
+            }
+
+            // fmul
+            let test = memory.read_f64(0x38);
+            if lhs.is_nan() || rhs.is_nan() {
+                assert!(test.is_nan());
+            } else if lhs.is_zero() && rhs.is_infinite() || lhs.is_infinite() && rhs.is_zero() {
+                assert!(test.is_nan());
+            } else if lhs == f64::INFINITY && rhs == f64::INFINITY {
+                assert_eq!(test, f64::INFINITY);
+            } else if lhs == f64::INFINITY && rhs == f64::NEG_INFINITY {
+                assert_eq!(test, f64::NEG_INFINITY);
+            } else if lhs == f64::NEG_INFINITY && rhs == f64::INFINITY {
+                assert_eq!(test, f64::NEG_INFINITY);
+            } else if lhs == f64::NEG_INFINITY && rhs == f64::NEG_INFINITY {
+                assert_eq!(test, f64::INFINITY);
+            } else if lhs.is_infinite() && lhs.is_sign_positive() == rhs.is_sign_positive()
+                || rhs.is_infinite() && lhs.is_sign_positive() == rhs.is_sign_positive()
+            {
+                assert_eq!(test, f64::INFINITY);
+            } else if lhs.is_infinite() && lhs.is_sign_positive() == rhs.is_sign_negative()
+                || rhs.is_infinite() && lhs.is_sign_positive() == rhs.is_sign_negative()
+            {
+                assert_eq!(test, f64::NEG_INFINITY);
+            } else if lhs.is_zero() && rhs.is_zero() {
+                if lhs.is_sign_positive() == rhs.is_sign_positive() {
+                    assert!(test.is_sign_positive());
+                } else {
+                    assert!(test.is_sign_negative());
+                }
+                assert!(test.is_zero());
+            } else {
+                assert_eq!(test, lhs * rhs);
+            }
+
+            // fdiv
+            let test = memory.read_f64(0x40);
+            if lhs.is_nan() || rhs.is_nan() {
+                assert!(test.is_nan());
+            } else if lhs.is_infinite() && rhs.is_infinite() {
+                assert!(test.is_nan());
+            } else if lhs.is_zero() && rhs.is_zero() {
+                assert!(test.is_nan());
+            } else if lhs == f64::INFINITY && lhs.is_sign_positive() == rhs.is_sign_positive() {
+                assert_eq!(test, f64::INFINITY);
+            } else if lhs == f64::INFINITY && lhs.is_sign_positive() == rhs.is_sign_negative() {
+                assert_eq!(test, f64::NEG_INFINITY);
+            } else if rhs == f64::INFINITY && lhs.is_sign_positive() == rhs.is_sign_positive() {
+                assert_eq!(test.to_bits(), ZERO_BITS);
+            } else if rhs == f64::INFINITY && lhs.is_sign_positive() == rhs.is_sign_negative() {
+                assert_eq!(test.to_bits(), NEG_ZERO_BITS);
+            } else if lhs.is_zero() && lhs.is_sign_positive() == rhs.is_sign_positive() {
+                assert_eq!(test.to_bits(), ZERO_BITS);
+            } else if lhs.is_zero() && lhs.is_sign_positive() == rhs.is_sign_negative() {
+                assert_eq!(test.to_bits(), NEG_ZERO_BITS);
+            } else if rhs.is_zero() && lhs.is_sign_positive() == rhs.is_sign_positive() {
+                assert_eq!(test, f64::INFINITY);
+            } else if rhs.is_zero() && lhs.is_sign_positive() == rhs.is_sign_negative() {
+                assert_eq!(test, f64::NEG_INFINITY);
+            } else {
+                assert_eq!(test, lhs / rhs);
+            }
+
+            // fcopysign
+            let test = memory.read_f64(0x48);
+            if lhs.is_sign_positive() == rhs.is_sign_positive() {
+                assert_eq!(test.to_bits(), lhs.to_bits());
+            } else {
+                assert_eq!(test.to_bits(), lhs.to_bits() ^ SIGN_BITS);
+            }
+
+            // fmin
+            let test = memory.read_f64(0x50);
+            if lhs.is_nan() || rhs.is_nan() {
+                assert!(test.is_nan());
+            } else if lhs == f64::NEG_INFINITY || rhs == f64::NEG_INFINITY {
+                assert_eq!(test, f64::NEG_INFINITY);
+            } else if lhs == f64::INFINITY {
+                assert_eq!(test.to_bits(), rhs.to_bits());
+            } else if rhs == f64::INFINITY {
+                assert_eq!(test.to_bits(), lhs.to_bits());
+            } else if lhs.is_zero()
+                && rhs.is_zero()
+                && lhs.is_sign_positive() == rhs.is_sign_negative()
+            {
+                assert_eq!(test.to_bits(), NEG_ZERO_BITS);
+            } else if lhs < rhs {
+                assert_eq!(test, lhs);
+            } else {
+                assert_eq!(test, rhs);
+            }
+
+            // fmax
+            let test = memory.read_f64(0x58);
+            if lhs.is_nan() || rhs.is_nan() {
+                assert!(test.is_nan());
+            } else if lhs == f64::INFINITY || rhs == f64::INFINITY {
+                assert_eq!(test, f64::INFINITY);
+            } else if lhs == f64::NEG_INFINITY {
+                assert_eq!(test.to_bits(), rhs.to_bits());
+            } else if rhs == f64::NEG_INFINITY {
+                assert_eq!(test.to_bits(), lhs.to_bits());
+            } else if lhs.is_zero()
+                && rhs.is_zero()
+                && lhs.is_sign_positive() == rhs.is_sign_negative()
+            {
+                assert_eq!(test.to_bits(), ZERO_BITS);
+            } else if lhs > rhs {
+                assert_eq!(test, lhs);
+            } else {
+                assert_eq!(test, rhs);
+            }
+
+            assert_eq!(memory.read_u64(0x60), 0xCCCC_CCCC_CCCC_CCCC);
+            assert_eq!(memory.read_u64(0x68), 0xCCCC_CCCC_CCCC_CCCC);
+        }
+    }
 }

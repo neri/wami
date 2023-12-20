@@ -1,5 +1,8 @@
 use super::{GlobalVarIndex, LocalVarIndex, StackLevel};
-use crate::opcode::{WasmOpcode, WasmSingleOpcode};
+use crate::{
+    opcode::{WasmOpcode, WasmSingleOpcode},
+    WasmTypeIndex,
+};
 use alloc::{boxed::Box, vec::Vec};
 
 /// Intermediate code for Webassembly runtime
@@ -26,17 +29,19 @@ pub enum WasmIntMnemonic {
     /// `0E br_table vec(labelidx) labelidx`
     BrTable(Box<[usize]>),
 
-    /// return from function
-    ReturnV,
-    /// return from function (integer)
+    /// return from function (-> nil)
+    ReturnN,
+    /// return from function (-> integer)
     ReturnI,
-    /// return from function (float)
+    /// return from function (-> float)
     ReturnF,
-
+    // return from function (-> vector)
+    // ReturnV,
+    // -
     /// `10 call funcidx`
     Call(usize, ExceptionPosition),
     /// `11 call_indirect typeidx 0x00`
-    CallIndirect(usize, ExceptionPosition),
+    CallIndirect(WasmTypeIndex, ExceptionPosition),
 
     /// `1B select`
     SelectI,
@@ -56,9 +61,7 @@ pub enum WasmIntMnemonic {
 
     I32Load(u32, ExceptionPosition),
     I64Load(u32, ExceptionPosition),
-    #[cfg(feature = "float")]
     F32Load(u32, ExceptionPosition),
-    #[cfg(feature = "float")]
     F64Load(u32, ExceptionPosition),
     I32Load8S(u32, ExceptionPosition),
     I32Load8U(u32, ExceptionPosition),
@@ -71,9 +74,7 @@ pub enum WasmIntMnemonic {
     I64Load32S(u32, ExceptionPosition),
     I64Load32U(u32, ExceptionPosition),
 
-    #[cfg(feature = "float")]
     F32Store(u32, ExceptionPosition),
-    #[cfg(feature = "float")]
     F64Store(u32, ExceptionPosition),
     I32Store(u32, ExceptionPosition),
     I64Store(u32, ExceptionPosition),
@@ -96,10 +97,8 @@ pub enum WasmIntMnemonic {
     I32Const(i32),
     /// `42 i64.const n`
     I64Const(i64),
-    #[cfg(feature = "float")]
     /// `43 f32.const z`
     F32Const(f32),
-    #[cfg(feature = "float")]
     /// `44 f64.const z`
     F64Const(f64),
 
@@ -174,7 +173,85 @@ pub enum WasmIntMnemonic {
     I32Extend8S,
     I32Extend16S,
 
+    F32Eq,
+    F32Ne,
+    F32Lt,
+    F32Gt,
+    F32Le,
+    F32Ge,
+
+    F32Abs,
+    F32Neg,
+    F32Ceil,
+    F32Floor,
+    F32Trunc,
+    F32Nearest,
+    F32Sqrt,
+    F32Add,
+    F32Sub,
+    F32Mul,
+    F32Div,
+    F32Min,
+    F32Max,
+    F32Copysign,
+
+    F64Eq,
+    F64Ne,
+    F64Lt,
+    F64Gt,
+    F64Le,
+    F64Ge,
+
+    F64Abs,
+    F64Neg,
+    F64Ceil,
+    F64Floor,
+    F64Trunc,
+    F64Nearest,
+    F64Sqrt,
+    F64Add,
+    F64Sub,
+    F64Mul,
+    F64Div,
+    F64Min,
+    F64Max,
+    F64Copysign,
+
+    I32TruncF32S,
+    I32TruncF32U,
+    I32TruncF64S,
+    I32TruncF64U,
+    I64TruncF32S,
+    I64TruncF32U,
+    I64TruncF64S,
+    I64TruncF64U,
+    F32ConvertI32S,
+    F32ConvertI32U,
+    F32ConvertI64S,
+    F32ConvertI64U,
+    F32DemoteF64,
+    F64ConvertI32S,
+    F64ConvertI32U,
+    F64ConvertI64S,
+    F64ConvertI64U,
+    F64PromoteF32,
+    I32ReinterpretF32,
+    I64ReinterpretF64,
+    F32ReinterpretI32,
+    F64ReinterpretI64,
+
+    I32TruncSatF32S,
+    I32TruncSatF32U,
+    I32TruncSatF64S,
+    I32TruncSatF64U,
+    I64TruncSatF32S,
+    I64TruncSatF32U,
+    I64TruncSatF64S,
+    I64TruncSatF64U,
+
+    //
     // Fused Instructions
+    //
     FusedI32SetConst(LocalVarIndex, i32),
     FusedI64SetConst(LocalVarIndex, i64),
 
