@@ -1,11 +1,11 @@
+# WAMI
 
-A WebAssembly Runtime written in Rust
+A WebAssembly Interpreter written in Rust
 
 ## features
 
 - Support for `no_std`
 - A subset of WebAssembly MVP
-  - Most of the integer instructions among the WebAssembly MVPs are supported.
 
 ## requirements
 
