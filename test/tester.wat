@@ -881,6 +881,33 @@
     local.get $temp
   )
 
+  ;; fn mem_test_size() -> i32
+  (func $mem_test_size (export "mem_test_size") (result i32)
+    memory.size
+  )
+
+  ;; fn mem_test_grow(v: i32) -> i32
+  (func $mem_test_grow (export "mem_test_grow") (param $v i32) (result i32)
+    local.get $v
+    memory.grow
+  )
+
+  ;; fn mem_test_fill(d: *mut c_void, v: u8, n: usize)
+  (func $mem_test_fill (export "mem_test_fill") (param $d i32) (param $v i32) (param $n i32)
+    local.get $d
+    local.get $v
+    local.get $n
+    memory.fill
+  )
+
+  ;; fn mem_test_copy(d: *mut c_void, s: *const c_void, n: usize)
+  (func $mem_test_copy (export "mem_test_copy") (param $d i32) (param $s i32) (param $n i32)
+    local.get $d
+    local.get $s
+    local.get $n
+    memory.copy
+  )
+
   ;; fn test_unary_f32(fval: f32, i32val: i32, u32val: u32, i64val: i64, u64val: u64) -> i32
   (func $test_unary_f32 (export "test_unary_f32") (param $fval f32) (param $i32val i32) (param $u32val i32) (param $i64val i64) (param $u64val i64) (result i32)
     (local $p i32)

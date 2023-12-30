@@ -5,13 +5,13 @@ use crate::{
 };
 use alloc::{borrow::ToOwned, format, string::*, vec::Vec};
 use core::{
-    cell::UnsafeCell,
+    cell::RefCell,
     fmt,
-    mem::{size_of, transmute},
+    mem::size_of,
     num::NonZeroU32,
     ops::*,
-    slice, str,
-    sync::atomic::{AtomicU32, Ordering},
+    str,
+    sync::atomic::{AtomicI32, AtomicU32, Ordering},
 };
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
@@ -149,13 +149,13 @@ impl WebAssembly {
         for _ in 0..n_items {
             let mut import = WasmImport::from_reader(&mut section.reader)?;
             match import.desc {
-                WasmImportDescriptor::Type(index) => {
+                WasmImportDescriptor::Type(type_index) => {
                     import.func_ref = self.module.n_ext_func;
                     let func_type = self
                         .module
                         .types
-                        .get(index.0)
-                        .ok_or(WasmDecodeErrorKind::InvalidType)?;
+                        .get(type_index.0)
+                        .ok_or(WasmDecodeErrorKind::InvalidType(type_index))?;
                     let dlink = match resolver(import.mod_name(), import.name(), func_type) {
                         ImportResult::Ok(v) => v,
                         ImportResult::NoMethod => {
@@ -168,14 +168,14 @@ impl WebAssembly {
                     };
                     self.module.functions.push(WasmFunction::from_import(
                         self.module.n_ext_func,
-                        index,
+                        type_index,
                         func_type.clone(),
                         dlink,
                     ));
                     self.module.n_ext_func += 1;
                 }
                 WasmImportDescriptor::Memory(memtype) => {
-                    self.module.memories[0] = WasmMemory::new(memtype);
+                    self.module.memories[0] = WasmMemory::new(memtype)?;
                 }
             }
             self.module.imports.push(import);
@@ -193,7 +193,7 @@ impl WebAssembly {
                 .module
                 .types
                 .get(type_index.0)
-                .ok_or(WasmDecodeErrorKind::InvalidType)?;
+                .ok_or(WasmDecodeErrorKind::InvalidType(type_index))?;
             self.module.functions.push(WasmFunction::internal(
                 base_index + index,
                 type_index,
@@ -207,8 +207,8 @@ impl WebAssembly {
     fn parse_sec_export(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeErrorKind> {
         let n_items: usize = section.reader.read()?;
         for i in 0..n_items {
-            let export = WasmExport::from_reader(&mut section.reader)?;
-            if let WasmExportIndex::Function(index) = export.index {
+            let export = WasmExport::new(&self.module, &mut section.reader)?;
+            if let WasmExportType::Function(index) = export.export_type {
                 self.module
                     .functions
                     .get_mut(index)
@@ -222,12 +222,10 @@ impl WebAssembly {
     /// Parse "memory" section
     fn parse_sec_memory(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeErrorKind> {
         let n_items: usize = section.reader.read()?;
-        self.module
-            .memories
-            .resize_with(0, || WasmMemory::new(WasmLimit::zero()));
+        self.module.memories.resize_with(0, || WasmMemory::zero());
         for _ in 0..n_items {
             let limit = WasmLimit::from_reader(&mut section.reader, true)?;
-            self.module.memories.push(WasmMemory::new(limit));
+            self.module.memories.push(WasmMemory::new(limit)?);
         }
         Ok(())
     }
@@ -386,6 +384,7 @@ pub struct WasmModule {
     functions: Vec<WasmFunction>,
     start: Option<usize>,
     globals: Vec<WasmGlobal>,
+    // global_sp: Option<WasmGlobalStackPointer>,
     data_count: Option<usize>,
     names: Option<WasmName>,
     n_ext_func: usize,
@@ -394,7 +393,7 @@ pub struct WasmModule {
 impl WasmModule {
     #[inline]
     pub fn new() -> Self {
-        let memories = Vec::from_iter([WasmMemory::new(WasmLimit::zero())]);
+        let memories = Vec::from_iter([WasmMemory::zero()]);
         Self {
             types: Vec::new(),
             memories,
@@ -404,6 +403,7 @@ impl WasmModule {
             functions: Vec::new(),
             start: None,
             globals: Vec::new(),
+            // global_sp: None,
             data_count: None,
             names: None,
             n_ext_func: 0,
@@ -426,27 +426,17 @@ impl WasmModule {
     }
 
     #[inline]
-    pub fn memories(&self) -> &[WasmMemory] {
-        self.memories.as_slice()
-    }
-
-    #[inline]
-    pub fn memories_mut(&mut self) -> &mut [WasmMemory] {
-        self.memories.as_mut_slice()
-    }
-
-    #[inline]
-    pub fn add_memory(&mut self, memory: WasmMemory) {
-        self.memories.push(memory);
-    }
-
-    #[inline]
     pub fn has_memory(&self) -> bool {
         if let Some(memory) = self.memories.first() {
             memory.as_slice().len() > 0
         } else {
             false
         }
+    }
+
+    #[inline]
+    pub fn memories(&self) -> &[WasmMemory] {
+        &self.memories
     }
 
     #[inline]
@@ -473,7 +463,7 @@ impl WasmModule {
     }
 
     #[inline]
-    pub fn functions(&self) -> &[WasmFunction] {
+    pub(crate) fn functions(&self) -> &[WasmFunction] {
         self.functions.as_slice()
     }
 
@@ -489,7 +479,7 @@ impl WasmModule {
     #[inline]
     pub fn func(&self, name: &str) -> Result<WasmRunnable, WasmRuntimeErrorKind> {
         for export in &self.exports {
-            if let WasmExportIndex::Function(index) = export.index {
+            if let WasmExportType::Function(index) = export.export_type {
                 if export.name == name {
                     return self.func_by_index(index);
                 }
@@ -513,21 +503,21 @@ impl WasmModule {
     }
 
     #[inline]
-    pub fn globals(&self) -> &[WasmGlobal] {
+    pub(crate) fn globals(&self) -> &[WasmGlobal] {
         self.globals.as_slice()
     }
 
     #[inline]
-    pub fn global_get(&self, index: usize) -> Option<&WasmGlobal> {
-        self.globals.get(index)
+    pub(crate) fn global_get(&self, index: GlobalVarIndex) -> &WasmGlobal {
+        unsafe { self.globals.get_unchecked(index.as_usize()) }
     }
 
     #[inline]
     pub fn global(&self, name: &str) -> Result<&WasmGlobal, WasmRuntimeErrorKind> {
         for export in &self.exports {
-            if let WasmExportIndex::Global(index) = export.index {
+            if let WasmExportType::Global(index) = export.export_type {
                 if export.name == name {
-                    return self.global_get(index).ok_or(WasmRuntimeErrorKind::NoMethod);
+                    return Ok(self.global_get(index));
                 }
             }
         }
@@ -792,12 +782,17 @@ pub struct WasmLimit {
 
 impl WasmLimit {
     #[inline]
-    fn zero() -> Self {
+    pub const fn zero() -> Self {
         Self {
             min: 0,
             max: None,
             is_shared: false,
         }
+    }
+
+    #[inline]
+    pub fn is_zero(&self) -> bool {
+        self.max().unwrap_or(self.min()) == 0
     }
 
     #[inline]
@@ -823,11 +818,6 @@ impl WasmLimit {
             max,
             is_shared,
         })
-    }
-
-    #[inline]
-    pub fn initial_alloc(&self) -> u32 {
-        self.max.map(|v| v.get()).unwrap_or(self.min)
     }
 
     #[inline]
@@ -902,169 +892,185 @@ impl WasmLimitType {
     }
 }
 
+// pub struct WasmMemory;
+
 /// WebAssembly memory object
 pub struct WasmMemory {
-    limit: WasmLimit,
-    data: UnsafeCell<Vec<u8>>,
+    data: RefCell<Vec<u8>>,
+    size: AtomicI32,
 }
 
 impl WasmMemory {
     #[inline]
-    pub fn new(limit: WasmLimit) -> Self {
-        let size = limit.initial_alloc() as usize * WebAssembly::PAGE_SIZE;
-        let mut data = Vec::with_capacity(size);
-        data.resize(size, 0);
+    pub const fn zero() -> Self {
         Self {
-            limit,
-            data: UnsafeCell::new(data),
+            data: RefCell::new(Vec::new()),
+            size: AtomicI32::new(0),
         }
     }
 
     #[inline]
-    pub const fn limit(&self) -> WasmLimit {
-        self.limit
+    pub fn new(limit: WasmLimit) -> Result<Self, WasmDecodeErrorKind> {
+        let memory = Self::zero();
+
+        if limit.is_zero() {
+            return Ok(memory);
+        }
+
+        // if let Some(max) = limit.max() {
+        //     if memory.grow(max as i32).is_ok() {
+        //         return Ok(memory);
+        //     }
+        // }
+
+        memory
+            .grow(limit.min() as i32)
+            .map(|_| memory)
+            .map_err(|_| WasmDecodeErrorKind::OutOfMemory)
     }
 
     #[inline]
-    pub fn as_slice(&self) -> &[u8] {
-        unsafe { &*self.data.get() }
+    pub fn try_borrow_mut(&self) -> Result<core::cell::RefMut<'_, Vec<u8>>, WasmRuntimeErrorKind> {
+        self.data
+            .try_borrow_mut()
+            .map_err(|_| WasmRuntimeErrorKind::MemoryBorrowError)
     }
 
     #[inline]
-    pub fn as_mut_slice(&self) -> &mut [u8] {
-        unsafe { &mut *self.data.get() }
+    pub fn while_borrowing<F, R>(&self, kernel: F) -> Result<R, WasmRuntimeErrorKind>
+    where
+        F: FnOnce(&mut [u8]) -> R,
+    {
+        let mut memory = self.try_borrow_mut()?;
+        let result = kernel(&mut memory);
+        drop(memory);
+        Ok(result)
+    }
+
+    #[inline]
+    #[track_caller]
+    fn as_slice(&self) -> core::cell::Ref<'_, Vec<u8>> {
+        self.data.borrow()
     }
 
     /// memory.size
     #[inline]
     pub fn size(&self) -> i32 {
-        let memory = self.as_slice();
-        (memory.len() / WebAssembly::PAGE_SIZE) as i32
+        self.size.load(Ordering::Acquire)
     }
 
     /// memory.grow
-    pub fn grow(&self, delta: i32) -> i32 {
-        let memory = unsafe { &mut *self.data.get() };
-        let old_size = memory.len();
+    pub fn grow(&self, delta: i32) -> Result<i32, WasmRuntimeErrorKind> {
         if delta > 0 {
-            let additional = delta as usize * WebAssembly::PAGE_SIZE;
+            let mut memory = self.try_borrow_mut()?;
+
+            let old_size = self.size();
+            let new_size = old_size
+                .checked_add(delta)
+                .ok_or(WasmRuntimeErrorKind::InvalidParameter)?;
+            let old_len = memory.len();
+            let additional = (delta as usize)
+                .checked_mul(WebAssembly::PAGE_SIZE)
+                .ok_or(WasmRuntimeErrorKind::InvalidParameter)?;
+            let new_len = old_len
+                .checked_add(additional)
+                .ok_or(WasmRuntimeErrorKind::InvalidParameter)?;
+
             if memory.try_reserve(additional).is_err() {
-                return -1;
+                return Err(WasmRuntimeErrorKind::OutOfMemory);
             }
-            memory.resize(old_size + additional, 0);
-            (old_size / WebAssembly::PAGE_SIZE) as i32
+            memory.resize(new_len, 0);
+
+            self.size.store(new_size, Ordering::Release);
+            Ok(old_size)
         } else if delta == 0 {
-            (old_size / WebAssembly::PAGE_SIZE) as i32
+            Ok(self.size())
         } else {
-            -1
+            return Err(WasmRuntimeErrorKind::InvalidParameter);
         }
     }
 
-    pub fn slice<'a>(&'a self, base: u32, count: u32) -> Result<&'a [u8], WasmRuntimeErrorKind> {
-        let memory = self.as_slice();
-        let limit = memory.len();
-        let _ea = Self::effective_address_range(base, count, limit)?;
-        Ok(unsafe { slice::from_raw_parts(memory.as_ptr().add(base as usize), count as usize) })
-    }
+    // pub fn slice<'a>(&self, base: u32, count: u32) -> Result<&'a [u8], WasmRuntimeErrorKind> {
+    //     let memory = self.as_slice();
+    //     let limit = memory.len();
+    //     let _ea = Self::effective_address_range(base, count, limit)?;
+    //     Ok(unsafe { slice::from_raw_parts(memory.as_ptr().add(base as usize), count as usize) })
+    // }
 
-    pub unsafe fn slice_mut<'a>(
-        &'a self,
-        base: u32,
-        count: u32,
-    ) -> Result<&'a mut [u8], WasmRuntimeErrorKind> {
-        let memory = self.as_mut_slice();
-        let limit = memory.len();
-        let _ea = Self::effective_address_range(base, count, limit)?;
-        Ok(unsafe {
-            slice::from_raw_parts_mut(memory.as_mut_ptr().add(base as usize), count as usize)
-        })
-    }
-
-    pub unsafe fn transmute<T>(&self, offset: u32) -> Result<&T, WasmRuntimeErrorKind> {
-        let memory = self.as_slice();
-        let limit = memory.len();
-        let size = size_of::<T>();
-        let _ea = Self::effective_address_range(offset, size as u32, limit)?;
-        Ok(unsafe { transmute(memory.as_ptr().add(offset as usize)) })
-    }
+    // pub unsafe fn transmute<'a, T>(&self, offset: u32) -> Result<&'a T, WasmRuntimeErrorKind> {
+    //     let memory = self.as_slice();
+    //     let limit = memory.len();
+    //     let _ea = Self::effective_address::<T>(offset, limit)?;
+    //     Ok(unsafe { transmute(memory.as_ptr().add(offset as usize)) })
+    // }
 
     /// Write slice to memory
-    pub fn write_slice(&self, offset: usize, src: &[u8]) -> Result<(), WasmRuntimeErrorKind> {
-        let memory = self.as_mut_slice();
-        let count = src.len();
-        let limit = memory.len();
-        let Some(end) = offset.checked_add(count) else {
-            return Err(WasmRuntimeErrorKind::OutOfBounds);
-        };
-        if offset < limit && end <= limit {
-            unsafe {
-                memory
-                    .as_mut_ptr()
-                    .add(offset)
-                    .copy_from_nonoverlapping(src.as_ptr(), count);
+    fn write_slice(&self, offset: usize, src: &[u8]) -> Result<(), WasmRuntimeErrorKind> {
+        self.while_borrowing(|memory| {
+            let count = src.len();
+            let limit = memory.len();
+            let Some(end) = offset.checked_add(count) else {
+                return Err(WasmRuntimeErrorKind::OutOfBounds);
+            };
+            if offset < limit && end <= limit {
+                unsafe {
+                    memory
+                        .as_mut_ptr()
+                        .add(offset)
+                        .copy_from_nonoverlapping(src.as_ptr(), count);
+                }
+                Ok(())
+            } else {
+                Err(WasmRuntimeErrorKind::OutOfBounds)
             }
+        })
+        .and_then(|v| v)
+    }
+
+    // pub fn memset(&self, base: u32, val: u8, count: u32) -> Result<(), WasmRuntimeErrorKind> {
+    //     let mut memory = self.as_mut_slice();
+    //     let limit = memory.len();
+    //     let _ea = Self::effective_address_range(base, count, limit)?;
+    //     unsafe {
+    //         memory
+    //             .as_mut_ptr()
+    //             .add(base as usize)
+    //             .write_bytes(val, count as usize);
+    //     }
+    //     Ok(())
+    // }
+
+    // pub fn memcpy(&self, dest: u32, src: u32, count: u32) -> Result<(), WasmRuntimeErrorKind> {
+    //     let mut memory = self.as_mut_slice();
+    //     let limit = memory.len();
+    //     let _ea = Self::effective_address_range(dest, count, limit)?;
+    //     let _ea = Self::effective_address_range(src, count, limit)?;
+    //     unsafe {
+    //         memory
+    //             .as_mut_ptr()
+    //             .add(dest as usize)
+    //             .copy_from(memory.as_ptr().add(src as usize), count as usize);
+    //     }
+    //     Ok(())
+    // }
+
+    #[inline]
+    pub fn check_bound(base: u64, count: usize, limit: usize) -> Result<(), WasmRuntimeErrorKind> {
+        if base.saturating_add(count as u64) <= limit as u64 {
             Ok(())
         } else {
             Err(WasmRuntimeErrorKind::OutOfBounds)
         }
     }
 
-    pub fn memset(&self, base: u32, val: u8, count: u32) -> Result<(), WasmRuntimeErrorKind> {
-        let memory = self.as_mut_slice();
-        let limit = memory.len();
-        let _ea = Self::effective_address_range(base, count, limit)?;
-        unsafe {
-            memory
-                .as_mut_ptr()
-                .add(base as usize)
-                .write_bytes(val, count as usize);
-        }
-        Ok(())
-    }
-
-    pub fn memcpy(&self, dest: u32, src: u32, count: u32) -> Result<(), WasmRuntimeErrorKind> {
-        let memory = self.as_mut_slice();
-        let limit = memory.len();
-        let _ea = Self::effective_address_range(dest, count, limit)?;
-        let _ea = Self::effective_address_range(src, count, limit)?;
-        unsafe {
-            memory
-                .as_mut_ptr()
-                .add(dest as usize)
-                .copy_from(memory.as_ptr().add(src as usize), count as usize);
-        }
-        Ok(())
-    }
-
     #[inline]
-    pub fn effective_address_range(
-        base: u32,
-        count: u32,
-        limit: usize,
-    ) -> Result<usize, WasmRuntimeErrorKind> {
-        let base = base as u64;
-        let limit = limit as u64;
-        let ea = base.wrapping_add(count as u64);
-        if base < limit && ea <= limit {
-            Ok(ea as usize)
-        } else {
-            Err(WasmRuntimeErrorKind::OutOfBounds)
-        }
-    }
-
-    #[inline]
-    pub fn effective_address(
+    pub fn effective_address<T>(
         offset: u32,
         index: u32,
         limit: usize,
     ) -> Result<usize, WasmRuntimeErrorKind> {
-        let limit = limit as u64;
-        let ea = (offset as u64).wrapping_add(index as u64);
-        if ea < limit {
-            Ok(ea as usize)
-        } else {
-            Err(WasmRuntimeErrorKind::OutOfBounds)
-        }
+        let base = (offset as u64).wrapping_add(index as u64);
+        Self::check_bound(base, size_of::<T>(), limit).map(|_| base as usize)
     }
 
     #[cfg(test)]
@@ -1117,7 +1123,7 @@ impl WasmTable {
             _ => return Err(WasmDecodeErrorKind::UnexpectedToken),
         };
         WasmLimit::from_reader(reader, false).map(|limit| {
-            let size = limit.initial_alloc() as usize;
+            let size = limit.min() as usize;
             let mut table = Vec::with_capacity(size);
             table.resize(size, 0);
             Self { limit, table }
@@ -1394,15 +1400,15 @@ impl WasmImportDescriptor {
 /// WebAssembly export object
 pub struct WasmExport {
     name: String,
-    index: WasmExportIndex,
+    export_type: WasmExportType,
 }
 
 impl WasmExport {
     #[inline]
-    fn from_reader(reader: &mut Leb128Reader) -> Result<Self, WasmDecodeErrorKind> {
+    fn new(module: &WasmModule, reader: &mut Leb128Reader) -> Result<Self, WasmDecodeErrorKind> {
         let name = reader.get_string()?;
-        let index = WasmExportIndex::from_reader(reader)?;
-        Ok(Self { name, index })
+        let export_type = WasmExportType::new(module, reader)?;
+        Ok(Self { name, export_type })
     }
 
     #[inline]
@@ -1411,22 +1417,22 @@ impl WasmExport {
     }
 
     #[inline]
-    pub const fn index(&self) -> WasmExportIndex {
-        self.index
+    pub const fn export_type(&self) -> WasmExportType {
+        self.export_type
     }
 }
 
 #[derive(Debug, Copy, Clone)]
-pub enum WasmExportIndex {
+pub enum WasmExportType {
     Function(usize),
     Table(usize),
     Memory(usize),
-    Global(usize),
+    Global(GlobalVarIndex),
 }
 
-impl WasmExportIndex {
+impl WasmExportType {
     #[inline]
-    fn from_reader(reader: &mut Leb128Reader) -> Result<Self, WasmDecodeErrorKind> {
+    fn new(module: &WasmModule, reader: &mut Leb128Reader) -> Result<Self, WasmDecodeErrorKind> {
         reader
             .read_unsigned()
             .map_err(|v| v.into())
@@ -1443,10 +1449,12 @@ impl WasmExportIndex {
                     .read_unsigned()
                     .map(|v| Self::Memory(v as usize))
                     .map_err(|v| v.into()),
-                3 => reader
-                    .read_unsigned()
-                    .map(|v| Self::Global(v as usize))
-                    .map_err(|v| v.into()),
+                3 => {
+                    let index: usize = reader.read()?;
+                    (index < module.globals.len())
+                        .then(|| Self::Global(unsafe { GlobalVarIndex::new(index) }))
+                        .ok_or(WasmDecodeErrorKind::InvalidGlobal)
+                }
                 _ => Err(WasmDecodeErrorKind::UnexpectedToken),
             })
     }
@@ -1465,13 +1473,13 @@ pub enum WasmDecodeErrorKind {
     /// Unsupported opcode
     UnsupportedOpCode(WasmOpcode),
     /// Unsupported global data type
-    UnsupportedGlobalType,
+    UnsupportedGlobalType(WasmValType),
     /// Invalid parameter was specified.
     InvalidData,
     /// Invalid stack level.
     InvalidStackLevel,
     /// Specified a non-existent type.
-    InvalidType,
+    InvalidType(WasmTypeIndex),
     /// Invalid global variable specified.
     InvalidGlobal,
     /// Invalid local variable specified.
@@ -1480,7 +1488,7 @@ pub enum WasmDecodeErrorKind {
     OutOfStack,
     /// Branching targets are out of nest range
     OutOfBranch,
-    /// Accessing non-existent memory
+    /// Out of memory
     OutOfMemory,
     /// Code Section
     OutOfFunction,
@@ -1499,11 +1507,12 @@ pub enum WasmDecodeErrorKind {
 }
 
 impl From<leb128::ReadError> for WasmDecodeErrorKind {
+    #[inline]
     fn from(value: leb128::ReadError) -> Self {
         match value {
             ReadError::InvalidData => WasmDecodeErrorKind::InvalidData,
             ReadError::UnexpectedEof => WasmDecodeErrorKind::UnexpectedEof,
-            ReadError::OutOfBounds => WasmDecodeErrorKind::InvalidType,
+            ReadError::OutOfBounds => WasmDecodeErrorKind::UnexpectedToken,
         }
     }
 }
@@ -1528,6 +1537,10 @@ pub enum WasmRuntimeErrorKind {
     TypeMismatch,
     /// Internal error
     InternalInconsistency,
+    /// Out of Memory
+    OutOfMemory,
+    /// Memory couldn't be borrowed
+    MemoryBorrowError,
 }
 
 /// A type that holds a WebAssembly primitive value with a type information tag.
@@ -2059,9 +2072,10 @@ impl WasmGlobal {
     #[inline]
     pub fn new(val: WasmValue, is_mutable: bool) -> Result<Self, WasmDecodeErrorKind> {
         let val_type = val.val_type();
+        // TODO: another type
         let val = val
             .get_u32()
-            .map_err(|_| WasmDecodeErrorKind::UnsupportedGlobalType)?;
+            .map_err(|_| WasmDecodeErrorKind::UnsupportedGlobalType(val_type))?;
         Ok(Self {
             data: AtomicU32::new(val),
             val_type,
@@ -2211,5 +2225,37 @@ impl WasmRunnable<'_> {
     #[inline]
     pub const fn module(&self) -> &WasmModule {
         &self.module
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LocalVarIndex(usize);
+
+impl LocalVarIndex {
+    #[inline]
+    pub const unsafe fn new(val: usize) -> Self {
+        Self(val)
+    }
+
+    #[inline]
+    pub const fn as_usize(&self) -> usize {
+        self.0 as usize
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GlobalVarIndex(usize);
+
+impl GlobalVarIndex {
+    #[inline]
+    pub const unsafe fn new(val: usize) -> Self {
+        Self(val)
+    }
+
+    #[inline]
+    pub const fn as_usize(&self) -> usize {
+        self.0 as usize
     }
 }

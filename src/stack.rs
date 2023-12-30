@@ -199,6 +199,17 @@ mod tests {
 
             stack1.push(123).unwrap();
             assert_eq!(stack1.stack_pointer, 1);
+            stack1.push(456).unwrap();
+            assert_eq!(stack1.stack_pointer, 2);
+            stack1.push(789).unwrap();
+            assert_eq!(stack1.stack_pointer, 3);
+
+            assert_eq!(stack1.pop(), Some(789));
+            assert_eq!(stack1.stack_pointer, 2);
+            assert_eq!(stack1.pop(), Some(456));
+            assert_eq!(stack1.stack_pointer, 1);
+            assert_eq!(stack1.pop(), Some(123));
+            assert_eq!(stack1.stack_pointer, 0);
         });
         assert_eq!(pool.stack_pointer, 0);
     }

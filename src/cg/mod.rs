@@ -2,13 +2,10 @@ pub mod intcode;
 pub mod intr;
 
 use self::intcode::{ExceptionPosition, WasmImc, WasmIntMnemonic};
-use crate::{
-    leb128::*, opcode::*, WasmBlockType, WasmDecodeErrorKind, WasmMemArg, WasmModule,
-    WasmTypeIndex, WasmValType,
-};
+use crate::{leb128::*, opcode::*, *};
 use alloc::{boxed::Box, vec::Vec};
 use bitflags::*;
-use core::{cell::RefCell, ops::*};
+use core::cell::RefCell;
 use smallvec::SmallVec;
 
 /// WebAssembly code block
@@ -389,7 +386,7 @@ impl WasmCodeBlock {
                             } else {
                                 int_codes.push(WasmImc::new(
                                     WasmIntMnemonic::ReturnN,
-                                    StackLevel(value_stack.len() - 1),
+                                    StackLevel(value_stack.len()),
                                 ));
                             }
                             break;
@@ -523,10 +520,20 @@ impl WasmCodeBlock {
                         if a != b || cc != WasmValType::I32 {
                             return Err(WasmDecodeErrorKind::TypeMismatch);
                         }
+                        // match a {
+                        //     WasmValType::I32 | WasmValType::I64 => {
                         int_codes.push(WasmImc::new(
                             WasmIntMnemonic::SelectI,
                             value_stack.len().into(),
                         ));
+                        //     }
+                        //     WasmValType::F32 | WasmValType::F64 => {
+                        //         int_codes.push(WasmImc::new(
+                        //             WasmIntMnemonic::SelectF,
+                        //             value_stack.len().into(),
+                        //         ));
+                        //     }
+                        // }
                         value_stack.push(a);
                     }
 
@@ -536,7 +543,7 @@ impl WasmCodeBlock {
                             .get(local_ref)
                             .ok_or(WasmDecodeErrorKind::InvalidLocal)?;
                         int_codes.push(WasmImc::new(
-                            WasmIntMnemonic::LocalGetI(LocalVarIndex::new(local_ref)),
+                            WasmIntMnemonic::LocalGetI(unsafe { LocalVarIndex::new(local_ref) }),
                             value_stack.len().into(),
                         ));
                         value_stack.push(val);
@@ -551,7 +558,7 @@ impl WasmCodeBlock {
                             return Err(WasmDecodeErrorKind::TypeMismatch);
                         }
                         int_codes.push(WasmImc::new(
-                            WasmIntMnemonic::LocalSetI(LocalVarIndex::new(local_ref)),
+                            WasmIntMnemonic::LocalSetI(unsafe { LocalVarIndex::new(local_ref) }),
                             value_stack.len().into(),
                         ));
                     }
@@ -565,7 +572,7 @@ impl WasmCodeBlock {
                             return Err(WasmDecodeErrorKind::TypeMismatch);
                         }
                         int_codes.push(WasmImc::new(
-                            WasmIntMnemonic::LocalTeeI(LocalVarIndex::new(local_ref)),
+                            WasmIntMnemonic::LocalTeeI(unsafe { LocalVarIndex::new(local_ref) }),
                             StackLevel(value_stack.len() - 1),
                         ));
                     }
@@ -578,7 +585,7 @@ impl WasmCodeBlock {
                             .map(|v| v.val_type())
                             .ok_or(WasmDecodeErrorKind::InvalidGlobal)?;
                         int_codes.push(WasmImc::new(
-                            WasmIntMnemonic::GlobalGetI(GlobalVarIndex(global_ref)),
+                            WasmIntMnemonic::GlobalGetI(unsafe { GlobalVarIndex::new(global_ref) }),
                             value_stack.len().into(),
                         ));
                         value_stack.push(val_type);
@@ -599,7 +606,7 @@ impl WasmCodeBlock {
                             return Err(WasmDecodeErrorKind::TypeMismatch);
                         }
                         int_codes.push(WasmImc::new(
-                            WasmIntMnemonic::GlobalSetI(GlobalVarIndex(global_ref)),
+                            WasmIntMnemonic::GlobalSetI(unsafe { GlobalVarIndex::new(global_ref) }),
                             value_stack.len().into(),
                         ));
                     }
@@ -1603,33 +1610,20 @@ impl StackLevel {
     pub const fn zero() -> Self {
         Self(0)
     }
-}
-
-// TODO: Will be removed in the future
-impl Add<usize> for StackLevel {
-    type Output = StackLevel;
 
     #[inline]
-    fn add(self, rhs: usize) -> Self::Output {
-        StackLevel(self.0.wrapping_add(rhs))
+    pub const unsafe fn succ(self, delta: usize) -> Self {
+        StackLevel(self.0.wrapping_add(delta))
     }
-}
-
-impl Add<StackOffset> for StackLevel {
-    type Output = StackLevel;
 
     #[inline]
-    fn add(self, rhs: StackOffset) -> Self::Output {
-        StackLevel(self.0.wrapping_add(rhs.0))
+    pub const unsafe fn add(self, offset: StackOffset) -> Self {
+        StackLevel(self.0.wrapping_add(offset.0))
     }
-}
-
-impl Sub<StackOffset> for StackLevel {
-    type Output = StackLevel;
 
     #[inline]
-    fn sub(self, rhs: StackOffset) -> Self::Output {
-        StackLevel(self.0.wrapping_sub(rhs.0))
+    pub const unsafe fn sub(self, offset: StackOffset) -> Self {
+        StackLevel(self.0.wrapping_sub(offset.0))
     }
 }
 
@@ -1648,37 +1642,5 @@ impl StackOffset {
     #[inline]
     pub const fn new(value: usize) -> Self {
         Self(value)
-    }
-}
-
-#[repr(transparent)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct LocalVarIndex(usize);
-
-impl LocalVarIndex {
-    #[inline]
-    pub const fn new(val: usize) -> Self {
-        Self(val)
-    }
-
-    #[inline]
-    pub const fn as_usize(&self) -> usize {
-        self.0 as usize
-    }
-}
-
-#[repr(transparent)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct GlobalVarIndex(usize);
-
-impl GlobalVarIndex {
-    #[inline]
-    pub const fn new(val: usize) -> Self {
-        Self(val)
-    }
-
-    #[inline]
-    pub const fn as_usize(&self) -> usize {
-        self.0 as usize
     }
 }

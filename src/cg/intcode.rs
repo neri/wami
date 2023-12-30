@@ -35,9 +35,7 @@ pub enum WasmIntMnemonic {
     ReturnI,
     /// return from function (-> float)
     ReturnF,
-    // return from function (-> vector)
-    // ReturnV,
-    // -
+
     /// `10 call funcidx`
     Call(usize, ExceptionPosition),
     /// `11 call_indirect typeidx 0x00`
@@ -61,8 +59,6 @@ pub enum WasmIntMnemonic {
 
     I32Load(u32, ExceptionPosition),
     I64Load(u32, ExceptionPosition),
-    F32Load(u32, ExceptionPosition),
-    F64Load(u32, ExceptionPosition),
     I32Load8S(u32, ExceptionPosition),
     I32Load8U(u32, ExceptionPosition),
     I32Load16S(u32, ExceptionPosition),
@@ -73,9 +69,9 @@ pub enum WasmIntMnemonic {
     I64Load16U(u32, ExceptionPosition),
     I64Load32S(u32, ExceptionPosition),
     I64Load32U(u32, ExceptionPosition),
+    F32Load(u32, ExceptionPosition),
+    F64Load(u32, ExceptionPosition),
 
-    F32Store(u32, ExceptionPosition),
-    F64Store(u32, ExceptionPosition),
     I32Store(u32, ExceptionPosition),
     I64Store(u32, ExceptionPosition),
     I32Store8(u32, ExceptionPosition),
@@ -83,6 +79,8 @@ pub enum WasmIntMnemonic {
     I64Store8(u32, ExceptionPosition),
     I64Store16(u32, ExceptionPosition),
     I64Store32(u32, ExceptionPosition),
+    F32Store(u32, ExceptionPosition),
+    F64Store(u32, ExceptionPosition),
 
     /// `3F memory.size 0x00`
     MemorySize,
@@ -164,15 +162,6 @@ pub enum WasmIntMnemonic {
     I64Rotl,
     I64Rotr,
 
-    I64Extend8S,
-    I64Extend16S,
-    I64Extend32S,
-    I64ExtendI32S,
-    I64ExtendI32U,
-    I32WrapI64,
-    I32Extend8S,
-    I32Extend16S,
-
     F32Eq,
     F32Ne,
     F32Lt,
@@ -216,6 +205,15 @@ pub enum WasmIntMnemonic {
     F64Min,
     F64Max,
     F64Copysign,
+
+    I64Extend8S,
+    I64Extend16S,
+    I64Extend32S,
+    I64ExtendI32S,
+    I64ExtendI32U,
+    I32WrapI64,
+    I32Extend8S,
+    I32Extend16S,
 
     I32TruncF32S,
     I32TruncF32U,

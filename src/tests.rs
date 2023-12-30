@@ -485,7 +485,7 @@ fn div64_u() {
 }
 
 #[test]
-fn select() {
+fn select_int() {
     let slice = [0, 0x20, 0, 0x20, 1, 0x20, 2, 0x1B, 0x0B];
     let param_types = [WasmValType::I32, WasmValType::I32, WasmValType::I32];
     let result_types = [WasmValType::I32];
@@ -512,6 +512,36 @@ fn select() {
         .get_i32()
         .unwrap();
     assert_eq!(result, 456);
+}
+
+#[test]
+fn select_float() {
+    let slice = [0, 0x20, 0, 0x20, 1, 0x20, 2, 0x1B, 0x0B];
+    let param_types = [WasmValType::F64, WasmValType::F64, WasmValType::I32];
+    let result_types = [WasmValType::F64];
+    let mut stream = Leb128Reader::from_slice(&slice);
+    let module = WasmModule::new();
+    let info =
+        WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
+    let mut interp = WasmInterpreter::new(&module);
+
+    let mut locals = [0.0.into(), PI.into(), 789.into()];
+    let result = interp
+        .invoke(0, &info, &mut locals, &result_types)
+        .unwrap()
+        .unwrap()
+        .get_f64()
+        .unwrap();
+    assert_eq!(result, 0.0);
+
+    let mut locals = [0.0.into(), PI.into(), 0.into()];
+    let result = interp
+        .invoke(0, &info, &mut locals, &result_types)
+        .unwrap()
+        .unwrap()
+        .get_f64()
+        .unwrap();
+    assert_eq!(result, PI);
 }
 
 #[test]
@@ -730,7 +760,11 @@ fn opr_test_i32() {
         0x0000_FFFF,
         0xFFFF_0000u32 as i32,
     ] {
-        module.memory(0).unwrap().as_mut_slice().fill(0xCC);
+        module
+            .memory(0)
+            .unwrap()
+            .while_borrowing(|memory| memory.fill(0xCC))
+            .unwrap();
         let result = module
             .func("test_unary_i32")
             .unwrap()
@@ -771,7 +805,11 @@ fn opr_test_i32() {
         (0x1234_5678, 0xFEDC_BA98u32 as i32),
         (0x5555_5555, 0xAAAA_AAAAu32 as i32),
     ] {
-        module.memory(0).unwrap().as_mut_slice().fill(0xCC);
+        module
+            .memory(0)
+            .unwrap()
+            .while_borrowing(|memory| memory.fill(0xCC))
+            .unwrap();
         let result = module
             .func("test_bin_i32")
             .unwrap()
@@ -839,7 +877,11 @@ fn opr_test_i64() {
         0x0000_0000_FFFF_FFFF,
         0xFFFF_FFFF_0000_0000u64 as i64,
     ] {
-        module.memory(0).unwrap().as_mut_slice().fill(0xCC);
+        module
+            .memory(0)
+            .unwrap()
+            .while_borrowing(|memory| memory.fill(0xCC))
+            .unwrap();
         let result = module
             .func("test_unary_i64")
             .unwrap()
@@ -885,7 +927,11 @@ fn opr_test_i64() {
         (0x1234_5678_9ABC_DEF0, 0xFEDC_BA98_7654_3210u64 as i64),
         (0x5555_5555_5555_5555, 0xAAAA_AAAA_AAAA_AAAAu64 as i64),
     ] {
-        module.memory(0).unwrap().as_mut_slice().fill(0xCC);
+        module
+            .memory(0)
+            .unwrap()
+            .while_borrowing(|memory| memory.fill(0xCC))
+            .unwrap();
         let result = module
             .func("test_bin_i64")
             .unwrap()
@@ -951,7 +997,11 @@ fn call_test() {
             0xFEDC_BA98_7654_3210,
         ),
     ] {
-        module.memory(0).unwrap().as_mut_slice().fill(0xCC);
+        module
+            .memory(0)
+            .unwrap()
+            .while_borrowing(|memory| memory.fill(0xCC))
+            .unwrap();
         let result = module
             .func("call_test1")
             .unwrap()
@@ -974,7 +1024,11 @@ fn call_test() {
 
         assert_eq!(memory.read_u64(0x28), 0xCCCC_CCCC_CCCC_CCCC);
 
-        module.memory(0).unwrap().as_mut_slice().fill(0xCC);
+        module
+            .memory(0)
+            .unwrap()
+            .while_borrowing(|memory| memory.fill(0xCC))
+            .unwrap();
         let result = module
             .func("call_test2")
             .unwrap()
@@ -997,7 +1051,11 @@ fn call_test() {
 
         assert_eq!(memory.read_u64(0x28), 0xCCCC_CCCC_CCCC_CCCC);
 
-        module.memory(0).unwrap().as_mut_slice().fill(0xCC);
+        module
+            .memory(0)
+            .unwrap()
+            .while_borrowing(|memory| memory.fill(0xCC))
+            .unwrap();
         let result = module
             .func("call_test3")
             .unwrap()
@@ -1020,7 +1078,11 @@ fn call_test() {
 
         assert_eq!(memory.read_u64(0x28), 0xCCCC_CCCC_CCCC_CCCC);
 
-        module.memory(0).unwrap().as_mut_slice().fill(0xCC);
+        module
+            .memory(0)
+            .unwrap()
+            .while_borrowing(|memory| memory.fill(0xCC))
+            .unwrap();
         let result = module
             .func("call_test4")
             .unwrap()
@@ -1046,7 +1108,7 @@ fn call_test() {
 }
 
 #[test]
-fn mem_test() {
+fn mem_load_store() {
     let module = WebAssembly::instantiate(
         include_bytes!("../test/tester.wasm"),
         |_, _, _| unreachable!(),
@@ -1059,12 +1121,44 @@ fn mem_test() {
     }
     let src = src.as_slice();
 
-    for (a1, a2) in [(0x12u32, 0x34u32), (0x78, 0x90), (0xCD, 0xAB), (0xEF, 0x56)] {
-        let memory = module.memory(0).unwrap().as_mut_slice();
+    #[inline]
+    #[track_caller]
+    fn reset_memory(module: &WasmModule, src: &[u8]) {
+        module
+            .memory(0)
+            .unwrap()
+            .while_borrowing(|memory| {
+                memory[0..256].copy_from_slice(src);
+            })
+            .unwrap();
+    }
 
+    macro_rules! test_memory {
+        ($module:ident, $expected:expr) => {
+            $module
+                .memory(0)
+                .unwrap()
+                .while_borrowing(|memory| {
+                    let mut vec = Vec::new();
+                    for index in 0..256 {
+                        let lhs = memory[index];
+                        let rhs = $expected[index];
+                        if lhs != rhs {
+                            vec.push((index, lhs, rhs));
+                        }
+                    }
+                    if vec.len() > 0 {
+                        panic!("MEMORY ERROR (index, actual, expected): {:?}", vec);
+                    }
+                })
+                .unwrap();
+        };
+    }
+
+    for (a1, a2) in [(0x12u32, 0x34u32), (0x78, 0x90), (0xCD, 0xAB), (0xEF, 0x56)] {
         // u32u8
+        reset_memory(&module, src);
         let expected = 0xFF ^ a1;
-        memory[0..256].copy_from_slice(src);
         let result = module
             .func("mem_test_u32u8")
             .unwrap()
@@ -1078,11 +1172,11 @@ fn mem_test() {
         let mut expected = Vec::new();
         expected.extend_from_slice(src);
         expected[a2 as usize] = expected[a1 as usize];
-        assert_eq!(&memory[0..256], expected);
+        test_memory!(module, &expected);
 
         // i32i8
+        reset_memory(&module, src);
         let expected = (-1 ^ a1 as i8) as i32;
-        memory[0..256].copy_from_slice(src);
         let result = module
             .func("mem_test_i32i8")
             .unwrap()
@@ -1096,11 +1190,11 @@ fn mem_test() {
         let mut expected = Vec::new();
         expected.extend_from_slice(src);
         expected[a2 as usize] = expected[a1 as usize];
-        assert_eq!(&memory[0..256], expected);
+        test_memory!(module, &expected);
 
         // u32u16
+        reset_memory(&module, src);
         let expected = 0xFFFF ^ (a1 + (a1 + 1) * 0x100);
-        memory[0..256].copy_from_slice(src);
         let result = module
             .func("mem_test_u32u16")
             .unwrap()
@@ -1115,11 +1209,11 @@ fn mem_test() {
         expected.extend_from_slice(src);
         expected[a2 as usize] = expected[a1 as usize];
         expected[a2 as usize + 1] = expected[a1 as usize + 1];
-        assert_eq!(&memory[0..256], expected);
+        test_memory!(module, &expected);
 
         // i32i16
+        reset_memory(&module, src);
         let expected = -1 ^ ((a1 + (a1 + 1) * 0x100) as i16) as i32;
-        memory[0..256].copy_from_slice(src);
         let result = module
             .func("mem_test_i32i16")
             .unwrap()
@@ -1134,11 +1228,11 @@ fn mem_test() {
         expected.extend_from_slice(src);
         expected[a2 as usize] = expected[a1 as usize];
         expected[a2 as usize + 1] = expected[a1 as usize + 1];
-        assert_eq!(&memory[0..256], expected);
+        test_memory!(module, &expected);
 
         // u32
+        reset_memory(&module, src);
         let expected = 0xFFFFFFFF ^ ((a1 * 0x1_01_01_01) + 0x03_02_01_00);
-        memory[0..256].copy_from_slice(src);
         let result = module
             .func("mem_test_u32")
             .unwrap()
@@ -1154,11 +1248,11 @@ fn mem_test() {
         for i in 0..4 {
             expected[a2 as usize + i] = expected[a1 as usize + i];
         }
-        assert_eq!(&memory[0..256], expected);
+        test_memory!(module, &expected);
 
         // u64u8
+        reset_memory(&module, src);
         let expected = 0xFF ^ a1 as u64;
-        memory[0..256].copy_from_slice(src);
         let result = module
             .func("mem_test_u64u8")
             .unwrap()
@@ -1172,11 +1266,11 @@ fn mem_test() {
         let mut expected = Vec::new();
         expected.extend_from_slice(src);
         expected[a2 as usize] = expected[a1 as usize];
-        assert_eq!(&memory[0..256], expected);
+        test_memory!(module, &expected);
 
         // i64i8
+        reset_memory(&module, src);
         let expected = (-1 ^ a1 as i8) as i64;
-        memory[0..256].copy_from_slice(src);
         let result = module
             .func("mem_test_i64i8")
             .unwrap()
@@ -1190,11 +1284,11 @@ fn mem_test() {
         let mut expected = Vec::new();
         expected.extend_from_slice(src);
         expected[a2 as usize] = expected[a1 as usize];
-        assert_eq!(&memory[0..256], expected);
+        test_memory!(module, &expected);
 
         // u64u16
+        reset_memory(&module, src);
         let expected = 0xFFFF ^ (a1 as u64 + (a1 as u64 + 1) * 0x100);
-        memory[0..256].copy_from_slice(src);
         let result = module
             .func("mem_test_u64u16")
             .unwrap()
@@ -1209,11 +1303,11 @@ fn mem_test() {
         expected.extend_from_slice(src);
         expected[a2 as usize] = expected[a1 as usize];
         expected[a2 as usize + 1] = expected[a1 as usize + 1];
-        assert_eq!(&memory[0..256], expected);
+        test_memory!(module, &expected);
 
         // i64i16
+        reset_memory(&module, src);
         let expected = -1 ^ ((a1 as u64 + (a1 as u64 + 1) * 0x100) as i16) as i64;
-        memory[0..256].copy_from_slice(src);
         let result = module
             .func("mem_test_i64i16")
             .unwrap()
@@ -1228,11 +1322,11 @@ fn mem_test() {
         expected.extend_from_slice(src);
         expected[a2 as usize] = expected[a1 as usize];
         expected[a2 as usize + 1] = expected[a1 as usize + 1];
-        assert_eq!(&memory[0..256], expected);
+        test_memory!(module, &expected);
 
         // u64u32
+        reset_memory(&module, src);
         let expected = 0xFFFFFFFF ^ ((a1 * 0x1_01_01_01) + 0x03_02_01_00) as u64;
-        memory[0..256].copy_from_slice(src);
         let result = module
             .func("mem_test_u64u32")
             .unwrap()
@@ -1248,11 +1342,11 @@ fn mem_test() {
         for i in 0..4 {
             expected[a2 as usize + i] = expected[a1 as usize + i];
         }
-        assert_eq!(&memory[0..256], expected);
+        test_memory!(module, &expected);
 
         // i64i32
+        reset_memory(&module, src);
         let expected = -1 ^ (((a1 * 0x1_01_01_01) + 0x03_02_01_00) as i32) as i64;
-        memory[0..256].copy_from_slice(src);
         let result = module
             .func("mem_test_i64i32")
             .unwrap()
@@ -1268,12 +1362,12 @@ fn mem_test() {
         for i in 0..4 {
             expected[a2 as usize + i] = expected[a1 as usize + i];
         }
-        assert_eq!(&memory[0..256], expected);
+        test_memory!(module, &expected);
 
         // u64
+        reset_memory(&module, src);
         let expected = 0xFFFF_FFFF_FFFF_FFFF
             ^ ((a1 as u64 * 0x1_01_01_01_01_01_01_01) + 0x07_06_05_04_03_02_01_00);
-        memory[0..256].copy_from_slice(src);
         let result = module
             .func("mem_test_u64")
             .unwrap()
@@ -1289,8 +1383,180 @@ fn mem_test() {
         for i in 0..8 {
             expected[a2 as usize + i] = expected[a1 as usize + i];
         }
-        assert_eq!(&memory[0..256], expected);
+        test_memory!(module, &expected);
     }
+}
+
+#[test]
+fn memory() {
+    let module = WebAssembly::instantiate(
+        include_bytes!("../test/tester.wasm"),
+        |_, _, _| unreachable!(),
+    )
+    .unwrap();
+
+    let mut src = Vec::new();
+    for i in 0..256 {
+        src.push(0xFF ^ i as u8);
+    }
+    let src = src.as_slice();
+
+    #[inline]
+    #[track_caller]
+    fn reset_memory(module: &WasmModule, src: &[u8]) {
+        module
+            .memory(0)
+            .unwrap()
+            .while_borrowing(|memory| {
+                memory[0..256].copy_from_slice(src);
+            })
+            .unwrap();
+    }
+
+    macro_rules! test_memory {
+        ($module:ident, $expected:expr) => {
+            $module
+                .memory(0)
+                .unwrap()
+                .while_borrowing(|memory| {
+                    let mut vec = Vec::new();
+                    for index in 0..256 {
+                        let lhs = memory[index];
+                        let rhs = $expected[index];
+                        if lhs != rhs {
+                            vec.push((index, lhs, rhs));
+                        }
+                    }
+                    if vec.len() > 0 {
+                        panic!("MEMORY ERROR (index, actual, expected): {:?}", vec);
+                    }
+                })
+                .unwrap();
+        };
+    }
+
+    #[inline]
+    #[track_caller]
+    fn memset(memory: &mut [u8], d: i32, v: u8, n: i32) {
+        let d = d as usize;
+        let n = n as usize;
+        for i in 0..n {
+            memory[d + i] = v;
+        }
+    }
+
+    #[inline]
+    #[track_caller]
+    fn memcpy(memory: &mut [u8], d: i32, s: i32, n: i32) {
+        let d = d as usize;
+        let s = s as usize;
+        let n = n as usize;
+        for i in 0..n {
+            let v = memory[s + i];
+            memory[d + i] = v;
+        }
+    }
+
+    let mem_size = module
+        .func("mem_test_size")
+        .unwrap()
+        .invoke(&[])
+        .unwrap()
+        .unwrap()
+        .get_i32()
+        .unwrap();
+    assert_eq!(mem_size, 1);
+
+    let mem_size = module
+        .func("mem_test_grow")
+        .unwrap()
+        .invoke(&[0.into()])
+        .unwrap()
+        .unwrap()
+        .get_i32()
+        .unwrap();
+    assert_eq!(mem_size, 1);
+
+    let mem_size = module
+        .func("mem_test_size")
+        .unwrap()
+        .invoke(&[])
+        .unwrap()
+        .unwrap()
+        .get_i32()
+        .unwrap();
+    assert_eq!(mem_size, 1);
+
+    let mem_size = module
+        .func("mem_test_grow")
+        .unwrap()
+        .invoke(&[10.into()])
+        .unwrap()
+        .unwrap()
+        .get_i32()
+        .unwrap();
+    assert_eq!(mem_size, 1);
+
+    let mem_size = module
+        .func("mem_test_size")
+        .unwrap()
+        .invoke(&[])
+        .unwrap()
+        .unwrap()
+        .get_i32()
+        .unwrap();
+    assert_eq!(mem_size, 11);
+
+    let mem_size = module
+        .func("mem_test_grow")
+        .unwrap()
+        .invoke(&[0x7000_0000.into()])
+        .unwrap()
+        .unwrap()
+        .get_i32()
+        .unwrap();
+    assert_eq!(mem_size, -1);
+
+    let mem_size = module
+        .func("mem_test_size")
+        .unwrap()
+        .invoke(&[])
+        .unwrap()
+        .unwrap()
+        .get_i32()
+        .unwrap();
+    assert_eq!(mem_size, 11);
+
+    // memmory fill
+    let (p_dest, p_src, count) = (12, 34, 5);
+    reset_memory(&module, src);
+
+    assert!(module
+        .func("mem_test_fill")
+        .unwrap()
+        .invoke(&[p_dest.into(), p_src.into(), count.into()])
+        .unwrap()
+        .is_none());
+
+    let mut expected = Vec::new();
+    expected.extend_from_slice(src);
+    memset(&mut expected, p_dest, p_src as u8, count);
+    test_memory!(module, &expected);
+
+    // memmory copy
+    reset_memory(&module, src);
+
+    assert!(module
+        .func("mem_test_copy")
+        .unwrap()
+        .invoke(&[p_dest.into(), p_src.into(), count.into()])
+        .unwrap()
+        .is_none());
+
+    let mut expected = Vec::new();
+    expected.extend_from_slice(src);
+    memcpy(&mut expected, p_dest, p_src, count);
+    test_memory!(module, &expected);
 }
 
 #[test]
@@ -1463,7 +1729,11 @@ fn float32_opr() {
         let i64val = fval as i64;
         let u64val = fval as u64;
 
-        module.memory(0).unwrap().as_mut_slice().fill(0xCC);
+        module
+            .memory(0)
+            .unwrap()
+            .while_borrowing(|memory| memory.fill(0xCC))
+            .unwrap();
         let result = module
             .func("test_unary_f32")
             .unwrap()
@@ -1720,7 +1990,11 @@ fn float32_opr() {
             let lhs = *lhs;
             let rhs = *rhs;
 
-            module.memory(0).unwrap().as_mut_slice().fill(0xCC);
+            module
+                .memory(0)
+                .unwrap()
+                .while_borrowing(|memory| memory.fill(0xCC))
+                .unwrap();
             let result = module
                 .func("test_bin_f32")
                 .unwrap()
@@ -2145,7 +2419,11 @@ fn float64_opr() {
         let i64val = fval as i64;
         let u64val = fval as u64;
 
-        module.memory(0).unwrap().as_mut_slice().fill(0xCC);
+        module
+            .memory(0)
+            .unwrap()
+            .while_borrowing(|memory| memory.fill(0xCC))
+            .unwrap();
         let result = module
             .func("test_unary_f64")
             .unwrap()
@@ -2401,7 +2679,11 @@ fn float64_opr() {
             let lhs = *lhs;
             let rhs = *rhs;
 
-            module.memory(0).unwrap().as_mut_slice().fill(0xCC);
+            module
+                .memory(0)
+                .unwrap()
+                .while_borrowing(|memory| memory.fill(0xCC))
+                .unwrap();
             let result = module
                 .func("test_bin_f64")
                 .unwrap()
