@@ -425,6 +425,18 @@ impl Leb128Reader<'_> {
     pub fn read_f64(&mut self) -> Result<f64, ReadError> {
         self.read_slice().map(|v| f64::from_le_bytes(*v))
     }
+
+    pub fn read_to_end(&mut self, buf: &mut Vec<u8>) -> Result<usize, ReadError> {
+        match self.slice.get(self.position..) {
+            Some(v) => {
+                let size = v.len();
+                buf.extend_from_slice(v);
+                self.position = self.slice.len();
+                Ok(size)
+            }
+            None => Ok(0),
+        }
+    }
 }
 
 impl<'b> Leb128Reader<'b> {

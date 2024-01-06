@@ -1,12 +1,9 @@
 //! WebAssembly Intermediate Code Interpreter
 
-use super::{
-    intcode::{ExceptionPosition, WasmImc, WasmIntMnemonic},
-    LocalVarIndex, StackLevel, StackOffset, WasmCodeBlock,
-};
+use super::{intcode::*, *};
 use crate::{
-    opcode::WasmOpcode,
-    opcode::{WasmOpcodeFC, WasmSingleOpcode},
+    memory::WasmMemory,
+    opcode::{WasmOpcode, WasmOpcodeFC, WasmSingleOpcode},
     stack::*,
     wasm::*,
 };
@@ -38,7 +35,7 @@ impl<'a> WasmInterpreter<'a> {
 impl WasmInterpreter<'_> {
     #[inline]
     fn error(
-        &self,
+        &mut self,
         kind: WasmRuntimeErrorKind,
         opcode: WasmOpcode,
         ex_position: ExceptionPosition,
@@ -84,14 +81,6 @@ impl WasmInterpreter<'_> {
         )
     }
 
-    // #[inline]
-    // fn memory(&self) -> Result<RefMut<'_, Vec<u8>>, WasmRuntimeErrorKind> {
-    //     self.module
-    //         .memory(0)
-    //         .map(|v| v.try_borrow_mut())
-    //         .unwrap_or(Err(WasmRuntimeErrorKind::OutOfMemory))
-    // }
-
     fn _interpret(
         &mut self,
         func_index: usize,
@@ -104,14 +93,15 @@ impl WasmInterpreter<'_> {
             ($self:ident) => {
                 $self
                     .module
-                    .memory(0)
+                    .memories()
+                    .get(0)
                     .ok_or(WasmRuntimeErrorKind::OutOfMemory)
             };
         }
 
         macro_rules! BORROW_MEMORY {
             ($self:ident) => {
-                GET_MEMORY!($self).and_then(|v| v.try_borrow_mut())
+                GET_MEMORY!($self).and_then(|v| v.try_borrow())
             };
         }
 
@@ -139,7 +129,7 @@ impl WasmInterpreter<'_> {
                     .map_err(|e| self.error(e, WasmSingleOpcode::$opcode.into(), $ex_position))?;
 
                 unsafe {
-                    let p = $memory.as_ptr().add(ea) as *const $data_type;
+                    let p = $memory.as_ptr().byte_add(ea) as *const $data_type;
                     let data = p.read_volatile() as $stor_type;
                     *var = data.into();
                 }
@@ -158,7 +148,7 @@ impl WasmInterpreter<'_> {
                 let ea = WasmMemory::effective_address::<$data_type>($offset, index, $memory.len())
                     .map_err(|e| self.error(e, WasmSingleOpcode::$opcode.into(), $ex_position))?;
                 unsafe {
-                    let p = $memory.as_mut_ptr().add(ea) as *mut $data_type;
+                    let p = $memory.as_mut_ptr().byte_add(ea) as *mut $data_type;
                     p.write_volatile(storage as $data_type);
                 }
             };
@@ -1191,57 +1181,85 @@ impl WasmInterpreter<'_> {
                 }
 
                 WasmIntMnemonic::FusedI32AddI(val) => {
-                    Self::unary_op(code, &mut value_stack, |var| unsafe {
-                        var.map_i32(|var| var.wrapping_add(val));
+                    Self::unary_op(code, &mut value_stack, |lhs| unsafe {
+                        lhs.map_i32(|lhs| lhs.wrapping_add(val));
                     });
                 }
                 WasmIntMnemonic::FusedI32SubI(val) => {
-                    Self::unary_op(code, &mut value_stack, |var| unsafe {
-                        var.map_i32(|var| var.wrapping_sub(val));
+                    Self::unary_op(code, &mut value_stack, |lhs| unsafe {
+                        lhs.map_i32(|lhs| lhs.wrapping_sub(val));
                     });
                 }
                 WasmIntMnemonic::FusedI32AndI(val) => {
-                    Self::unary_op(code, &mut value_stack, |var| unsafe {
-                        var.map_u32(|var| var & val);
+                    Self::unary_op(code, &mut value_stack, |lhs| unsafe {
+                        lhs.map_u32(|lhs| lhs & val);
                     });
                 }
                 WasmIntMnemonic::FusedI32OrI(val) => {
-                    Self::unary_op(code, &mut value_stack, |var| unsafe {
-                        var.map_u32(|var| var | val);
+                    Self::unary_op(code, &mut value_stack, |lhs| unsafe {
+                        lhs.map_u32(|lhs| lhs | val);
                     });
                 }
                 WasmIntMnemonic::FusedI32XorI(val) => {
-                    Self::unary_op(code, &mut value_stack, |var| unsafe {
-                        var.map_u32(|var| var ^ val);
+                    Self::unary_op(code, &mut value_stack, |lhs| unsafe {
+                        lhs.map_u32(|lhs| lhs ^ val);
                     });
                 }
                 WasmIntMnemonic::FusedI32ShlI(val) => {
-                    Self::unary_op(code, &mut value_stack, |var| unsafe {
-                        var.map_i32(|var| var.wrapping_shl(val));
-                    });
-                }
-                WasmIntMnemonic::FusedI32ShrUI(val) => {
-                    Self::unary_op(code, &mut value_stack, |var| unsafe {
-                        var.map_u32(|var| var.wrapping_shl(val));
+                    Self::unary_op(code, &mut value_stack, |lhs| unsafe {
+                        lhs.map_i32(|lhs| lhs.wrapping_shl(val));
                     });
                 }
                 WasmIntMnemonic::FusedI32ShrSI(val) => {
-                    Self::unary_op(code, &mut value_stack, |var| unsafe {
-                        var.map_i32(|var| var.wrapping_shr(val));
+                    Self::unary_op(code, &mut value_stack, |lhs| unsafe {
+                        lhs.map_i32(|lhs| lhs.wrapping_shr(val));
+                    });
+                }
+                WasmIntMnemonic::FusedI32ShrUI(val) => {
+                    Self::unary_op(code, &mut value_stack, |lhs| unsafe {
+                        lhs.map_u32(|lhs| lhs.wrapping_shl(val));
                     });
                 }
 
                 WasmIntMnemonic::FusedI64AddI(val) => {
-                    let lhs = value_stack.get_mut(code.base_stack_level());
-                    unsafe {
+                    Self::unary_op(code, &mut value_stack, |lhs| unsafe {
                         lhs.map_i64(|lhs| lhs.wrapping_add(val));
-                    }
+                    });
                 }
                 WasmIntMnemonic::FusedI64SubI(val) => {
-                    let lhs = value_stack.get_mut(code.base_stack_level());
-                    unsafe {
+                    Self::unary_op(code, &mut value_stack, |lhs| unsafe {
                         lhs.map_i64(|lhs| lhs.wrapping_sub(val));
-                    }
+                    });
+                }
+                WasmIntMnemonic::FusedI64AndI(val) => {
+                    Self::unary_op(code, &mut value_stack, |lhs| unsafe {
+                        lhs.map_u64(|lhs| lhs & val);
+                    });
+                }
+                WasmIntMnemonic::FusedI64OrI(val) => {
+                    Self::unary_op(code, &mut value_stack, |lhs| unsafe {
+                        lhs.map_u64(|lhs| lhs | val);
+                    });
+                }
+                WasmIntMnemonic::FusedI64XorI(val) => {
+                    Self::unary_op(code, &mut value_stack, |lhs| unsafe {
+                        lhs.map_u64(|lhs| lhs ^ val);
+                    });
+                }
+                WasmIntMnemonic::FusedI64ShlI(val) => {
+                    Self::unary_op(code, &mut value_stack, |lhs| unsafe {
+                        lhs.map_u64(|lhs| lhs.wrapping_shl(val));
+                    });
+                }
+                WasmIntMnemonic::FusedI64ShrSI(val) => {
+                    Self::unary_op(code, &mut value_stack, |lhs| unsafe {
+                        lhs.map_i64(|lhs| lhs.wrapping_shr(val));
+                    });
+                }
+                WasmIntMnemonic::FusedI64ShrUI(val) => {
+                    Self::unary_op(code, &mut value_stack, |lhs| unsafe {
+                        lhs.map_u64(|lhs| lhs.wrapping_shr(val));
+                    });
                 }
 
                 WasmIntMnemonic::FusedI32BrZ(target) => {
@@ -1565,8 +1583,8 @@ pub struct WasmRuntimeError {
 
 impl WasmRuntimeError {
     #[inline]
-    pub const fn kind(&self) -> WasmRuntimeErrorKind {
-        self.kind
+    pub const fn kind(&self) -> &WasmRuntimeErrorKind {
+        &self.kind
     }
 
     #[inline]

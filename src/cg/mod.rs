@@ -487,11 +487,10 @@ impl WasmCodeBlock {
                     }
                     WasmSingleOpcode::CallIndirect => {
                         flags.remove(WasmBlockFlag::LEAF_FUNCTION);
-                        let type_index = WasmTypeIndex(reader.read()?);
-                        let _reserved = reader.read_unsigned()?;
-                        let func_type = module
-                            .type_by_ref(type_index)
+                        let type_index = WasmTypeIndex::new(module, reader.read()?)
                             .ok_or(WasmDecodeErrorKind::InvalidData)?;
+                        let _reserved = reader.read_unsigned()?;
+                        let func_type = module.type_by_index(type_index);
                         let index = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
                         if index != WasmValType::I32 {
                             return Err(WasmDecodeErrorKind::TypeMismatch);
@@ -1474,6 +1473,24 @@ impl WasmCodeBlock {
                     }
                     (I64Const(val), I64Sub) => {
                         fused2!(int_codes, i, FusedI64SubI(*val));
+                    }
+                    (I64Const(val), I64And) => {
+                        fused2!(int_codes, i, FusedI64AndI(*val as u64));
+                    }
+                    (I64Const(val), I64Or) => {
+                        fused2!(int_codes, i, FusedI64OrI(*val as u64));
+                    }
+                    (I64Const(val), I64Xor) => {
+                        fused2!(int_codes, i, FusedI64XorI(*val as u64));
+                    }
+                    (I64Const(val), I64Shl) => {
+                        fused2!(int_codes, i, FusedI64ShlI(*val as u32));
+                    }
+                    (I64Const(val), I64ShrS) => {
+                        fused2!(int_codes, i, FusedI64ShrSI(*val as u32));
+                    }
+                    (I64Const(val), I64ShrU) => {
+                        fused2!(int_codes, i, FusedI64ShrUI(*val as u32));
                     }
 
                     (I32Eqz, BrIf(target)) => {

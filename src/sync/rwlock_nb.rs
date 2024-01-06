@@ -1,3 +1,5 @@
+//! A reader-writer lock like std::sync::RwLock
+
 use super::*;
 use core::{
     cell::UnsafeCell,
@@ -27,10 +29,10 @@ unsafe impl<T: ?Sized + Send + Sync> Sync for RwLockNb<T> {}
 
 impl<T: ?Sized> RwLockNb<T> {
     #[inline]
-    pub fn try_read(&self) -> TryLockResult<RwLockReadGuard<'_, T>> {
+    pub fn try_read(&self) -> TryLockResult<RwLockNbReadGuard<'_, T>> {
         unsafe {
             if self.inner.try_read().is_ok() {
-                Ok(RwLockReadGuard::new(self)?)
+                Ok(RwLockNbReadGuard::new(self)?)
             } else {
                 Err(TryLockError::WouldBlock)
             }
@@ -38,10 +40,10 @@ impl<T: ?Sized> RwLockNb<T> {
     }
 
     #[inline]
-    pub fn try_write(&self) -> TryLockResult<RwLockWriteGuard<'_, T>> {
+    pub fn try_write(&self) -> TryLockResult<RwLockNbWriteGuard<'_, T>> {
         unsafe {
             if self.inner.try_write().is_ok() {
-                Ok(RwLockWriteGuard::new(self)?)
+                Ok(RwLockNbWriteGuard::new(self)?)
             } else {
                 Err(TryLockError::WouldBlock)
             }
@@ -80,21 +82,21 @@ impl<T> From<T> for RwLockNb<T> {
 }
 
 #[must_use = "if unused the RwLock will immediately unlock"]
-pub struct RwLockReadGuard<'a, T: ?Sized + 'a> {
+pub struct RwLockNbReadGuard<'a, T: ?Sized + 'a> {
     lock: &'a RwLockNb<T>,
 }
 
-impl<T: ?Sized> !Send for RwLockReadGuard<'_, T> {}
+impl<T: ?Sized> !Send for RwLockNbReadGuard<'_, T> {}
 
-unsafe impl<T: ?Sized + Sync> Sync for RwLockReadGuard<'_, T> {}
+unsafe impl<T: ?Sized + Sync> Sync for RwLockNbReadGuard<'_, T> {}
 
-impl<'rwlock, T: ?Sized> RwLockReadGuard<'rwlock, T> {
-    unsafe fn new(lock: &'rwlock RwLockNb<T>) -> LockResult<RwLockReadGuard<'rwlock, T>> {
+impl<'rwlock, T: ?Sized> RwLockNbReadGuard<'rwlock, T> {
+    unsafe fn new(lock: &'rwlock RwLockNb<T>) -> LockResult<RwLockNbReadGuard<'rwlock, T>> {
         Ok(Self { lock })
     }
 }
 
-impl<T: ?Sized> Deref for RwLockReadGuard<'_, T> {
+impl<T: ?Sized> Deref for RwLockNbReadGuard<'_, T> {
     type Target = T;
 
     #[inline]
@@ -103,7 +105,7 @@ impl<T: ?Sized> Deref for RwLockReadGuard<'_, T> {
     }
 }
 
-impl<T: ?Sized> Drop for RwLockReadGuard<'_, T> {
+impl<T: ?Sized> Drop for RwLockNbReadGuard<'_, T> {
     #[inline]
     fn drop(&mut self) {
         unsafe {
@@ -112,28 +114,28 @@ impl<T: ?Sized> Drop for RwLockReadGuard<'_, T> {
     }
 }
 
-impl<T: fmt::Debug> fmt::Debug for RwLockReadGuard<'_, T> {
+impl<T: fmt::Debug> fmt::Debug for RwLockNbReadGuard<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:#?}", self.deref())
     }
 }
 
 #[must_use = "if unused the RwLock will immediately unlock"]
-pub struct RwLockWriteGuard<'a, T: ?Sized + 'a> {
+pub struct RwLockNbWriteGuard<'a, T: ?Sized + 'a> {
     lock: &'a RwLockNb<T>,
 }
 
-impl<T: ?Sized> !Send for RwLockWriteGuard<'_, T> {}
+impl<T: ?Sized> !Send for RwLockNbWriteGuard<'_, T> {}
 
-unsafe impl<T: ?Sized + Sync> Sync for RwLockWriteGuard<'_, T> {}
+unsafe impl<T: ?Sized + Sync> Sync for RwLockNbWriteGuard<'_, T> {}
 
-impl<'rwlock, T: ?Sized> RwLockWriteGuard<'rwlock, T> {
-    unsafe fn new(lock: &'rwlock RwLockNb<T>) -> LockResult<RwLockWriteGuard<'rwlock, T>> {
+impl<'rwlock, T: ?Sized> RwLockNbWriteGuard<'rwlock, T> {
+    unsafe fn new(lock: &'rwlock RwLockNb<T>) -> LockResult<RwLockNbWriteGuard<'rwlock, T>> {
         Ok(Self { lock })
     }
 }
 
-impl<T: ?Sized> Deref for RwLockWriteGuard<'_, T> {
+impl<T: ?Sized> Deref for RwLockNbWriteGuard<'_, T> {
     type Target = T;
 
     #[inline]
@@ -142,14 +144,14 @@ impl<T: ?Sized> Deref for RwLockWriteGuard<'_, T> {
     }
 }
 
-impl<T: ?Sized> DerefMut for RwLockWriteGuard<'_, T> {
+impl<T: ?Sized> DerefMut for RwLockNbWriteGuard<'_, T> {
     #[inline]
     fn deref_mut(&mut self) -> &mut T {
         unsafe { &mut *self.lock.data.get() }
     }
 }
 
-impl<T: ?Sized> Drop for RwLockWriteGuard<'_, T> {
+impl<T: ?Sized> Drop for RwLockNbWriteGuard<'_, T> {
     #[inline]
     fn drop(&mut self) {
         unsafe {
@@ -158,7 +160,7 @@ impl<T: ?Sized> Drop for RwLockWriteGuard<'_, T> {
     }
 }
 
-impl<T: fmt::Debug> fmt::Debug for RwLockWriteGuard<'_, T> {
+impl<T: fmt::Debug> fmt::Debug for RwLockNbWriteGuard<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:#?}", self.deref())
     }
@@ -169,7 +171,7 @@ impl<T: fmt::Debug> fmt::Debug for RwLockWriteGuard<'_, T> {
 pub struct SharedXorMutable(AtomicUsize);
 
 impl SharedXorMutable {
-    const DEFAULT_VALUE: usize = 0b0000;
+    const DEFAULT_VALUE: usize = 0;
     const LOCK_WRITE: usize = 0b0001;
     const LOCK_READ: usize = 0b0010;
 

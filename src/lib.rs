@@ -14,6 +14,7 @@ pub use crate::wasm::*;
 
 pub mod cg;
 pub mod leb128;
+pub mod memory;
 pub mod opcode;
 pub mod stack;
 pub mod sync;

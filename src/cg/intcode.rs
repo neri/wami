@@ -5,7 +5,7 @@ use crate::{
 };
 use alloc::{boxed::Box, vec::Vec};
 
-/// Intermediate code for Webassembly runtime
+/// Intermediate code for Webassembly interpreter
 #[non_exhaustive]
 #[derive(Debug, PartialEq)]
 pub enum WasmIntMnemonic {
@@ -264,6 +264,12 @@ pub enum WasmIntMnemonic {
 
     FusedI64AddI(i64),
     FusedI64SubI(i64),
+    FusedI64AndI(u64),
+    FusedI64OrI(u64),
+    FusedI64XorI(u64),
+    FusedI64ShlI(u32),
+    FusedI64ShrSI(u32),
+    FusedI64ShrUI(u32),
 
     FusedI32BrZ(usize),
     FusedI32BrEq(usize),

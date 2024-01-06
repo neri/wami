@@ -1,7 +1,6 @@
 use core::fmt;
 
-mod rwlock_nb;
-pub use rwlock_nb::*;
+pub mod rwlock_nb;
 
 pub type LockResult<Guard> = Result<Guard, PoisonError<Guard>>;
 

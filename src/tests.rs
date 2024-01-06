@@ -127,7 +127,6 @@ fn i64_const_type_mismatch() {
 }
 
 #[test]
-#[cfg(feature = "float")]
 fn float_const() {
     let slice = [0, 0x43, 0, 0, 0, 0, 0x0B];
     let result_types = [WasmValType::F32];
@@ -191,7 +190,6 @@ fn float_const() {
 }
 
 #[test]
-#[cfg(feature = "float")]
 fn float64_const() {
     let slice = [0, 0x44, 0, 0, 0, 0, 0, 0, 0, 0, 0x0B];
     let result_types = [WasmValType::F64];
@@ -329,7 +327,7 @@ fn div32_s() {
     let result = interp
         .invoke(0, &info, &mut locals, &result_types)
         .unwrap_err();
-    assert_eq!(WasmRuntimeErrorKind::DivideByZero, result.kind());
+    assert_eq!(*result.kind(), WasmRuntimeErrorKind::DivideByZero);
     assert_eq!(result.opcode(), WasmSingleOpcode::I32DivS.into());
     assert_eq!(result.position(), 5);
 }
@@ -376,7 +374,7 @@ fn div32_u() {
     let result = interp
         .invoke(0, &info, &mut locals, &result_types)
         .unwrap_err();
-    assert_eq!(WasmRuntimeErrorKind::DivideByZero, result.kind());
+    assert_eq!(*result.kind(), WasmRuntimeErrorKind::DivideByZero);
     assert_eq!(result.opcode(), WasmSingleOpcode::I32DivU.into());
     assert_eq!(result.position(), 5);
 }
@@ -432,7 +430,7 @@ fn div64_s() {
     let result = interp
         .invoke(0, &info, &mut locals, &result_types)
         .unwrap_err();
-    assert_eq!(WasmRuntimeErrorKind::DivideByZero, result.kind());
+    assert_eq!(*result.kind(), WasmRuntimeErrorKind::DivideByZero);
     assert_eq!(result.opcode(), WasmSingleOpcode::I64DivS.into());
     assert_eq!(result.position(), 5);
 }
@@ -479,7 +477,7 @@ fn div64_u() {
     let result = interp
         .invoke(0, &info, &mut locals, &result_types)
         .unwrap_err();
-    assert_eq!(WasmRuntimeErrorKind::DivideByZero, result.kind());
+    assert_eq!(*result.kind(), WasmRuntimeErrorKind::DivideByZero);
     assert_eq!(result.opcode(), WasmSingleOpcode::I64DivU.into());
     assert_eq!(result.position(), 5);
 }
@@ -760,9 +758,7 @@ fn opr_test_i32() {
         0x0000_FFFF,
         0xFFFF_0000u32 as i32,
     ] {
-        module
-            .memory(0)
-            .unwrap()
+        module.memories()[0]
             .while_borrowing(|memory| memory.fill(0xCC))
             .unwrap();
         let result = module
@@ -775,7 +771,7 @@ fn opr_test_i32() {
             .unwrap();
         assert_eq!(result, 0x24);
 
-        let memory = module.memory(0).unwrap();
+        let memory = &module.memories()[0];
 
         assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
         assert_eq!(memory.read_u64(8), 0xCCCC_CCCC_CCCC_CCCC);
@@ -805,9 +801,7 @@ fn opr_test_i32() {
         (0x1234_5678, 0xFEDC_BA98u32 as i32),
         (0x5555_5555, 0xAAAA_AAAAu32 as i32),
     ] {
-        module
-            .memory(0)
-            .unwrap()
+        module.memories()[0]
             .while_borrowing(|memory| memory.fill(0xCC))
             .unwrap();
         let result = module
@@ -820,7 +814,7 @@ fn opr_test_i32() {
             .unwrap();
         assert_eq!(result, 112);
 
-        let memory = module.memory(0).unwrap();
+        let memory = &module.memories()[0];
 
         assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
         assert_eq!(memory.read_u64(8), 0xCCCC_CCCC_CCCC_CCCC);
@@ -877,9 +871,7 @@ fn opr_test_i64() {
         0x0000_0000_FFFF_FFFF,
         0xFFFF_FFFF_0000_0000u64 as i64,
     ] {
-        module
-            .memory(0)
-            .unwrap()
+        module.memories()[0]
             .while_borrowing(|memory| memory.fill(0xCC))
             .unwrap();
         let result = module
@@ -892,7 +884,7 @@ fn opr_test_i64() {
             .unwrap();
         assert_eq!(result, 0x48);
 
-        let memory = module.memory(0).unwrap();
+        let memory = &module.memories()[0];
 
         assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
         assert_eq!(memory.read_u64(8), 0xCCCC_CCCC_CCCC_CCCC);
@@ -927,9 +919,7 @@ fn opr_test_i64() {
         (0x1234_5678_9ABC_DEF0, 0xFEDC_BA98_7654_3210u64 as i64),
         (0x5555_5555_5555_5555, 0xAAAA_AAAA_AAAA_AAAAu64 as i64),
     ] {
-        module
-            .memory(0)
-            .unwrap()
+        module.memories()[0]
             .while_borrowing(|memory| memory.fill(0xCC))
             .unwrap();
         let result = module
@@ -942,7 +932,7 @@ fn opr_test_i64() {
             .unwrap();
         assert_eq!(result, 168);
 
-        let memory = module.memory(0).unwrap();
+        let memory = &module.memories()[0];
 
         assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
         assert_eq!(memory.read_u64(8), 0xCCCC_CCCC_CCCC_CCCC);
@@ -997,9 +987,7 @@ fn call_test() {
             0xFEDC_BA98_7654_3210,
         ),
     ] {
-        module
-            .memory(0)
-            .unwrap()
+        module.memories()[0]
             .while_borrowing(|memory| memory.fill(0xCC))
             .unwrap();
         let result = module
@@ -1012,7 +1000,7 @@ fn call_test() {
             .unwrap();
         assert_eq!(result, a1);
 
-        let memory = module.memory(0).unwrap();
+        let memory = &module.memories()[0];
 
         assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
         assert_eq!(memory.read_u64(8), 0xCCCC_CCCC_CCCC_CCCC);
@@ -1024,9 +1012,7 @@ fn call_test() {
 
         assert_eq!(memory.read_u64(0x28), 0xCCCC_CCCC_CCCC_CCCC);
 
-        module
-            .memory(0)
-            .unwrap()
+        module.memories()[0]
             .while_borrowing(|memory| memory.fill(0xCC))
             .unwrap();
         let result = module
@@ -1039,7 +1025,7 @@ fn call_test() {
             .unwrap();
         assert_eq!(result, a1.wrapping_add(a2));
 
-        let memory = module.memory(0).unwrap();
+        let memory = &module.memories()[0];
 
         assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
         assert_eq!(memory.read_u64(8), 0xCCCC_CCCC_CCCC_CCCC);
@@ -1051,9 +1037,7 @@ fn call_test() {
 
         assert_eq!(memory.read_u64(0x28), 0xCCCC_CCCC_CCCC_CCCC);
 
-        module
-            .memory(0)
-            .unwrap()
+        module.memories()[0]
             .while_borrowing(|memory| memory.fill(0xCC))
             .unwrap();
         let result = module
@@ -1066,7 +1050,7 @@ fn call_test() {
             .unwrap();
         assert_eq!(result, a3);
 
-        let memory = module.memory(0).unwrap();
+        let memory = &module.memories()[0];
 
         assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
         assert_eq!(memory.read_u64(8), 0xCCCC_CCCC_CCCC_CCCC);
@@ -1078,9 +1062,7 @@ fn call_test() {
 
         assert_eq!(memory.read_u64(0x28), 0xCCCC_CCCC_CCCC_CCCC);
 
-        module
-            .memory(0)
-            .unwrap()
+        module.memories()[0]
             .while_borrowing(|memory| memory.fill(0xCC))
             .unwrap();
         let result = module
@@ -1093,7 +1075,7 @@ fn call_test() {
             .unwrap();
         assert_eq!(result, a4);
 
-        let memory = module.memory(0).unwrap();
+        let memory = &module.memories()[0];
 
         assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
         assert_eq!(memory.read_u64(8), 0xCCCC_CCCC_CCCC_CCCC);
@@ -1124,9 +1106,7 @@ fn mem_load_store() {
     #[inline]
     #[track_caller]
     fn reset_memory(module: &WasmModule, src: &[u8]) {
-        module
-            .memory(0)
-            .unwrap()
+        module.memories()[0]
             .while_borrowing(|memory| {
                 memory[0..256].copy_from_slice(src);
             })
@@ -1135,9 +1115,7 @@ fn mem_load_store() {
 
     macro_rules! test_memory {
         ($module:ident, $expected:expr) => {
-            $module
-                .memory(0)
-                .unwrap()
+            $module.memories()[0]
                 .while_borrowing(|memory| {
                     let mut vec = Vec::new();
                     for index in 0..256 {
@@ -1404,9 +1382,7 @@ fn memory() {
     #[inline]
     #[track_caller]
     fn reset_memory(module: &WasmModule, src: &[u8]) {
-        module
-            .memory(0)
-            .unwrap()
+        module.memories()[0]
             .while_borrowing(|memory| {
                 memory[0..256].copy_from_slice(src);
             })
@@ -1415,9 +1391,7 @@ fn memory() {
 
     macro_rules! test_memory {
         ($module:ident, $expected:expr) => {
-            $module
-                .memory(0)
-                .unwrap()
+            $module.memories()[0]
                 .while_borrowing(|memory| {
                     let mut vec = Vec::new();
                     for index in 0..256 {
@@ -1510,7 +1484,7 @@ fn memory() {
     let mem_size = module
         .func("mem_test_grow")
         .unwrap()
-        .invoke(&[0x7000_0000.into()])
+        .invoke(&[0x1_0000.into()])
         .unwrap()
         .unwrap()
         .get_i32()
@@ -1609,6 +1583,18 @@ fn name() {
     assert_eq!(names.functions()[0], (1, "wasm".to_owned()));
 
     assert_eq!(names.func_by_index(0x1234).unwrap(), "test");
+}
+
+macro_rules! assert_sign_eq {
+    ($lhs:expr, $rhs:expr) => {
+        assert_eq!($lhs.is_sign_positive(), $rhs.is_sign_positive())
+    };
+}
+
+macro_rules! assert_sign_ne {
+    ($lhs:expr, $rhs:expr) => {
+        assert_eq!($lhs.is_sign_positive(), $rhs.is_sign_negative())
+    };
 }
 
 #[test]
@@ -1729,9 +1715,7 @@ fn float32_opr() {
         let i64val = fval as i64;
         let u64val = fval as u64;
 
-        module
-            .memory(0)
-            .unwrap()
+        module.memories()[0]
             .while_borrowing(|memory| memory.fill(0xCC))
             .unwrap();
         let result = module
@@ -1750,7 +1734,7 @@ fn float32_opr() {
             .unwrap();
         assert_eq!(result, 0x98);
 
-        let memory = module.memory(0).unwrap();
+        let memory = &module.memories()[0];
 
         assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
         assert_eq!(memory.read_u64(8), 0xCCCC_CCCC_CCCC_CCCC);
@@ -1807,158 +1791,158 @@ fn float32_opr() {
         }
 
         // fabs
-        let fabs = memory.read_f32(0x80);
-        assert!(fabs.is_sign_positive());
+        let test = memory.read_f32(0x80);
+        assert!(test.is_sign_positive());
         if fval.is_nan() {
-            assert!(fabs.is_nan());
+            assert!(test.is_nan());
         } else if fval.is_infinite() {
-            assert_eq!(fabs, f32::INFINITY);
+            assert_eq!(test, f32::INFINITY);
         } else {
-            assert_eq!(fabs, fval.abs());
+            assert_eq!(test, fval.abs());
         }
 
         // fneg
-        let fneg = memory.read_f32(0x84);
-        assert_eq!(fneg.is_sign_positive(), fval.is_sign_negative(),);
+        let test = memory.read_f32(0x84);
+        assert_sign_ne!(test, fval);
         if fval.is_nan() {
-            assert!(fneg.is_nan());
+            assert!(test.is_nan());
         } else if fval.is_infinite() {
-            assert!(fneg.is_infinite());
+            assert!(test.is_infinite());
         } else {
-            assert_eq!(fneg, 0.0 - fval);
+            assert_eq!(test, 0.0 - fval);
         }
 
         // fceil
-        let fceil = memory.read_f32(0x88);
+        let test = memory.read_f32(0x88);
         if fval.is_nan() {
-            assert!(fceil.is_nan());
+            assert!(test.is_nan());
         } else if fval.is_infinite() {
-            assert!(fceil.is_infinite());
+            assert!(test.is_infinite());
         } else if fval.is_zero() {
-            assert_eq!(fceil, fval);
+            assert_eq!(test, fval);
         } else if fval > 0.0 && fval <= 1.0 {
-            assert_eq!(fceil, 1.0);
+            assert_eq!(test, 1.0);
         } else if fval > 1.0 && fval <= 2.0 {
-            assert_eq!(fceil, 2.0);
+            assert_eq!(test, 2.0);
         } else if fval > 2.0 && fval <= 3.0 {
-            assert_eq!(fceil, 3.0);
+            assert_eq!(test, 3.0);
         } else if fval > 3.0 && fval <= 4.0 {
-            assert_eq!(fceil, 4.0);
+            assert_eq!(test, 4.0);
         } else if fval > -1.0 && fval < 0.0 {
-            assert_eq!(fceil, 0.0);
+            assert_eq!(test, 0.0);
         } else if fval > -2.0 && fval <= -1.0 {
-            assert_eq!(fceil, -1.0);
+            assert_eq!(test, -1.0);
         } else if fval > -3.0 && fval <= -2.0 {
-            assert_eq!(fceil, -2.0);
+            assert_eq!(test, -2.0);
         } else if fval > -4.0 && fval <= -3.0 {
-            assert_eq!(fceil, -3.0);
+            assert_eq!(test, -3.0);
         } else {
-            assert_eq!(fceil, fval.ceil());
+            assert_eq!(test, fval.ceil());
         }
 
         // ffloor
-        let ffloor = memory.read_f32(0x8C);
+        let test = memory.read_f32(0x8C);
         if fval.is_nan() {
-            assert!(ffloor.is_nan());
+            assert!(test.is_nan());
         } else if fval.is_infinite() {
-            assert!(ffloor.is_infinite());
+            assert!(test.is_infinite());
         } else if fval.is_zero() {
-            assert_eq!(ffloor, fval);
+            assert_eq!(test, fval);
         } else if fval > 0.0 && fval < 1.0 {
-            assert_eq!(ffloor, 0.0);
+            assert_eq!(test, 0.0);
         } else if fval >= 1.0 && fval < 2.0 {
-            assert_eq!(ffloor, 1.0);
+            assert_eq!(test, 1.0);
         } else if fval >= 2.0 && fval < 3.0 {
-            assert_eq!(ffloor, 2.0);
+            assert_eq!(test, 2.0);
         } else if fval >= 3.0 && fval < 4.0 {
-            assert_eq!(ffloor, 3.0);
+            assert_eq!(test, 3.0);
         } else if fval < 0.0 && fval > -1.0 {
-            assert_eq!(ffloor, -1.0);
+            assert_eq!(test, -1.0);
         } else if fval < -1.0 && fval >= -2.0 {
-            assert_eq!(ffloor, -2.0);
+            assert_eq!(test, -2.0);
         } else if fval < -2.0 && fval >= -3.0 {
-            assert_eq!(ffloor, -3.0);
+            assert_eq!(test, -3.0);
         } else if fval < -3.0 && fval >= -4.0 {
-            assert_eq!(ffloor, -4.0);
+            assert_eq!(test, -4.0);
         } else {
-            assert_eq!(ffloor, fval.floor());
+            assert_eq!(test, fval.floor());
         }
 
         // ftrunc
-        let ftrunc = memory.read_f32(0x90);
+        let test = memory.read_f32(0x90);
         if fval.is_nan() {
-            assert!(ftrunc.is_nan());
+            assert!(test.is_nan());
         } else if fval.is_infinite() {
-            assert!(ftrunc.is_infinite());
+            assert!(test.is_infinite());
         } else if fval.is_zero() {
-            assert_eq!(ftrunc, fval);
+            assert_eq!(test, fval);
         } else if fval > 0.0 && fval < 1.0 {
-            assert_eq!(ftrunc, 0.0);
+            assert_eq!(test, 0.0);
         } else if fval >= 1.0 && fval < 2.0 {
-            assert_eq!(ftrunc, 1.0);
+            assert_eq!(test, 1.0);
         } else if fval >= 2.0 && fval < 3.0 {
-            assert_eq!(ftrunc, 2.0);
+            assert_eq!(test, 2.0);
         } else if fval >= 3.0 && fval < 4.0 {
-            assert_eq!(ftrunc, 3.0);
+            assert_eq!(test, 3.0);
         } else if fval < 0.0 && fval > -1.0 {
-            assert_eq!(ftrunc, -0.0);
+            assert_eq!(test, -0.0);
         } else if fval <= -1.0 && fval > -2.0 {
-            assert_eq!(ftrunc, -1.0);
+            assert_eq!(test, -1.0);
         } else if fval <= -2.0 && fval > -3.0 {
-            assert_eq!(ftrunc, -2.0);
+            assert_eq!(test, -2.0);
         } else if fval <= -3.0 && fval > -4.0 {
-            assert_eq!(ftrunc, -3.0);
+            assert_eq!(test, -3.0);
         } else {
-            assert_eq!(ftrunc, fval.trunc());
+            assert_eq!(test, fval.trunc());
         }
 
         // fnearest
-        let fnearest = memory.read_f32(0x94);
+        let test = memory.read_f32(0x94);
         if fval.is_nan() {
-            assert!(fnearest.is_nan());
+            assert!(test.is_nan());
         } else if fval.is_infinite() {
-            assert!(fnearest.is_infinite());
+            assert!(test.is_infinite());
         } else if fval.is_zero() {
-            assert_eq!(fnearest, fval);
+            assert_eq!(test, fval);
         } else if fval > 0.0 && fval <= 0.5 {
-            assert_eq!(fnearest, 0.0);
+            assert_eq!(test, 0.0);
         } else if fval > 0.5 && fval < 1.5 {
-            assert_eq!(fnearest, 1.0);
+            assert_eq!(test, 1.0);
         } else if fval >= 1.5 && fval <= 2.5 {
-            assert_eq!(fnearest, 2.0);
+            assert_eq!(test, 2.0);
         } else if fval > 2.5 && fval < 3.5 {
-            assert_eq!(fnearest, 3.0);
+            assert_eq!(test, 3.0);
         } else if fval >= 3.5 && fval <= 4.5 {
-            assert_eq!(fnearest, 4.0);
+            assert_eq!(test, 4.0);
         } else if fval < 0.0 && fval >= -0.5 {
-            assert_eq!(fnearest, -0.0);
+            assert_eq!(test, -0.0);
         } else if fval < -0.5 && fval > -1.5 {
-            assert_eq!(fnearest, -1.0);
+            assert_eq!(test, -1.0);
         } else if fval <= -1.5 && fval >= -2.5 {
-            assert_eq!(fnearest, -2.0);
+            assert_eq!(test, -2.0);
         } else if fval < -2.5 && fval > -3.5 {
-            assert_eq!(fnearest, -3.0);
+            assert_eq!(test, -3.0);
         } else if fval <= -3.5 && fval >= -4.5 {
-            assert_eq!(fnearest, -4.0);
+            assert_eq!(test, -4.0);
         } else {
             // TODO: not stable
-            // assert_eq!(fnearest, fval.round_ties_even());
+            // assert_eq!(test, fval.round_ties_even());
         }
 
         // fsqrt
-        let fsqrt = memory.read_f32(0x98);
+        let test = memory.read_f32(0x98);
         if fval.is_nan() {
-            assert!(fsqrt.is_nan());
+            assert!(test.is_nan());
         } else if fval.is_zero() {
-            assert_eq!(fsqrt.to_bits(), fval.to_bits());
+            assert_eq!(test.to_bits(), fval.to_bits());
         } else if fval.is_sign_negative() {
-            assert!(fsqrt.is_nan());
+            assert!(test.is_nan());
         } else if fval.is_infinite() {
-            assert!(fsqrt.is_sign_positive());
-            assert!(fsqrt.is_infinite());
+            assert!(test.is_sign_positive());
+            assert!(test.is_infinite());
         } else {
-            assert!(fsqrt.is_sign_positive());
-            assert_eq!(fsqrt, fval.sqrt());
+            assert!(test.is_sign_positive());
+            assert_eq!(test, fval.sqrt());
         }
 
         assert_eq!(memory.read_u32(0x9C), 0xCCCC_CCCC);
@@ -1990,9 +1974,7 @@ fn float32_opr() {
             let lhs = *lhs;
             let rhs = *rhs;
 
-            module
-                .memory(0)
-                .unwrap()
+            module.memories()[0]
                 .while_borrowing(|memory| memory.fill(0xCC))
                 .unwrap();
             let result = module
@@ -2005,7 +1987,7 @@ fn float32_opr() {
                 .unwrap();
             assert_eq!(result, 0x40);
 
-            let memory = module.memory(0).unwrap();
+            let memory = &module.memories()[0];
 
             assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
             assert_eq!(memory.read_u64(8), 0xCCCC_CCCC_CCCC_CCCC);
@@ -2128,7 +2110,7 @@ fn float32_opr() {
                 assert_eq!(test, lhs);
             } else if lhs.is_zero() && rhs.is_zero() {
                 if lhs.is_sign_positive() == rhs.is_sign_positive() {
-                    assert_eq!(test.is_sign_positive(), lhs.is_sign_positive(),);
+                    assert_sign_eq!(test, lhs);
                 } else {
                     assert!(test.is_sign_positive());
                 }
@@ -2167,13 +2149,13 @@ fn float32_opr() {
                 if lhs.is_sign_positive() == rhs.is_sign_positive() {
                     assert!(test.is_sign_positive());
                 } else {
-                    assert_eq!(test.is_sign_positive(), lhs.is_sign_positive(),);
+                    assert_sign_eq!(test, lhs);
                 }
                 assert!(test.is_zero());
             } else if rhs.is_zero() {
                 assert_eq!(test, lhs);
             } else if lhs.is_zero() {
-                assert_eq!(test.is_sign_positive(), rhs.is_sign_negative(),);
+                assert_sign_ne!(test, rhs);
                 assert_eq!(test.abs(), rhs.abs());
             } else if lhs.abs() == rhs.abs() && lhs.is_sign_positive() == rhs.is_sign_positive() {
                 assert_eq!(test.to_bits(), ZERO_BITS);
@@ -2419,9 +2401,7 @@ fn float64_opr() {
         let i64val = fval as i64;
         let u64val = fval as u64;
 
-        module
-            .memory(0)
-            .unwrap()
+        module.memories()[0]
             .while_borrowing(|memory| memory.fill(0xCC))
             .unwrap();
         let result = module
@@ -2440,7 +2420,7 @@ fn float64_opr() {
             .unwrap();
         assert_eq!(result, 0xB0);
 
-        let memory = module.memory(0).unwrap();
+        let memory = &module.memories()[0];
 
         assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
         assert_eq!(memory.read_u64(8), 0xCCCC_CCCC_CCCC_CCCC);
@@ -2497,158 +2477,158 @@ fn float64_opr() {
         }
 
         // fabs
-        let fabs = memory.read_f64(0x80);
-        assert!(fabs.is_sign_positive());
+        let test = memory.read_f64(0x80);
+        assert!(test.is_sign_positive());
         if fval.is_nan() {
-            assert!(fabs.is_nan());
+            assert!(test.is_nan());
         } else if fval.is_infinite() {
-            assert_eq!(fabs, f64::INFINITY);
+            assert_eq!(test, f64::INFINITY);
         } else {
-            assert_eq!(fabs, fval.abs());
+            assert_eq!(test, fval.abs());
         }
 
         // fneg
-        let fneg = memory.read_f64(0x88);
-        assert_eq!(fneg.is_sign_positive(), fval.is_sign_negative(),);
+        let test = memory.read_f64(0x88);
+        assert_sign_ne!(test, fval);
         if fval.is_nan() {
-            assert!(fneg.is_nan());
+            assert!(test.is_nan());
         } else if fval.is_infinite() {
-            assert!(fneg.is_infinite());
+            assert!(test.is_infinite());
         } else {
-            assert_eq!(fneg, 0.0 - fval);
+            assert_eq!(test, 0.0 - fval);
         }
 
         // fceil
-        let fceil = memory.read_f64(0x90);
+        let test = memory.read_f64(0x90);
         if fval.is_nan() {
-            assert!(fceil.is_nan());
+            assert!(test.is_nan());
         } else if fval.is_infinite() {
-            assert!(fceil.is_infinite());
+            assert!(test.is_infinite());
         } else if fval.is_zero() {
-            assert_eq!(fceil, fval);
+            assert_eq!(test, fval);
         } else if fval > 0.0 && fval <= 1.0 {
-            assert_eq!(fceil, 1.0);
+            assert_eq!(test, 1.0);
         } else if fval > 1.0 && fval <= 2.0 {
-            assert_eq!(fceil, 2.0);
+            assert_eq!(test, 2.0);
         } else if fval > 2.0 && fval <= 3.0 {
-            assert_eq!(fceil, 3.0);
+            assert_eq!(test, 3.0);
         } else if fval > 3.0 && fval <= 4.0 {
-            assert_eq!(fceil, 4.0);
+            assert_eq!(test, 4.0);
         } else if fval > -1.0 && fval < 0.0 {
-            assert_eq!(fceil, 0.0);
+            assert_eq!(test, 0.0);
         } else if fval > -2.0 && fval <= -1.0 {
-            assert_eq!(fceil, -1.0);
+            assert_eq!(test, -1.0);
         } else if fval > -3.0 && fval <= -2.0 {
-            assert_eq!(fceil, -2.0);
+            assert_eq!(test, -2.0);
         } else if fval > -4.0 && fval <= -3.0 {
-            assert_eq!(fceil, -3.0);
+            assert_eq!(test, -3.0);
         } else {
-            assert_eq!(fceil, fval.ceil());
+            assert_eq!(test, fval.ceil());
         }
 
         // ffloor
-        let ffloor = memory.read_f64(0x98);
+        let test = memory.read_f64(0x98);
         if fval.is_nan() {
-            assert!(ffloor.is_nan());
+            assert!(test.is_nan());
         } else if fval.is_infinite() {
-            assert!(ffloor.is_infinite());
+            assert!(test.is_infinite());
         } else if fval.is_zero() {
-            assert_eq!(ffloor, fval);
+            assert_eq!(test, fval);
         } else if fval > 0.0 && fval < 1.0 {
-            assert_eq!(ffloor, 0.0);
+            assert_eq!(test, 0.0);
         } else if fval >= 1.0 && fval < 2.0 {
-            assert_eq!(ffloor, 1.0);
+            assert_eq!(test, 1.0);
         } else if fval >= 2.0 && fval < 3.0 {
-            assert_eq!(ffloor, 2.0);
+            assert_eq!(test, 2.0);
         } else if fval >= 3.0 && fval < 4.0 {
-            assert_eq!(ffloor, 3.0);
+            assert_eq!(test, 3.0);
         } else if fval < 0.0 && fval > -1.0 {
-            assert_eq!(ffloor, -1.0);
+            assert_eq!(test, -1.0);
         } else if fval < -1.0 && fval >= -2.0 {
-            assert_eq!(ffloor, -2.0);
+            assert_eq!(test, -2.0);
         } else if fval < -2.0 && fval >= -3.0 {
-            assert_eq!(ffloor, -3.0);
+            assert_eq!(test, -3.0);
         } else if fval < -3.0 && fval >= -4.0 {
-            assert_eq!(ffloor, -4.0);
+            assert_eq!(test, -4.0);
         } else {
-            assert_eq!(ffloor, fval.floor());
+            assert_eq!(test, fval.floor());
         }
 
         // ftrunc
-        let ftrunc = memory.read_f64(0xA0);
+        let test = memory.read_f64(0xA0);
         if fval.is_nan() {
-            assert!(ftrunc.is_nan());
+            assert!(test.is_nan());
         } else if fval.is_infinite() {
-            assert!(ftrunc.is_infinite());
+            assert!(test.is_infinite());
         } else if fval.is_zero() {
-            assert_eq!(ftrunc, fval);
+            assert_eq!(test, fval);
         } else if fval > 0.0 && fval < 1.0 {
-            assert_eq!(ftrunc, 0.0);
+            assert_eq!(test, 0.0);
         } else if fval >= 1.0 && fval < 2.0 {
-            assert_eq!(ftrunc, 1.0);
+            assert_eq!(test, 1.0);
         } else if fval >= 2.0 && fval < 3.0 {
-            assert_eq!(ftrunc, 2.0);
+            assert_eq!(test, 2.0);
         } else if fval >= 3.0 && fval < 4.0 {
-            assert_eq!(ftrunc, 3.0);
+            assert_eq!(test, 3.0);
         } else if fval < 0.0 && fval > -1.0 {
-            assert_eq!(ftrunc, -0.0);
+            assert_eq!(test, -0.0);
         } else if fval <= -1.0 && fval > -2.0 {
-            assert_eq!(ftrunc, -1.0);
+            assert_eq!(test, -1.0);
         } else if fval <= -2.0 && fval > -3.0 {
-            assert_eq!(ftrunc, -2.0);
+            assert_eq!(test, -2.0);
         } else if fval <= -3.0 && fval > -4.0 {
-            assert_eq!(ftrunc, -3.0);
+            assert_eq!(test, -3.0);
         } else {
-            assert_eq!(ftrunc, fval.trunc());
+            assert_eq!(test, fval.trunc());
         }
 
         // fnearest
-        let fnearest = memory.read_f64(0xA8);
+        let test = memory.read_f64(0xA8);
         if fval.is_nan() {
-            assert!(fnearest.is_nan());
+            assert!(test.is_nan());
         } else if fval.is_infinite() {
-            assert!(fnearest.is_infinite());
+            assert!(test.is_infinite());
         } else if fval.is_zero() {
-            assert_eq!(fnearest, fval);
+            assert_eq!(test, fval);
         } else if fval > 0.0 && fval <= 0.5 {
-            assert_eq!(fnearest, 0.0);
+            assert_eq!(test, 0.0);
         } else if fval > 0.5 && fval < 1.5 {
-            assert_eq!(fnearest, 1.0);
+            assert_eq!(test, 1.0);
         } else if fval >= 1.5 && fval <= 2.5 {
-            assert_eq!(fnearest, 2.0);
+            assert_eq!(test, 2.0);
         } else if fval > 2.5 && fval < 3.5 {
-            assert_eq!(fnearest, 3.0);
+            assert_eq!(test, 3.0);
         } else if fval >= 3.5 && fval <= 4.5 {
-            assert_eq!(fnearest, 4.0);
+            assert_eq!(test, 4.0);
         } else if fval < 0.0 && fval >= -0.5 {
-            assert_eq!(fnearest, -0.0);
+            assert_eq!(test, -0.0);
         } else if fval < -0.5 && fval > -1.5 {
-            assert_eq!(fnearest, -1.0);
+            assert_eq!(test, -1.0);
         } else if fval <= -1.5 && fval >= -2.5 {
-            assert_eq!(fnearest, -2.0);
+            assert_eq!(test, -2.0);
         } else if fval < -2.5 && fval > -3.5 {
-            assert_eq!(fnearest, -3.0);
+            assert_eq!(test, -3.0);
         } else if fval <= -3.5 && fval >= -4.5 {
-            assert_eq!(fnearest, -4.0);
+            assert_eq!(test, -4.0);
         } else {
             // TODO: not stable
             // assert_eq!(fnearest, fval.round_ties_even());
         }
 
         // fsqrt
-        let fsqrt = memory.read_f64(0xB0);
+        let test = memory.read_f64(0xB0);
         if fval.is_nan() {
-            assert!(fsqrt.is_nan());
+            assert!(test.is_nan());
         } else if fval.is_zero() {
-            assert_eq!(fsqrt.to_bits(), fval.to_bits());
+            assert_eq!(test.to_bits(), fval.to_bits());
         } else if fval.is_sign_negative() {
-            assert!(fsqrt.is_nan());
+            assert!(test.is_nan());
         } else if fval.is_infinite() {
-            assert!(fsqrt.is_sign_positive());
-            assert!(fsqrt.is_infinite());
+            assert!(test.is_sign_positive());
+            assert!(test.is_infinite());
         } else {
-            assert!(fsqrt.is_sign_positive());
-            assert_eq!(fsqrt, fval.sqrt());
+            assert!(test.is_sign_positive());
+            assert_eq!(test, fval.sqrt());
         }
 
         assert_eq!(memory.read_u64(0xB8), 0xCCCC_CCCC_CCCC_CCCC);
@@ -2679,9 +2659,7 @@ fn float64_opr() {
             let lhs = *lhs;
             let rhs = *rhs;
 
-            module
-                .memory(0)
-                .unwrap()
+            module.memories()[0]
                 .while_borrowing(|memory| memory.fill(0xCC))
                 .unwrap();
             let result = module
@@ -2694,7 +2672,7 @@ fn float64_opr() {
                 .unwrap();
             assert_eq!(result, 0x58);
 
-            let memory = module.memory(0).unwrap();
+            let memory = &module.memories()[0];
 
             assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
             assert_eq!(memory.read_u64(8), 0xCCCC_CCCC_CCCC_CCCC);
@@ -2817,7 +2795,7 @@ fn float64_opr() {
                 assert_eq!(test, lhs);
             } else if lhs.is_zero() && rhs.is_zero() {
                 if lhs.is_sign_positive() == rhs.is_sign_positive() {
-                    assert_eq!(test.is_sign_positive(), lhs.is_sign_positive(),);
+                    assert_sign_eq!(test, lhs);
                 } else {
                     assert!(test.is_sign_positive());
                 }
@@ -2856,13 +2834,13 @@ fn float64_opr() {
                 if lhs.is_sign_positive() == rhs.is_sign_positive() {
                     assert!(test.is_sign_positive());
                 } else {
-                    assert_eq!(test.is_sign_positive(), lhs.is_sign_positive(),);
+                    assert_sign_eq!(test, lhs);
                 }
                 assert!(test.is_zero());
             } else if rhs.is_zero() {
                 assert_eq!(test, lhs);
             } else if lhs.is_zero() {
-                assert_eq!(test.is_sign_positive(), rhs.is_sign_negative(),);
+                assert_sign_ne!(test, rhs);
                 assert_eq!(test.abs(), rhs.abs());
             } else if lhs.abs() == rhs.abs() && lhs.is_sign_positive() == rhs.is_sign_positive() {
                 assert_eq!(test.to_bits(), ZERO_BITS);

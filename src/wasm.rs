@@ -1,17 +1,17 @@
 use crate::{
     cg::WasmCodeBlock,
     leb128::{self, *},
+    memory::WasmMemory,
     opcode::*,
 };
-use alloc::{borrow::ToOwned, format, string::*, vec::Vec};
+use alloc::{borrow::ToOwned, boxed::Box, collections::BTreeMap, format, string::*, vec::Vec};
 use core::{
-    cell::RefCell,
     fmt,
     mem::size_of,
     num::NonZeroU32,
     ops::*,
     str,
-    sync::atomic::{AtomicI32, AtomicU32, Ordering},
+    sync::atomic::{AtomicU32, Ordering},
 };
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
@@ -27,103 +27,181 @@ pub enum ImportResult<T> {
     Later,
 }
 
-/// WebAssembly loader
-pub struct WebAssembly {
-    module: WasmModule,
-}
+pub struct WebAssembly;
 
 impl WebAssembly {
     /// Minimal valid module size, Magic(4) + Version(4) + Empty sections(0) = 8
     pub const MINIMAL_MOD_SIZE: usize = 8;
     /// Magic number of WebAssembly Binary Format
     pub const MAGIC: [u8; 4] = *b"\0asm";
-    /// Current Version
+    /// Current version number is 1
     pub const VER_CURRENT: [u8; 4] = *b"\x01\0\0\0";
 
     /// The length of the vector always is a multiple of the WebAssembly page size,
     /// which is defined to be the constant 65536 – abbreviated 64Ki.
     pub const PAGE_SIZE: usize = 65536;
 
+    /// Identify the file format
+    #[inline]
+    pub fn identify(bytes: &[u8]) -> bool {
+        bytes.len() >= Self::MINIMAL_MOD_SIZE
+            && &bytes[0..4] == Self::MAGIC
+            && &bytes[4..8] == Self::VER_CURRENT
+    }
+
+    /// Instantiate wasm module
+    pub fn instantiate<F>(
+        bytes: &[u8],
+        imports_resolver: F,
+    ) -> Result<WasmModule, WasmDecodeErrorKind>
+    where
+        F: FnMut(&str, &str, &WasmType) -> ImportResult<WasmDynFunc> + Copy,
+    {
+        Self::compile(bytes)?.instantiate(imports_resolver)
+    }
+
+    /// Compile wasm module
+    #[inline]
+    pub fn compile(bytes: &[u8]) -> Result<WasmModule, WasmDecodeErrorKind> {
+        WasmModule::compile(bytes)
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn validate(bytes: &[u8]) -> bool {
+        Self::compile(bytes).is_ok()
+    }
+}
+
+/// WebAssembly module
+pub struct WasmModule {
+    types: Vec<WasmType>,
+    imports: Vec<WasmImport>,
+    functions: Vec<WasmFunction>,
+    tables: Vec<WasmTable>,
+    memories: Vec<WasmMemory>,
+    globals: Vec<WasmGlobal>,
+    exports: Vec<WasmExport>,
+    start: Option<usize>,
+    data_count: Option<usize>,
+    custom_sections: BTreeMap<String, Box<[u8]>>,
+    names: Option<WasmName>,
+    n_ext_func: usize,
+}
+
+impl WasmModule {
     #[inline]
     pub fn new() -> Self {
         Self {
-            module: WasmModule::new(),
+            types: Vec::new(),
+            imports: Vec::new(),
+            functions: Vec::new(),
+            tables: Vec::new(),
+            memories: Vec::from_iter([WasmMemory::zero()]),
+            globals: Vec::new(),
+            exports: Vec::new(),
+            start: None,
+            data_count: None,
+            custom_sections: BTreeMap::new(),
+            names: None,
+            n_ext_func: 0,
         }
     }
 
-    /// Identify the file format
     #[inline]
-    pub fn identify(blob: &[u8]) -> bool {
-        blob.len() >= Self::MINIMAL_MOD_SIZE
-            && &blob[0..4] == Self::MAGIC
-            && &blob[4..8] == Self::VER_CURRENT
-    }
-
-    /// Instantiate wasm modules from slice
-    pub fn instantiate<F>(blob: &[u8], resolver: F) -> Result<WasmModule, WasmDecodeErrorKind>
-    where
-        F: FnMut(&str, &str, &WasmType) -> ImportResult<WasmDynFunc> + Copy,
-    {
-        if Self::identify(blob) {
-            let mut loader = Self::new();
-            loader.load(blob, resolver).map(|_| loader.module)
-        } else {
+    fn compile(bytes: &[u8]) -> Result<Self, WasmDecodeErrorKind> {
+        if !WebAssembly::identify(bytes) {
             return Err(WasmDecodeErrorKind::BadExecutable);
         }
-    }
+        let mut module = Self::new();
+        let mut reader = Leb128Reader::from_slice(&bytes[8..]);
+        let reader = &mut reader;
 
-    /// Load wasm from slice
-    pub fn load<F>(&mut self, blob: &[u8], import_resolver: F) -> Result<(), WasmDecodeErrorKind>
-    where
-        F: FnMut(&str, &str, &WasmType) -> ImportResult<WasmDynFunc> + Copy,
-    {
-        let mut blob = Leb128Reader::from_slice(&blob[8..]);
-        while let Some(mut section) = WasmSection::from_reader(&mut blob)? {
-            match section.section_type {
-                WasmSectionType::Custom => {
+        while let Some(mut section) = WasmSection::from_reader(reader)? {
+            match section.section_id {
+                WasmSectionId::Custom => {
                     match section.reader.read() {
-                        Ok(WasmName::SECTION_NAME) => {
-                            self.module.names = WasmName::from_reader(&mut section.reader).ok()
+                        Ok(section_name) => {
+                            let mut blob = Vec::new();
+                            section.reader.read_to_end(&mut blob)?;
+
+                            match section_name {
+                                WasmName::SECTION_NAME => {
+                                    let mut reader = Leb128Reader::from_slice(blob.as_slice());
+                                    module.names = WasmName::from_reader(&mut reader).ok();
+                                }
+                                _ => (),
+                            }
+
+                            module
+                                .custom_sections
+                                .insert(section_name.to_owned(), blob.into_boxed_slice());
                         }
-                        _ => (),
-                    }
+                        Err(_) => (),
+                    };
                     Ok(())
                 }
-                WasmSectionType::Type => self.parse_sec_type(section),
-                WasmSectionType::Import => self.parse_sec_import(section, import_resolver),
-                WasmSectionType::Table => self.parse_sec_table(section),
-                WasmSectionType::Memory => self.parse_sec_memory(section),
-                WasmSectionType::Element => self.parse_sec_elem(section),
-                WasmSectionType::Function => self.parse_sec_func(section),
-                WasmSectionType::Export => self.parse_sec_export(section),
-                WasmSectionType::Code => self.parse_sec_code(section),
-                WasmSectionType::Data => self.parse_sec_data(section),
-                WasmSectionType::Start => self.parse_sec_start(section),
-                WasmSectionType::Global => self.parse_sec_global(section),
-                WasmSectionType::DataCount => self.parse_sec_data_count(section),
+                WasmSectionId::Type => module.parse_sec_type(section),
+                WasmSectionId::Import => module.parse_sec_import(section),
+                WasmSectionId::Function => module.parse_sec_func(section),
+                WasmSectionId::Table => module.parse_sec_table(section),
+                WasmSectionId::Memory => module.parse_sec_memory(section),
+                WasmSectionId::Global => module.parse_sec_global(section),
+                WasmSectionId::Export => module.parse_sec_export(section),
+                WasmSectionId::Start => module.parse_sec_start(section),
+                WasmSectionId::Element => module.parse_sec_elem(section),
+                WasmSectionId::Code => module.parse_sec_code(section),
+                WasmSectionId::Data => module.parse_sec_data(section),
+                WasmSectionId::DataCount => module.parse_sec_data_count(section),
             }?;
         }
 
-        self.module.types.shrink_to_fit();
-        self.module.imports.shrink_to_fit();
-        self.module.functions.shrink_to_fit();
-        self.module.tables.shrink_to_fit();
-        self.module.memories.shrink_to_fit();
-        self.module.exports.shrink_to_fit();
+        module.types.shrink_to_fit();
+        module.imports.shrink_to_fit();
+        module.functions.shrink_to_fit();
+        module.tables.shrink_to_fit();
+        module.memories.shrink_to_fit();
+        module.globals.shrink_to_fit();
+        module.exports.shrink_to_fit();
 
-        Ok(())
+        Ok(module)
     }
 
-    /// Returns a module
-    #[inline]
-    pub const fn module(&self) -> &WasmModule {
-        &self.module
-    }
-
-    /// Consumes self and returns a module.
-    #[inline]
-    pub fn into_module(self) -> WasmModule {
-        self.module
+    pub fn instantiate<F>(
+        mut self,
+        mut imports_resolver: F,
+    ) -> Result<WasmModule, WasmDecodeErrorKind>
+    where
+        F: FnMut(&str, &str, &WasmType) -> ImportResult<WasmDynFunc> + Copy,
+    {
+        let mut func_idx = 0;
+        for import in &self.imports {
+            match import.desc {
+                WasmImportDescriptor::Function(type_index) => {
+                    match imports_resolver(
+                        &import.mod_name,
+                        &import.name,
+                        &self.type_by_index(type_index),
+                    ) {
+                        ImportResult::Ok(dyn_func) => {
+                            self.functions[func_idx].resolve(dyn_func)?;
+                        }
+                        ImportResult::NoModule => {
+                            return Err(WasmDecodeErrorKind::NoModule(import.mod_name.clone()))
+                        }
+                        ImportResult::NoMethod => {
+                            return Err(WasmDecodeErrorKind::NoMethod(import.name.clone()))
+                        }
+                        ImportResult::Later => (),
+                    }
+                    func_idx += 1;
+                }
+                WasmImportDescriptor::Memory(_) => {
+                    // TODO:
+                }
+            }
+        }
+        Ok(self)
     }
 
     /// Parse "type" section
@@ -131,54 +209,34 @@ impl WebAssembly {
         let n_items: usize = section.reader.read()?;
         for _ in 0..n_items {
             let ft = WasmType::from_reader(&mut section.reader)?;
-            self.module.types.push(ft);
+            self.types.push(ft);
         }
         Ok(())
     }
 
     /// Parse "import" section
-    fn parse_sec_import<F>(
-        &mut self,
-        mut section: WasmSection,
-        mut resolver: F,
-    ) -> Result<(), WasmDecodeErrorKind>
-    where
-        F: FnMut(&str, &str, &WasmType) -> ImportResult<WasmDynFunc> + Copy,
-    {
+    fn parse_sec_import(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeErrorKind> {
         let n_items: usize = section.reader.read()?;
         for _ in 0..n_items {
-            let mut import = WasmImport::from_reader(&mut section.reader)?;
+            let import = WasmImport::from_reader(&mut section.reader)?;
             match import.desc {
-                WasmImportDescriptor::Type(type_index) => {
-                    import.func_ref = self.module.n_ext_func;
+                WasmImportDescriptor::Function(type_index) => {
                     let func_type = self
-                        .module
                         .types
                         .get(type_index.0)
                         .ok_or(WasmDecodeErrorKind::InvalidType(type_index))?;
-                    let dlink = match resolver(import.mod_name(), import.name(), func_type) {
-                        ImportResult::Ok(v) => v,
-                        ImportResult::NoMethod => {
-                            return Err(WasmDecodeErrorKind::NoMethod(import.name().to_owned()))
-                        }
-                        ImportResult::NoModule => {
-                            return Err(WasmDecodeErrorKind::NoModule(import.mod_name().to_owned()))
-                        }
-                        ImportResult::Later => todo!(),
-                    };
-                    self.module.functions.push(WasmFunction::from_import(
-                        self.module.n_ext_func,
+                    self.functions.push(WasmFunction::from_import(
+                        self.n_ext_func,
                         type_index,
                         func_type.clone(),
-                        dlink,
                     ));
-                    self.module.n_ext_func += 1;
+                    self.n_ext_func += 1;
                 }
                 WasmImportDescriptor::Memory(memtype) => {
-                    self.module.memories[0] = WasmMemory::new(memtype)?;
+                    self.memories[0] = WasmMemory::new(memtype)?;
                 }
             }
-            self.module.imports.push(import);
+            self.imports.push(import);
         }
         Ok(())
     }
@@ -186,15 +244,14 @@ impl WebAssembly {
     /// Parse "func" section
     fn parse_sec_func(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeErrorKind> {
         let n_items: usize = section.reader.read()?;
-        let base_index = self.module.imports.len();
+        let base_index = self.imports.len();
         for index in 0..n_items {
             let type_index = WasmTypeIndex(section.reader.read()?);
             let func_type = self
-                .module
                 .types
                 .get(type_index.0)
                 .ok_or(WasmDecodeErrorKind::InvalidType(type_index))?;
-            self.module.functions.push(WasmFunction::internal(
+            self.functions.push(WasmFunction::internal(
                 base_index + index,
                 type_index,
                 func_type.clone(),
@@ -206,15 +263,9 @@ impl WebAssembly {
     /// Parse "export" section
     fn parse_sec_export(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeErrorKind> {
         let n_items: usize = section.reader.read()?;
-        for i in 0..n_items {
-            let export = WasmExport::new(&self.module, &mut section.reader)?;
-            if let WasmExportType::Function(index) = export.export_type {
-                self.module
-                    .functions
-                    .get_mut(index)
-                    .map(|v| v.origin = WasmFunctionOrigin::Exported(i));
-            }
-            self.module.exports.push(export);
+        for _ in 0..n_items {
+            let export = WasmExport::new(&self, &mut section.reader)?;
+            self.exports.push(export);
         }
         Ok(())
     }
@@ -222,10 +273,10 @@ impl WebAssembly {
     /// Parse "memory" section
     fn parse_sec_memory(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeErrorKind> {
         let n_items: usize = section.reader.read()?;
-        self.module.memories.resize_with(0, || WasmMemory::zero());
+        self.memories.resize_with(0, || WasmMemory::zero());
         for _ in 0..n_items {
             let limit = WasmLimit::from_reader(&mut section.reader, true)?;
-            self.module.memories.push(WasmMemory::new(limit)?);
+            self.memories.push(WasmMemory::new(limit)?);
         }
         Ok(())
     }
@@ -235,7 +286,7 @@ impl WebAssembly {
         let n_items: usize = section.reader.read()?;
         for _ in 0..n_items {
             let table = WasmTable::from_reader(&mut section.reader)?;
-            self.module.tables.push(table);
+            self.tables.push(table);
         }
         Ok(())
     }
@@ -248,7 +299,6 @@ impl WebAssembly {
             let offset = self.eval_offset(&mut section.reader)? as usize;
             let n_elements = section.reader.read_unsigned()? as usize;
             let table = self
-                .module
                 .tables
                 .get_mut(tabidx)
                 .ok_or(WasmDecodeErrorKind::InvalidData)?;
@@ -264,10 +314,9 @@ impl WebAssembly {
     fn parse_sec_code(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeErrorKind> {
         let n_items: usize = section.reader.read()?;
         for i in 0..n_items {
-            let index = i + self.module.n_ext_func;
-            let module = &mut self.module;
+            let index = i + self.n_ext_func;
 
-            let func_def = module
+            let func_def = self
                 .functions
                 .get(index)
                 .ok_or(WasmDecodeErrorKind::OutOfFunction)?;
@@ -280,11 +329,10 @@ impl WebAssembly {
                 &mut reader,
                 func_def.param_types(),
                 func_def.result_types(),
-                module,
+                self,
             )?;
 
-            module
-                .functions
+            self.functions
                 .get_mut(index)
                 .ok_or(WasmDecodeErrorKind::OutOfFunction)
                 .and_then(|v| v.set_code_block(code_block))?;
@@ -300,7 +348,6 @@ impl WebAssembly {
             let offset = self.eval_offset(&mut section.reader)?;
             let src = section.reader.read_blob()?;
             let memory = self
-                .module
                 .memories
                 .get_mut(memidx)
                 .ok_or(WasmDecodeErrorKind::InvalidData)?;
@@ -312,7 +359,7 @@ impl WebAssembly {
     /// Parse "start" section
     fn parse_sec_start(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeErrorKind> {
         let index: usize = section.reader.read()?;
-        self.module.start = Some(index);
+        self.start = Some(index);
         Ok(())
     }
 
@@ -332,7 +379,7 @@ impl WebAssembly {
                 return Err(WasmDecodeErrorKind::InvalidGlobal);
             }
 
-            WasmGlobal::new(value, is_mutable).map(|v| self.module.globals.push(v))?;
+            WasmGlobal::new(value, is_mutable).map(|v| self.globals.push(v))?;
         }
         Ok(())
     }
@@ -343,7 +390,7 @@ impl WebAssembly {
         mut section: WasmSection,
     ) -> Result<(), WasmDecodeErrorKind> {
         let count: usize = section.reader.read()?;
-        self.module.data_count = Some(count);
+        self.data_count = Some(count);
         Ok(())
     }
 
@@ -354,81 +401,54 @@ impl WebAssembly {
     }
 
     fn eval_expr(&self, reader: &mut Leb128Reader) -> Result<WasmValue, WasmDecodeErrorKind> {
+        let opc = WasmSingleOpcode::new(reader.read_byte()?)
+            .ok_or(WasmDecodeErrorKind::UnexpectedToken)?;
+        let val = match opc {
+            WasmSingleOpcode::I32Const => Ok(WasmValue::I32(reader.read()?)),
+            WasmSingleOpcode::I64Const => Ok(WasmValue::I64(reader.read()?)),
+            WasmSingleOpcode::F32Const => Ok(WasmValue::F32(reader.read_f32()?)),
+            WasmSingleOpcode::F64Const => Ok(WasmValue::F64(reader.read_f64()?)),
+            _ => Err(WasmDecodeErrorKind::UnsupportedOpCode(WasmOpcode::Single(
+                opc,
+            ))),
+        }?;
         match WasmSingleOpcode::new(reader.read_byte()?) {
-            Some(WasmSingleOpcode::I32Const) => {
-                let result = WasmValue::I32(reader.read()?);
-                match WasmSingleOpcode::new(reader.read_byte()?) {
-                    Some(WasmSingleOpcode::End) => Ok(result),
-                    _ => Err(WasmDecodeErrorKind::UnexpectedToken),
-                }
-            }
-            Some(WasmSingleOpcode::I64Const) => {
-                let result = WasmValue::I64(reader.read()?);
-                match WasmSingleOpcode::new(reader.read_byte()?) {
-                    Some(WasmSingleOpcode::End) => Ok(result),
-                    _ => Err(WasmDecodeErrorKind::UnexpectedToken),
-                }
-            }
+            Some(WasmSingleOpcode::End) => Ok(val),
             _ => Err(WasmDecodeErrorKind::UnexpectedToken),
         }
     }
-}
 
-/// WebAssembly module
-pub struct WasmModule {
-    types: Vec<WasmType>,
-    imports: Vec<WasmImport>,
-    exports: Vec<WasmExport>,
-    memories: Vec<WasmMemory>,
-    tables: Vec<WasmTable>,
-    functions: Vec<WasmFunction>,
-    start: Option<usize>,
-    globals: Vec<WasmGlobal>,
-    // global_sp: Option<WasmGlobalStackPointer>,
-    data_count: Option<usize>,
-    names: Option<WasmName>,
-    n_ext_func: usize,
-}
-
-impl WasmModule {
     #[inline]
-    pub fn new() -> Self {
-        let memories = Vec::from_iter([WasmMemory::zero()]);
-        Self {
-            types: Vec::new(),
-            memories,
-            imports: Vec::new(),
-            exports: Vec::new(),
-            tables: Vec::new(),
-            functions: Vec::new(),
-            start: None,
-            globals: Vec::new(),
-            // global_sp: None,
-            data_count: None,
-            names: None,
-            n_ext_func: 0,
-        }
+    pub(crate) fn type_by_index(&self, index: WasmTypeIndex) -> &WasmType {
+        unsafe { self.types.get_unchecked(index.0) }
     }
 
     #[inline]
-    pub fn type_by_ref(&self, index: WasmTypeIndex) -> Option<&WasmType> {
-        self.types.get(index.0)
+    pub fn imports<'a>(&'a self) -> impl Iterator<Item = ModuleImport<'a>> {
+        self.imports.iter().map(|v| ModuleImport {
+            module: v.mod_name.as_str(),
+            name: v.name.as_str(),
+            kind: ImportExportKind::from_import_desc(&v.desc),
+        })
     }
 
     #[inline]
-    pub fn imports(&self) -> &[WasmImport] {
-        self.imports.as_slice()
+    pub fn exports<'a>(&'a self) -> impl Iterator<Item = ModuleExport<'a>> {
+        self.exports.iter().map(|v| ModuleExport {
+            name: v.name.as_str(),
+            kind: ImportExportKind::from_export_desc(&v.desc),
+        })
     }
 
     #[inline]
-    pub fn exports(&self) -> &[WasmExport] {
-        self.exports.as_slice()
+    pub fn custom_sections<'a>(&'a self, section_name: &str) -> Option<&Box<[u8]>> {
+        self.custom_sections.get(section_name)
     }
 
     #[inline]
     pub fn has_memory(&self) -> bool {
         if let Some(memory) = self.memories.first() {
-            memory.as_slice().len() > 0
+            memory.size() > 0
         } else {
             false
         }
@@ -440,22 +460,12 @@ impl WasmModule {
     }
 
     #[inline]
-    pub fn memory(&self, index: usize) -> Option<&WasmMemory> {
-        self.memories.get(index)
+    pub(crate) fn functions(&self) -> &[WasmFunction] {
+        self.functions.as_slice()
     }
 
     #[inline]
-    pub fn tables(&self) -> &[WasmTable] {
-        self.tables.as_slice()
-    }
-
-    #[inline]
-    pub fn tables_mut(&mut self) -> &mut [WasmTable] {
-        self.tables.as_mut_slice()
-    }
-
-    #[inline]
-    pub fn elem_get(&self, index: usize) -> Option<&WasmFunction> {
+    pub(crate) fn elem_get(&self, index: usize) -> Option<&WasmFunction> {
         self.tables
             .get(0)
             .and_then(|v| v.table.get(index))
@@ -463,23 +473,18 @@ impl WasmModule {
     }
 
     #[inline]
-    pub(crate) fn functions(&self) -> &[WasmFunction] {
-        self.functions.as_slice()
-    }
-
-    #[inline]
-    pub fn func_by_index(&self, index: usize) -> Result<WasmRunnable, WasmRuntimeErrorKind> {
+    pub(crate) fn func_by_index(&self, index: usize) -> Result<WasmRunnable, WasmRuntimeErrorKind> {
         self.functions
             .get(index)
             .map(|v| WasmRunnable::from_function(v, self))
             .ok_or(WasmRuntimeErrorKind::NoMethod)
     }
 
-    /// Get a reference to the exported function with the specified name
     #[inline]
-    pub fn func(&self, name: &str) -> Result<WasmRunnable, WasmRuntimeErrorKind> {
+    #[allow(dead_code)]
+    pub(crate) fn func(&self, name: &str) -> Result<WasmRunnable, WasmRuntimeErrorKind> {
         for export in &self.exports {
-            if let WasmExportType::Function(index) = export.export_type {
+            if let WasmExportDesc::Function(index) = export.desc {
                 if export.name == name {
                     return self.func_by_index(index);
                 }
@@ -488,18 +493,12 @@ impl WasmModule {
         Err(WasmRuntimeErrorKind::NoMethod)
     }
 
+    #[inline]
     pub(crate) fn func_position(&self, index: usize) -> Option<usize> {
         self.functions.get(index).and_then(|v| match v.content() {
             WasmFunctionContent::CodeBlock(v) => Some(v.file_position()),
             _ => None,
         })
-    }
-
-    #[inline]
-    pub fn entry_point(&self) -> Result<WasmRunnable, WasmRuntimeErrorKind> {
-        self.start
-            .ok_or(WasmRuntimeErrorKind::NoMethod)
-            .and_then(|v| self.func_by_index(v))
     }
 
     #[inline]
@@ -515,7 +514,7 @@ impl WasmModule {
     #[inline]
     pub fn global(&self, name: &str) -> Result<&WasmGlobal, WasmRuntimeErrorKind> {
         for export in &self.exports {
-            if let WasmExportType::Global(index) = export.export_type {
+            if let WasmExportDesc::Global(index) = export.desc {
                 if export.name == name {
                     return Ok(self.global_get(index));
                 }
@@ -525,13 +524,64 @@ impl WasmModule {
     }
 
     #[inline]
-    pub fn data_count(&self) -> Option<usize> {
+    #[allow(dead_code)]
+    pub(crate) fn data_count(&self) -> Option<usize> {
         self.data_count
     }
 
     #[inline]
-    pub fn names(&self) -> Option<&WasmName> {
+    pub(crate) fn names(&self) -> Option<&WasmName> {
         self.names.as_ref()
+    }
+}
+
+pub struct ModuleExport<'a> {
+    pub name: &'a str,
+    pub kind: ImportExportKind,
+}
+
+pub struct ModuleImport<'a> {
+    pub module: &'a str,
+    pub name: &'a str,
+    pub kind: ImportExportKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ImportExportKind {
+    Function,
+    Table,
+    Memory,
+    Global,
+}
+
+impl ImportExportKind {
+    #[inline]
+    fn from_import_desc(desc: &WasmImportDescriptor) -> Self {
+        match *desc {
+            WasmImportDescriptor::Function(_) => Self::Function,
+            WasmImportDescriptor::Memory(_) => Self::Memory,
+        }
+    }
+
+    #[inline]
+    fn from_export_desc(desc: &WasmExportDesc) -> Self {
+        match *desc {
+            WasmExportDesc::Function(_) => Self::Function,
+            WasmExportDesc::Table(_) => Self::Table,
+            WasmExportDesc::Memory(_) => Self::Memory,
+            WasmExportDesc::Global(_) => Self::Global,
+        }
+    }
+}
+
+pub struct WasmInstance {
+    module: WasmModule,
+}
+
+impl WasmInstance {
+    #[inline]
+    pub fn module(&self) -> &WasmModule {
+        &self.module
     }
 }
 
@@ -559,7 +609,7 @@ impl<'a, 'b> ReadLeb128<'a, WasmMemArg> for Leb128Reader<'b> {
 
 /// WebAssembly section
 pub struct WasmSection<'a> {
-    section_type: WasmSectionType,
+    section_id: WasmSectionId,
     file_position: usize,
     reader: Leb128Reader<'a>,
 }
@@ -572,7 +622,7 @@ impl<'a> WasmSection<'a> {
             return Ok(None);
         }
         let section_type = reader.read_byte()?;
-        let Some(section_type) = FromPrimitive::from_u8(section_type) else {
+        let Some(section_id) = FromPrimitive::from_u8(section_type) else {
             return Err(WasmDecodeErrorKind::UnexpectedToken);
         };
 
@@ -584,7 +634,7 @@ impl<'a> WasmSection<'a> {
             .ok_or(WasmDecodeErrorKind::InternalInconsistency)?;
 
         Ok(Some(Self {
-            section_type,
+            section_id,
             file_position,
             reader: _reader,
         }))
@@ -593,8 +643,8 @@ impl<'a> WasmSection<'a> {
 
 impl WasmSection<'_> {
     #[inline]
-    pub const fn section_type(&self) -> WasmSectionType {
-        self.section_type
+    pub const fn section_id(&self) -> WasmSectionId {
+        self.section_id
     }
 
     #[inline]
@@ -609,7 +659,7 @@ impl WasmSection<'_> {
 
     #[inline]
     pub fn custom_section_name(&self) -> Option<String> {
-        if self.section_type != WasmSectionType::Custom {
+        if self.section_id != WasmSectionId::Custom {
             return None;
         }
         let mut blob = self.reader.cloned();
@@ -621,7 +671,7 @@ impl WasmSection<'_> {
 /// WebAssembly section types
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialOrd, PartialEq, FromPrimitive)]
-pub enum WasmSectionType {
+pub enum WasmSectionId {
     Custom = 0,
     Type = 1,
     Import = 2,
@@ -892,222 +942,6 @@ impl WasmLimitType {
     }
 }
 
-// pub struct WasmMemory;
-
-/// WebAssembly memory object
-pub struct WasmMemory {
-    data: RefCell<Vec<u8>>,
-    size: AtomicI32,
-}
-
-impl WasmMemory {
-    #[inline]
-    pub const fn zero() -> Self {
-        Self {
-            data: RefCell::new(Vec::new()),
-            size: AtomicI32::new(0),
-        }
-    }
-
-    #[inline]
-    pub fn new(limit: WasmLimit) -> Result<Self, WasmDecodeErrorKind> {
-        let memory = Self::zero();
-
-        if limit.is_zero() {
-            return Ok(memory);
-        }
-
-        // if let Some(max) = limit.max() {
-        //     if memory.grow(max as i32).is_ok() {
-        //         return Ok(memory);
-        //     }
-        // }
-
-        memory
-            .grow(limit.min() as i32)
-            .map(|_| memory)
-            .map_err(|_| WasmDecodeErrorKind::OutOfMemory)
-    }
-
-    #[inline]
-    pub fn try_borrow_mut(&self) -> Result<core::cell::RefMut<'_, Vec<u8>>, WasmRuntimeErrorKind> {
-        self.data
-            .try_borrow_mut()
-            .map_err(|_| WasmRuntimeErrorKind::MemoryBorrowError)
-    }
-
-    #[inline]
-    pub fn while_borrowing<F, R>(&self, kernel: F) -> Result<R, WasmRuntimeErrorKind>
-    where
-        F: FnOnce(&mut [u8]) -> R,
-    {
-        let mut memory = self.try_borrow_mut()?;
-        let result = kernel(&mut memory);
-        drop(memory);
-        Ok(result)
-    }
-
-    #[inline]
-    #[track_caller]
-    fn as_slice(&self) -> core::cell::Ref<'_, Vec<u8>> {
-        self.data.borrow()
-    }
-
-    /// memory.size
-    #[inline]
-    pub fn size(&self) -> i32 {
-        self.size.load(Ordering::Acquire)
-    }
-
-    /// memory.grow
-    pub fn grow(&self, delta: i32) -> Result<i32, WasmRuntimeErrorKind> {
-        if delta > 0 {
-            let mut memory = self.try_borrow_mut()?;
-
-            let old_size = self.size();
-            let new_size = old_size
-                .checked_add(delta)
-                .ok_or(WasmRuntimeErrorKind::InvalidParameter)?;
-            let old_len = memory.len();
-            let additional = (delta as usize)
-                .checked_mul(WebAssembly::PAGE_SIZE)
-                .ok_or(WasmRuntimeErrorKind::InvalidParameter)?;
-            let new_len = old_len
-                .checked_add(additional)
-                .ok_or(WasmRuntimeErrorKind::InvalidParameter)?;
-
-            if memory.try_reserve(additional).is_err() {
-                return Err(WasmRuntimeErrorKind::OutOfMemory);
-            }
-            memory.resize(new_len, 0);
-
-            self.size.store(new_size, Ordering::Release);
-            Ok(old_size)
-        } else if delta == 0 {
-            Ok(self.size())
-        } else {
-            return Err(WasmRuntimeErrorKind::InvalidParameter);
-        }
-    }
-
-    // pub fn slice<'a>(&self, base: u32, count: u32) -> Result<&'a [u8], WasmRuntimeErrorKind> {
-    //     let memory = self.as_slice();
-    //     let limit = memory.len();
-    //     let _ea = Self::effective_address_range(base, count, limit)?;
-    //     Ok(unsafe { slice::from_raw_parts(memory.as_ptr().add(base as usize), count as usize) })
-    // }
-
-    // pub unsafe fn transmute<'a, T>(&self, offset: u32) -> Result<&'a T, WasmRuntimeErrorKind> {
-    //     let memory = self.as_slice();
-    //     let limit = memory.len();
-    //     let _ea = Self::effective_address::<T>(offset, limit)?;
-    //     Ok(unsafe { transmute(memory.as_ptr().add(offset as usize)) })
-    // }
-
-    /// Write slice to memory
-    fn write_slice(&self, offset: usize, src: &[u8]) -> Result<(), WasmRuntimeErrorKind> {
-        self.while_borrowing(|memory| {
-            let count = src.len();
-            let limit = memory.len();
-            let Some(end) = offset.checked_add(count) else {
-                return Err(WasmRuntimeErrorKind::OutOfBounds);
-            };
-            if offset < limit && end <= limit {
-                unsafe {
-                    memory
-                        .as_mut_ptr()
-                        .add(offset)
-                        .copy_from_nonoverlapping(src.as_ptr(), count);
-                }
-                Ok(())
-            } else {
-                Err(WasmRuntimeErrorKind::OutOfBounds)
-            }
-        })
-        .and_then(|v| v)
-    }
-
-    // pub fn memset(&self, base: u32, val: u8, count: u32) -> Result<(), WasmRuntimeErrorKind> {
-    //     let mut memory = self.as_mut_slice();
-    //     let limit = memory.len();
-    //     let _ea = Self::effective_address_range(base, count, limit)?;
-    //     unsafe {
-    //         memory
-    //             .as_mut_ptr()
-    //             .add(base as usize)
-    //             .write_bytes(val, count as usize);
-    //     }
-    //     Ok(())
-    // }
-
-    // pub fn memcpy(&self, dest: u32, src: u32, count: u32) -> Result<(), WasmRuntimeErrorKind> {
-    //     let mut memory = self.as_mut_slice();
-    //     let limit = memory.len();
-    //     let _ea = Self::effective_address_range(dest, count, limit)?;
-    //     let _ea = Self::effective_address_range(src, count, limit)?;
-    //     unsafe {
-    //         memory
-    //             .as_mut_ptr()
-    //             .add(dest as usize)
-    //             .copy_from(memory.as_ptr().add(src as usize), count as usize);
-    //     }
-    //     Ok(())
-    // }
-
-    #[inline]
-    pub fn check_bound(base: u64, count: usize, limit: usize) -> Result<(), WasmRuntimeErrorKind> {
-        if base.saturating_add(count as u64) <= limit as u64 {
-            Ok(())
-        } else {
-            Err(WasmRuntimeErrorKind::OutOfBounds)
-        }
-    }
-
-    #[inline]
-    pub fn effective_address<T>(
-        offset: u32,
-        index: u32,
-        limit: usize,
-    ) -> Result<usize, WasmRuntimeErrorKind> {
-        let base = (offset as u64).wrapping_add(index as u64);
-        Self::check_bound(base, size_of::<T>(), limit).map(|_| base as usize)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn read_i32(&self, offset: usize) -> i32 {
-        self.read_u32(offset) as i32
-    }
-
-    #[cfg(test)]
-    pub(crate) fn read_u32(&self, offset: usize) -> u32 {
-        let slice = &self.as_slice()[offset..offset + 4].try_into().unwrap();
-        u32::from_le_bytes(*slice)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn read_f32(&self, offset: usize) -> f32 {
-        let slice = &self.as_slice()[offset..offset + 4].try_into().unwrap();
-        f32::from_le_bytes(*slice)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn read_i64(&self, offset: usize) -> i64 {
-        self.read_u64(offset) as i64
-    }
-
-    #[cfg(test)]
-    pub(crate) fn read_u64(&self, offset: usize) -> u64 {
-        let slice = &self.as_slice()[offset..offset + 8].try_into().unwrap();
-        u64::from_le_bytes(*slice)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn read_f64(&self, offset: usize) -> f64 {
-        let slice = &self.as_slice()[offset..offset + 8].try_into().unwrap();
-        f64::from_le_bytes(*slice)
-    }
-}
-
 /// WebAssembly table object
 pub struct WasmTable {
     limit: WasmLimit,
@@ -1147,18 +981,11 @@ impl WasmTable {
 ///
 /// It appears as the third section (`0x03`) in the WebAssembly binary.
 pub struct WasmFunction {
+    is_external: bool,
     index: usize,
     type_index: WasmTypeIndex,
     func_type: WasmType,
-    origin: WasmFunctionOrigin,
     content: WasmFunctionContent,
-}
-
-#[derive(Debug, Copy, Clone)]
-enum WasmFunctionOrigin {
-    Internal,
-    Exported(usize),
-    Imported(usize),
 }
 
 pub(crate) enum WasmFunctionContent {
@@ -1169,28 +996,23 @@ pub(crate) enum WasmFunctionContent {
 
 impl WasmFunction {
     #[inline]
-    fn from_import(
-        index: usize,
-        type_index: WasmTypeIndex,
-        func_type: WasmType,
-        dlink: WasmDynFunc,
-    ) -> Self {
+    fn from_import(index: usize, type_index: WasmTypeIndex, func_type: WasmType) -> Self {
         Self {
+            is_external: true,
             index,
             type_index,
             func_type,
-            origin: WasmFunctionOrigin::Imported(index),
-            content: WasmFunctionContent::Dynamic(dlink),
+            content: WasmFunctionContent::Unresolved,
         }
     }
 
     #[inline]
     fn internal(index: usize, type_index: WasmTypeIndex, func_type: WasmType) -> Self {
         Self {
+            is_external: false,
             index,
             type_index,
             func_type,
-            origin: WasmFunctionOrigin::Internal,
             content: WasmFunctionContent::Unresolved,
         }
     }
@@ -1224,8 +1046,10 @@ impl WasmFunction {
         &mut self,
         code_block: WasmCodeBlock,
     ) -> Result<(), WasmDecodeErrorKind> {
-        match self.origin {
-            WasmFunctionOrigin::Internal | WasmFunctionOrigin::Exported(_) => match self.content {
+        if self.is_external {
+            Err(WasmDecodeErrorKind::OutOfFunction)
+        } else {
+            match self.content {
                 WasmFunctionContent::Unresolved => {
                     self.content = WasmFunctionContent::CodeBlock(code_block);
                     Ok(())
@@ -1233,8 +1057,23 @@ impl WasmFunction {
                 WasmFunctionContent::CodeBlock(_) | WasmFunctionContent::Dynamic(_) => {
                     Err(WasmDecodeErrorKind::InternalInconsistency)
                 }
-            },
-            WasmFunctionOrigin::Imported(_) => Err(WasmDecodeErrorKind::OutOfFunction),
+            }
+        }
+    }
+
+    pub(crate) fn resolve(&mut self, dyn_func: WasmDynFunc) -> Result<(), WasmDecodeErrorKind> {
+        if self.is_external {
+            match self.content {
+                WasmFunctionContent::Unresolved => {
+                    self.content = WasmFunctionContent::Dynamic(dyn_func);
+                    Ok(())
+                }
+                WasmFunctionContent::CodeBlock(_) | WasmFunctionContent::Dynamic(_) => {
+                    Err(WasmDecodeErrorKind::InternalInconsistency)
+                }
+            }
+        } else {
+            Err(WasmDecodeErrorKind::OutOfFunction)
         }
     }
 }
@@ -1250,7 +1089,14 @@ pub struct WasmType {
 
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct WasmTypeIndex(pub(crate) usize);
+pub struct WasmTypeIndex(usize);
+
+impl WasmTypeIndex {
+    #[inline]
+    pub fn new(module: &WasmModule, val: usize) -> Option<Self> {
+        (val < module.types.len()).then(|| Self(val))
+    }
+}
 
 impl WasmType {
     fn from_reader(reader: &mut Leb128Reader) -> Result<Self, WasmDecodeErrorKind> {
@@ -1338,7 +1184,6 @@ pub struct WasmImport {
     mod_name: String,
     name: String,
     desc: WasmImportDescriptor,
-    func_ref: usize,
 }
 
 impl WasmImport {
@@ -1352,29 +1197,13 @@ impl WasmImport {
             mod_name,
             name,
             desc,
-            func_ref: 0,
         })
-    }
-
-    #[inline]
-    pub fn mod_name(&self) -> &str {
-        self.mod_name.as_ref()
-    }
-
-    #[inline]
-    pub fn name(&self) -> &str {
-        self.name.as_ref()
-    }
-
-    #[inline]
-    pub const fn desc(&self) -> WasmImportDescriptor {
-        self.desc
     }
 }
 
 #[derive(Debug, Copy, Clone)]
 pub enum WasmImportDescriptor {
-    Type(WasmTypeIndex),
+    Function(WasmTypeIndex),
     // Table(usize),
     Memory(WasmLimit),
     // Global(usize),
@@ -1387,7 +1216,7 @@ impl WasmImportDescriptor {
         match import_type {
             0 => reader
                 .read()
-                .map(|v| Self::Type(WasmTypeIndex(v)))
+                .map(|v| Self::Function(WasmTypeIndex(v)))
                 .map_err(|v| v.into()),
             // 1 => reader.read_unsigned().map(|v| Self::Table(v as usize)),
             2 => WasmLimit::from_reader(&mut reader, true).map(|v| Self::Memory(v)),
@@ -1400,37 +1229,27 @@ impl WasmImportDescriptor {
 /// WebAssembly export object
 pub struct WasmExport {
     name: String,
-    export_type: WasmExportType,
+    desc: WasmExportDesc,
 }
 
 impl WasmExport {
     #[inline]
     fn new(module: &WasmModule, reader: &mut Leb128Reader) -> Result<Self, WasmDecodeErrorKind> {
         let name = reader.get_string()?;
-        let export_type = WasmExportType::new(module, reader)?;
-        Ok(Self { name, export_type })
-    }
-
-    #[inline]
-    pub fn name(&self) -> &str {
-        self.name.as_ref()
-    }
-
-    #[inline]
-    pub const fn export_type(&self) -> WasmExportType {
-        self.export_type
+        let desc = WasmExportDesc::new(module, reader)?;
+        Ok(Self { name, desc })
     }
 }
 
-#[derive(Debug, Copy, Clone)]
-pub enum WasmExportType {
+#[derive(Debug)]
+pub enum WasmExportDesc {
     Function(usize),
     Table(usize),
     Memory(usize),
     Global(GlobalVarIndex),
 }
 
-impl WasmExportType {
+impl WasmExportDesc {
     #[inline]
     fn new(module: &WasmModule, reader: &mut Leb128Reader) -> Result<Self, WasmDecodeErrorKind> {
         reader
@@ -1517,30 +1336,32 @@ impl From<leb128::ReadError> for WasmDecodeErrorKind {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 pub enum WasmRuntimeErrorKind {
-    /// Exit the application (not an error)
+    /// (not an error) Exit the application
     Exit,
-    /// Argument type mismatch (e.g., call instruction).
-    InvalidParameter,
-    /// Intermediate code that could not be converted
-    NotSupprted,
-    /// The Unreachable instruction was executed.
-    Unreachable,
-    /// Memory Boundary Errors
-    OutOfBounds,
-    /// The specified function cannot be found.
-    NoMethod,
-    /// Device by zero
-    DivideByZero,
-    /// The type of call instructions do not match.
-    TypeMismatch,
-    /// Internal error
-    InternalInconsistency,
-    /// Out of Memory
-    OutOfMemory,
-    /// Memory couldn't be borrowed
+    /// (recoverable) Memory couldn't be borrowed
     MemoryBorrowError,
+    /// (recoverable) Would block
+    WouldBlock,
+    /// (unrecoverable) Argument type mismatch (e.g., call instruction).
+    InvalidParameter,
+    /// (unrecoverable) Intermediate code that could not be converted
+    NotSupprted,
+    /// (unrecoverable) The Unreachable instruction was executed.
+    Unreachable,
+    /// (unrecoverable) Memory Boundary Errors
+    OutOfBounds,
+    /// (unrecoverable) The specified function cannot be found.
+    NoMethod,
+    /// (unrecoverable) Device by zero
+    DivideByZero,
+    /// (unrecoverable) The type of call instructions do not match.
+    TypeMismatch,
+    /// (unrecoverable) Internal error
+    InternalInconsistency,
+    /// (unrecoverable) Out of Memory
+    OutOfMemory,
 }
 
 /// A type that holds a WebAssembly primitive value with a type information tag.
