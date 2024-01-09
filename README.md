@@ -5,7 +5,8 @@ A WebAssembly Interpreter written in Rust
 ## features
 
 - Support for `no_std`
-- A subset of WebAssembly MVP
+- A subset of WebAssembly MVP v2.0
+  - SIMD and reference instructions and some basic functions are not supported.
 
 ## requirements
 

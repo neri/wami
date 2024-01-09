@@ -22,9 +22,9 @@ impl WasmOpcode {
     pub const UNREACHABLE: Self = Self::Single(WasmSingleOpcode::Unreachable);
     pub const END: Self = Self::Single(WasmSingleOpcode::End);
 
-    pub fn decode<E, F>(lead: u8, failure: E, trail: F) -> Result<Self, E>
+    pub fn decode<E, F>(lead: u8, failure: E, mut trail: F) -> Result<Self, E>
     where
-        F: FnOnce() -> Result<u32, E>,
+        F: FnMut() -> Result<u32, E>,
     {
         match WasmSingleOpcode::new(lead) {
             Some(WasmSingleOpcode::PrefixFC) => trail().and_then(|v| {
@@ -53,7 +53,7 @@ impl WasmOpcode {
         match self {
             WasmOpcode::Single(v) => v.proposal_type(),
             WasmOpcode::PrefixFC(v) => v.proposal_type(),
-            WasmOpcode::PrefixFD(_) => WasmProposalType::Simd,
+            WasmOpcode::PrefixFD(v) => v.proposal_type(),
         }
     }
 
@@ -77,8 +77,7 @@ impl WasmOpcode {
         match self {
             WasmOpcode::Single(_) => None,
             WasmOpcode::PrefixFC(v) => Some(*v as u32),
-            // TODO:
-            WasmOpcode::PrefixFD(_) => None,
+            WasmOpcode::PrefixFD(v) => Some(*v as u32),
         }
     }
 }

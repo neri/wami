@@ -407,15 +407,16 @@ impl WasmInterpreter<'_> {
 
                 WasmIntMnemonic::MemorySize => {
                     let ref_a = value_stack.get_mut(code.base_stack_level());
-                    *ref_a = WasmUnionValue::from((memory.len() / WebAssembly::PAGE_SIZE) as i32);
+                    ref_a.write_i32((memory.len() / WebAssembly::PAGE_SIZE) as i32);
                 }
                 WasmIntMnemonic::MemoryGrow => {
                     let ref_a = value_stack.get_mut(code.base_stack_level());
                     drop(memory);
 
                     let mem = GET_MEMORY!(self)?;
-                    *ref_a =
-                        WasmUnionValue::from(mem.grow(unsafe { ref_a.get_i32() }).unwrap_or(-1));
+                    unsafe {
+                        ref_a.map_u32(|v| mem.grow(v).unwrap_or(u32::MAX));
+                    }
 
                     memory = BORROW_MEMORY!(self)?;
                 }
@@ -457,27 +458,19 @@ impl WasmInterpreter<'_> {
 
                 WasmIntMnemonic::I32Const(val) => {
                     let ref_a = value_stack.get_mut(code.base_stack_level());
-                    unsafe {
-                        ref_a.write_i32(val);
-                    }
+                    ref_a.write_i32(val);
                 }
                 WasmIntMnemonic::I64Const(val) => {
                     let ref_a = value_stack.get_mut(code.base_stack_level());
-                    unsafe {
-                        ref_a.write_i64(val);
-                    }
+                    ref_a.write_i64(val);
                 }
                 WasmIntMnemonic::F32Const(val) => {
                     let ref_a = value_stack.get_mut(code.base_stack_level());
-                    unsafe {
-                        ref_a.write_f32(val);
-                    }
+                    ref_a.write_f32(val);
                 }
                 WasmIntMnemonic::F64Const(val) => {
                     let ref_a = value_stack.get_mut(code.base_stack_level());
-                    unsafe {
-                        ref_a.write_f64(val);
-                    }
+                    ref_a.write_f64(val);
                 }
 
                 WasmIntMnemonic::I32Eqz => {
@@ -1150,30 +1143,28 @@ impl WasmInterpreter<'_> {
 
                 WasmIntMnemonic::I32ReinterpretF32 => {
                     Self::unary_op(code, &mut value_stack, |v| unsafe {
-                        v.write_i32(transmute(v.get_f32()));
+                        v.write_u32(v.get_f32().to_bits());
                     })
                 }
                 WasmIntMnemonic::I64ReinterpretF64 => {
                     Self::unary_op(code, &mut value_stack, |v| unsafe {
-                        v.write_i64(transmute(v.get_f64()));
+                        v.write_u64(v.get_f64().to_bits());
                     })
                 }
                 WasmIntMnemonic::F32ReinterpretI32 => {
                     Self::unary_op(code, &mut value_stack, |v| unsafe {
-                        v.write_f32(transmute(v.get_i32()));
+                        v.write_f32(f32::from_bits(v.get_u32()));
                     })
                 }
                 WasmIntMnemonic::F64ReinterpretI64 => {
                     Self::unary_op(code, &mut value_stack, |v| unsafe {
-                        v.write_f64(transmute(v.get_i64()));
+                        v.write_f64(f64::from_bits(v.get_u64()));
                     })
                 }
 
                 WasmIntMnemonic::FusedI32SetConst(local_index, val) => {
                     let local = locals.get_local_mut(local_index);
-                    unsafe {
-                        local.write_i32(val);
-                    }
+                    local.write_i32(val);
                 }
                 WasmIntMnemonic::FusedI64SetConst(local_index, val) => {
                     let local = locals.get_local_mut(local_index);

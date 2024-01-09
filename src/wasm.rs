@@ -13,8 +13,6 @@ use core::{
     str,
     sync::atomic::{AtomicU32, Ordering},
 };
-use num_derive::FromPrimitive;
-use num_traits::FromPrimitive;
 use smallvec::SmallVec;
 
 pub type WasmDynFunc =
@@ -24,7 +22,6 @@ pub enum ImportResult<T> {
     Ok(T),
     NoModule,
     NoMethod,
-    Later,
 }
 
 pub struct WebAssembly;
@@ -74,6 +71,7 @@ impl WebAssembly {
 }
 
 /// WebAssembly module
+#[derive(Default)]
 pub struct WasmModule {
     types: Vec<WasmType>,
     imports: Vec<WasmImport>,
@@ -90,8 +88,8 @@ pub struct WasmModule {
 }
 
 impl WasmModule {
-    #[inline]
-    pub fn new() -> Self {
+    #[cfg(test)]
+    pub fn empty() -> Self {
         Self {
             types: Vec::new(),
             imports: Vec::new(),
@@ -113,7 +111,7 @@ impl WasmModule {
         if !WebAssembly::identify(bytes) {
             return Err(WasmDecodeErrorKind::BadExecutable);
         }
-        let mut module = Self::new();
+        let mut module = Self::default();
         let mut reader = Leb128Reader::from_slice(&bytes[8..]);
         let reader = &mut reader;
 
@@ -137,7 +135,9 @@ impl WasmModule {
                                 .custom_sections
                                 .insert(section_name.to_owned(), blob.into_boxed_slice());
                         }
-                        Err(_) => (),
+                        Err(_) => {
+                            // ignored
+                        }
                     };
                     Ok(())
                 }
@@ -181,7 +181,7 @@ impl WasmModule {
                     match imports_resolver(
                         &import.mod_name,
                         &import.name,
-                        &self.type_by_index(type_index),
+                        self.type_by_index(type_index),
                     ) {
                         ImportResult::Ok(dyn_func) => {
                             self.functions[func_idx].resolve(dyn_func)?;
@@ -192,12 +192,11 @@ impl WasmModule {
                         ImportResult::NoMethod => {
                             return Err(WasmDecodeErrorKind::NoMethod(import.name.clone()))
                         }
-                        ImportResult::Later => (),
                     }
                     func_idx += 1;
                 }
                 WasmImportDescriptor::Memory(_) => {
-                    // TODO:
+                    // TODO: import memory
                 }
             }
         }
@@ -233,6 +232,7 @@ impl WasmModule {
                     self.n_ext_func += 1;
                 }
                 WasmImportDescriptor::Memory(memtype) => {
+                    // TODO: import memory
                     self.memories[0] = WasmMemory::new(memtype)?;
                 }
             }
@@ -273,7 +273,6 @@ impl WasmModule {
     /// Parse "memory" section
     fn parse_sec_memory(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeErrorKind> {
         let n_items: usize = section.reader.read()?;
-        self.memories.resize_with(0, || WasmMemory::zero());
         for _ in 0..n_items {
             let limit = WasmLimit::from_reader(&mut section.reader, true)?;
             self.memories.push(WasmMemory::new(limit)?);
@@ -583,6 +582,11 @@ impl WasmInstance {
     pub fn module(&self) -> &WasmModule {
         &self.module
     }
+
+    #[inline]
+    pub fn exports(&self) -> impl Iterator<Item = ModuleExport<'_>> {
+        self.module.exports()
+    }
 }
 
 /// WebAssembly memory argument
@@ -622,7 +626,7 @@ impl<'a> WasmSection<'a> {
             return Ok(None);
         }
         let section_type = reader.read_byte()?;
-        let Some(section_id) = FromPrimitive::from_u8(section_type) else {
+        let Some(section_id) = WasmSectionId::from_u8(section_type) else {
             return Err(WasmDecodeErrorKind::UnexpectedToken);
         };
 
@@ -669,8 +673,7 @@ impl WasmSection<'_> {
 }
 
 /// WebAssembly section types
-#[non_exhaustive]
-#[derive(Debug, Clone, Copy, PartialOrd, PartialEq, FromPrimitive)]
+#[derive(Debug, Clone, Copy, PartialOrd, PartialEq)]
 pub enum WasmSectionId {
     Custom = 0,
     Type = 1,
@@ -685,6 +688,28 @@ pub enum WasmSectionId {
     Code = 10,
     Data = 11,
     DataCount = 12,
+}
+
+impl WasmSectionId {
+    #[inline]
+    pub fn from_u8(val: u8) -> Option<Self> {
+        Some(match val {
+            0 => Self::Custom,
+            1 => Self::Type,
+            2 => Self::Import,
+            3 => Self::Function,
+            4 => Self::Table,
+            5 => Self::Memory,
+            6 => Self::Global,
+            7 => Self::Export,
+            8 => Self::Start,
+            9 => Self::Element,
+            10 => Self::Code,
+            11 => Self::Data,
+            12 => Self::DataCount,
+            _ => return None,
+        })
+    }
 }
 
 /// WebAssembly primitive types
@@ -1204,9 +1229,9 @@ impl WasmImport {
 #[derive(Debug, Copy, Clone)]
 pub enum WasmImportDescriptor {
     Function(WasmTypeIndex),
-    // Table(usize),
+    // Table(_),
     Memory(WasmLimit),
-    // Global(usize),
+    // Global(_),
 }
 
 impl WasmImportDescriptor {
@@ -1611,7 +1636,7 @@ impl WasmUnionValue {
     }
 
     #[inline]
-    pub unsafe fn write_bool(&mut self, val: bool) {
+    pub fn write_bool(&mut self, val: bool) {
         self.usize = val as usize;
     }
 
@@ -1626,10 +1651,8 @@ impl WasmUnionValue {
     }
 
     #[inline]
-    pub unsafe fn write_i32(&mut self, val: i32) {
-        unsafe {
-            self.copy_from_i32(&Self::from(val));
-        }
+    pub fn write_i32(&mut self, val: i32) {
+        self.copy_from_i32(&Self::from(val));
     }
 
     #[inline]
@@ -1643,17 +1666,17 @@ impl WasmUnionValue {
     }
 
     #[inline]
-    pub unsafe fn write_i64(&mut self, val: i64) {
+    pub fn write_i64(&mut self, val: i64) {
         *self = Self::from(val);
     }
 
     #[inline]
-    pub unsafe fn write_f32(&mut self, val: f32) {
+    pub fn write_f32(&mut self, val: f32) {
         self.f32 = val;
     }
 
     #[inline]
-    pub unsafe fn write_f64(&mut self, val: f64) {
+    pub fn write_f64(&mut self, val: f64) {
         self.f64 = val;
     }
 
@@ -1694,9 +1717,7 @@ impl WasmUnionValue {
         F: FnOnce(i32) -> i32,
     {
         let val = unsafe { self.i32 };
-        unsafe {
-            self.copy_from_i32(&Self::from(f(val)));
-        }
+        self.copy_from_i32(&Self::from(f(val)));
     }
 
     /// Retrieves the value held by the instance as a value of type `u32` and re-stores the value processed by the closure.
@@ -1706,7 +1727,7 @@ impl WasmUnionValue {
         F: FnOnce(u32) -> u32,
     {
         let val = unsafe { self.u32 };
-        unsafe { self.copy_from_i32(&Self::from(f(val))) };
+        self.copy_from_i32(&Self::from(f(val)));
     }
 
     /// Retrieves the value held by the instance as a value of type `i64` and re-stores the value processed by the closure.
@@ -1735,7 +1756,7 @@ impl WasmUnionValue {
         F: FnOnce(f32) -> f32,
     {
         let val = unsafe { self.f32 };
-        unsafe { self.copy_from_i32(&Self::from(f(val))) };
+        self.copy_from_i32(&Self::from(f(val)));
     }
 
     #[inline]
@@ -1759,7 +1780,7 @@ impl WasmUnionValue {
     }
 
     #[inline]
-    pub unsafe fn copy_from_i32(&mut self, other: &Self) {
+    pub fn copy_from_i32(&mut self, other: &Self) {
         if Self::_is_32bit_env() {
             self.u32 = unsafe { other.u32 };
         } else {
@@ -1943,7 +1964,7 @@ impl WasmName {
         while !reader.is_eof() {
             let name_id = reader.read_byte()?;
             let blob = reader.read_blob()?;
-            let Some(name_id) = FromPrimitive::from_u8(name_id) else {
+            let Some(name_id) = WasmNameSubsectionType::from_u8(name_id) else {
                 continue;
             };
             let mut reader = Leb128Reader::from_slice(blob);
@@ -2008,8 +2029,7 @@ impl WasmName {
     }
 }
 
-#[non_exhaustive]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromPrimitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum WasmNameSubsectionType {
     Module = 0,
     Function = 1,
@@ -2021,6 +2041,25 @@ enum WasmNameSubsectionType {
     Global = 7,
     ElemSegment = 8,
     DataSegment = 9,
+}
+
+impl WasmNameSubsectionType {
+    #[inline]
+    pub fn from_u8(val: u8) -> Option<Self> {
+        Some(match val {
+            0 => Self::Module,
+            1 => Self::Function,
+            2 => Self::Local,
+            3 => Self::Labels,
+            4 => Self::Type,
+            5 => Self::Table,
+            6 => Self::Memory,
+            7 => Self::Global,
+            8 => Self::ElemSegment,
+            9 => Self::DataSegment,
+            _ => return None,
+        })
+    }
 }
 
 /// Instance type to invoke the function

@@ -4,13 +4,13 @@ use core::{
     cell::UnsafeCell,
     mem::size_of,
     ops::{Deref, DerefMut},
-    sync::atomic::{fence, AtomicI32, Ordering},
+    sync::atomic::{fence, AtomicU32, Ordering},
 };
 
 /// WebAssembly memory object
 pub struct WasmMemory {
     data: RwLockNb<SharedDataStore>,
-    size: AtomicI32,
+    size: AtomicU32,
     limit: u32,
 }
 
@@ -19,7 +19,7 @@ impl WasmMemory {
     pub const fn zero() -> Self {
         Self {
             data: RwLockNb::new(SharedDataStore::new()),
-            size: AtomicI32::new(0),
+            size: AtomicU32::new(0),
             limit: 0,
         }
     }
@@ -28,7 +28,7 @@ impl WasmMemory {
     pub fn new(limit: WasmLimit) -> Result<Self, WasmDecodeErrorKind> {
         let memory = Self {
             data: RwLockNb::new(SharedDataStore::new()),
-            size: AtomicI32::new(0),
+            size: AtomicU32::new(0),
             limit: limit.max().unwrap_or(u32::MAX).min(0x1_0000),
         };
 
@@ -37,7 +37,7 @@ impl WasmMemory {
         }
 
         memory
-            .grow(limit.min() as i32)
+            .grow(limit.min())
             .map(|_| memory)
             .map_err(|_| WasmDecodeErrorKind::OutOfMemory)
     }
@@ -52,7 +52,7 @@ impl WasmMemory {
     }
 
     #[inline]
-    pub fn while_borrowing<F, R>(&self, kernel: F) -> Result<R, WasmRuntimeErrorKind>
+    pub fn borrowing<F, R>(&self, kernel: F) -> Result<R, WasmRuntimeErrorKind>
     where
         F: FnOnce(&mut [u8]) -> R,
     {
@@ -62,21 +62,14 @@ impl WasmMemory {
         Ok(result)
     }
 
-    #[cfg(test)]
-    #[inline]
-    #[track_caller]
-    fn as_slice(&self) -> RwLockNbReadGuard<'_, SharedDataStore> {
-        self.data.try_read().unwrap()
-    }
-
     /// memory.size
     #[inline]
-    pub fn size(&self) -> i32 {
+    pub fn size(&self) -> u32 {
         self.size.load(Ordering::Acquire)
     }
 
     /// memory.grow
-    pub fn grow(&self, delta: i32) -> Result<i32, WasmRuntimeErrorKind> {
+    pub fn grow(&self, delta: u32) -> Result<u32, WasmRuntimeErrorKind> {
         if delta > 0 {
             let mut memory = self
                 .data
@@ -96,10 +89,8 @@ impl WasmMemory {
 
             self.size.store(new_len, Ordering::Release);
             Ok(old_len)
-        } else if delta == 0 {
-            Ok(self.size())
         } else {
-            return Err(WasmRuntimeErrorKind::InvalidParameter);
+            Ok(self.size())
         }
     }
 
@@ -119,7 +110,7 @@ impl WasmMemory {
 
     /// Write slice to memory
     pub fn write_slice(&self, offset: usize, src: &[u8]) -> Result<(), WasmRuntimeErrorKind> {
-        self.while_borrowing(|memory| {
+        self.borrowing(|memory| {
             let count = src.len();
             let limit = memory.len();
             let Some(end) = offset.checked_add(count) else {
@@ -158,40 +149,6 @@ impl WasmMemory {
         let base = (offset as u64).wrapping_add(index as u64);
         Self::check_bound(base, size_of::<T>(), limit).map(|_| base as usize)
     }
-
-    #[cfg(test)]
-    pub(crate) fn read_i32(&self, offset: usize) -> i32 {
-        self.read_u32(offset) as i32
-    }
-
-    #[cfg(test)]
-    pub(crate) fn read_u32(&self, offset: usize) -> u32 {
-        let slice = &self.as_slice()[offset..offset + 4].try_into().unwrap();
-        u32::from_le_bytes(*slice)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn read_f32(&self, offset: usize) -> f32 {
-        let slice = &self.as_slice()[offset..offset + 4].try_into().unwrap();
-        f32::from_le_bytes(*slice)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn read_i64(&self, offset: usize) -> i64 {
-        self.read_u64(offset) as i64
-    }
-
-    #[cfg(test)]
-    pub(crate) fn read_u64(&self, offset: usize) -> u64 {
-        let slice = &self.as_slice()[offset..offset + 8].try_into().unwrap();
-        u64::from_le_bytes(*slice)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn read_f64(&self, offset: usize) -> f64 {
-        let slice = &self.as_slice()[offset..offset + 8].try_into().unwrap();
-        f64::from_le_bytes(*slice)
-    }
 }
 
 #[repr(transparent)]
@@ -202,11 +159,6 @@ impl SharedDataStore {
     #[inline]
     pub const fn new() -> Self {
         Self(UnsafeCell::new(Vec::new()))
-    }
-
-    #[inline]
-    pub fn as_vec_mut(&mut self) -> &mut Vec<u8> {
-        self.0.get_mut()
     }
 
     #[inline]
@@ -253,6 +205,45 @@ impl SharedDataStore {
         vec.resize(new_size, 0);
 
         Ok(())
+    }
+
+    #[inline]
+    pub fn fill(&self, value: u8) {
+        self.as_mut_slice().fill(value);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn read_i32(&self, offset: usize) -> i32 {
+        self.read_u32(offset) as i32
+    }
+
+    #[cfg(test)]
+    pub(crate) fn read_u32(&self, offset: usize) -> u32 {
+        let slice = &self.as_slice()[offset..offset + 4].try_into().unwrap();
+        u32::from_le_bytes(*slice)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn read_f32(&self, offset: usize) -> f32 {
+        let slice = &self.as_slice()[offset..offset + 4].try_into().unwrap();
+        f32::from_le_bytes(*slice)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn read_i64(&self, offset: usize) -> i64 {
+        self.read_u64(offset) as i64
+    }
+
+    #[cfg(test)]
+    pub(crate) fn read_u64(&self, offset: usize) -> u64 {
+        let slice = &self.as_slice()[offset..offset + 8].try_into().unwrap();
+        u64::from_le_bytes(*slice)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn read_f64(&self, offset: usize) -> f64 {
+        let slice = &self.as_slice()[offset..offset + 8].try_into().unwrap();
+        f64::from_le_bytes(*slice)
     }
 }
 
