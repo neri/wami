@@ -1,8 +1,8 @@
 use crate::{
+    bytecode::{WasmBytecode, WasmMnemonic},
     cg::WasmCodeBlock,
     leb128::{self, *},
     memory::WasmMemory,
-    opcode::*,
 };
 use alloc::{borrow::ToOwned, boxed::Box, collections::BTreeMap, format, string::*, vec::Vec};
 use core::{
@@ -114,8 +114,16 @@ impl WasmModule {
         let mut module = Self::default();
         let mut reader = Leb128Reader::from_slice(&bytes[8..]);
         let reader = &mut reader;
+        let mut last_section_id = WasmSectionId::Type;
 
         while let Some(mut section) = WasmSection::from_reader(reader)? {
+            if section.section_id.depends_on_order() {
+                if last_section_id > section.section_id {
+                    return Err(WasmDecodeErrorKind::InvalidSectionOrder(section.section_id));
+                } else {
+                    last_section_id = section.section_id;
+                }
+            }
             match section.section_id {
                 WasmSectionId::Custom => {
                     match section.reader.read() {
@@ -222,7 +230,7 @@ impl WasmModule {
                 WasmImportDescriptor::Function(type_index) => {
                     let func_type = self
                         .types
-                        .get(type_index.0)
+                        .get(type_index.as_usize())
                         .ok_or(WasmDecodeErrorKind::InvalidType(type_index))?;
                     self.functions.push(WasmFunction::from_import(
                         self.n_ext_func,
@@ -249,7 +257,7 @@ impl WasmModule {
             let type_index = WasmTypeIndex(section.reader.read()?);
             let func_type = self
                 .types
-                .get(type_index.0)
+                .get(type_index.as_usize())
                 .ok_or(WasmDecodeErrorKind::InvalidType(type_index))?;
             self.functions.push(WasmFunction::internal(
                 base_index + index,
@@ -370,7 +378,7 @@ impl WasmModule {
                 .reader
                 .read_byte()
                 .map_err(|v| v.into())
-                .and_then(|v| WasmValType::from_u64(v as u64))?;
+                .and_then(|v| WasmValType::from_u8(v))?;
             let is_mutable = section.reader.read_byte()? == 1;
             let value = self.eval_expr(&mut section.reader)?;
 
@@ -399,27 +407,30 @@ impl WasmModule {
             .map(|v| v as usize)
     }
 
+    /// Evaluate constant expression
     fn eval_expr(&self, reader: &mut Leb128Reader) -> Result<WasmValue, WasmDecodeErrorKind> {
-        let opc = WasmSingleOpcode::new(reader.read_byte()?)
-            .ok_or(WasmDecodeErrorKind::UnexpectedToken)?;
-        let val = match opc {
-            WasmSingleOpcode::I32Const => Ok(WasmValue::I32(reader.read()?)),
-            WasmSingleOpcode::I64Const => Ok(WasmValue::I64(reader.read()?)),
-            WasmSingleOpcode::F32Const => Ok(WasmValue::F32(reader.read_f32()?)),
-            WasmSingleOpcode::F64Const => Ok(WasmValue::F64(reader.read_f64()?)),
-            _ => Err(WasmDecodeErrorKind::UnsupportedOpCode(WasmOpcode::Single(
-                opc,
-            ))),
-        }?;
-        match WasmSingleOpcode::new(reader.read_byte()?) {
-            Some(WasmSingleOpcode::End) => Ok(val),
-            _ => Err(WasmDecodeErrorKind::UnexpectedToken),
+        let mut vs = Vec::new();
+        loop {
+            let bc = WasmBytecode::fetch(reader)?;
+            match bc {
+                WasmBytecode::I32Const(v) => vs.push(WasmValue::from(v)),
+                WasmBytecode::I64Const(v) => vs.push(WasmValue::from(v)),
+                WasmBytecode::F32Const(v) => vs.push(WasmValue::from(v)),
+                WasmBytecode::F64Const(v) => vs.push(WasmValue::from(v)),
+                WasmBytecode::End => match vs.last() {
+                    Some(v) => return Ok(*v),
+                    None => {
+                        return Err(WasmDecodeErrorKind::InvalidData);
+                    }
+                },
+                _ => return Err(WasmDecodeErrorKind::UnsupportedBytecode(bc.mnemonic())),
+            }
         }
     }
 
     #[inline]
     pub(crate) fn type_by_index(&self, index: WasmTypeIndex) -> &WasmType {
-        unsafe { self.types.get_unchecked(index.0) }
+        unsafe { self.types.get_unchecked(index.as_usize()) }
     }
 
     #[inline]
@@ -673,26 +684,34 @@ impl WasmSection<'_> {
 }
 
 /// WebAssembly section types
-#[derive(Debug, Clone, Copy, PartialOrd, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum WasmSectionId {
-    Custom = 0,
-    Type = 1,
-    Import = 2,
-    Function = 3,
-    Table = 4,
-    Memory = 5,
-    Global = 6,
-    Export = 7,
-    Start = 8,
-    Element = 9,
-    Code = 10,
-    Data = 11,
-    DataCount = 12,
+    Type,
+    Import,
+    Function,
+    Table,
+    Memory,
+    Global,
+    Export,
+    Start,
+    Element,
+    DataCount,
+    Code,
+    Data,
+    Custom,
 }
 
 impl WasmSectionId {
     #[inline]
-    pub fn from_u8(val: u8) -> Option<Self> {
+    pub const fn depends_on_order(&self) -> bool {
+        match self {
+            WasmSectionId::Custom => false,
+            _ => true,
+        }
+    }
+
+    #[inline]
+    pub const fn from_u8(val: u8) -> Option<Self> {
         Some(match val {
             0 => Self::Custom,
             1 => Self::Type,
@@ -716,24 +735,23 @@ impl WasmSectionId {
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum WasmValType {
-    I32 = 0x7F,
-    I64 = 0x7E,
-    F32 = 0x7D,
-    F64 = 0x7C,
-    // V128 = 0x7B,
-    // FuncRef = 0x70,
-    // ExternRef = 0x6F,
+    I32,
+    I64,
+    F32,
+    F64,
 }
 
 impl WasmValType {
     #[inline]
-    pub const fn from_u64(v: u64) -> Result<Self, WasmDecodeErrorKind> {
+    pub const fn from_u8(v: u8) -> Result<Self, WasmDecodeErrorKind> {
         match v {
             0x7F => Ok(Self::I32),
             0x7E => Ok(Self::I64),
             0x7D => Ok(Self::F32),
             0x7C => Ok(Self::F64),
             // 0x7B => Ok(Self::V128),
+            // 0x78 => Ok(Self::I8),
+            // 0x77 => Ok(Self::I16),
             // 0x70 => Ok(Self::FuncRef),
             // 0x6F => Ok(Self::ExternRef),
             _ => Err(WasmDecodeErrorKind::UnexpectedToken),
@@ -748,6 +766,8 @@ impl WasmValType {
             -3 => Ok(Self::F32),
             -4 => Ok(Self::F64),
             // -5 => Ok(Self::V128),
+            // -8 => Ok(Self::I8),
+            // -9 => Ok(Self::I16),
             // -16 => Ok(Self::FuncRef),
             // -17 => Ok(Self::ExternRef),
             _ => Err(WasmDecodeErrorKind::UnexpectedToken),
@@ -762,6 +782,8 @@ impl WasmValType {
             Self::F32 => 'f',
             Self::F64 => 'd',
             // Self::V128 => 'v',
+            // Self::I8 => 'c',
+            // Self::I16 => 'w',
             // Self::FuncRef | Self::ExternRef => '_',
         }
     }
@@ -806,6 +828,8 @@ impl fmt::Display for WasmValType {
                 Self::F32 => "f32",
                 Self::F64 => "f64",
                 // Self::V128 => "v128",
+                // Self::I8 => "i8",
+                // Self::I16 => "i16",
                 // Self::FuncRef => "func",
                 // Self::ExternRef => "extern",
             }
@@ -822,6 +846,8 @@ pub enum WasmBlockType {
     I64 = -2,
     F32 = -3,
     F64 = -4,
+    // I8 = -8,
+    // I16 = -9,
 }
 
 impl WasmBlockType {
@@ -844,6 +870,14 @@ impl WasmBlockType {
             WasmBlockType::F32 => Some(WasmValType::F32),
             WasmBlockType::F64 => Some(WasmValType::F64),
         }
+    }
+}
+
+impl<'a> ReadLeb128<'a, WasmBlockType> for Leb128Reader<'_> {
+    #[inline]
+    fn read(&'a mut self) -> Result<WasmBlockType, ReadError> {
+        let value: i64 = self.read()?;
+        WasmBlockType::from_i64(value).map_err(|_| ReadError::InvalidData)
     }
 }
 
@@ -1114,12 +1148,17 @@ pub struct WasmType {
 
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct WasmTypeIndex(usize);
+pub struct WasmTypeIndex(u32);
 
 impl WasmTypeIndex {
     #[inline]
-    pub fn new(module: &WasmModule, val: usize) -> Option<Self> {
-        (val < module.types.len()).then(|| Self(val))
+    pub fn new(module: &WasmModule, val: u32) -> Option<Self> {
+        ((val as usize) < module.types.len()).then(|| Self(val))
+    }
+
+    #[inline]
+    pub const fn as_usize(&self) -> usize {
+        self.0 as usize
     }
 }
 
@@ -1134,18 +1173,18 @@ impl WasmType {
         let mut param_types = SmallVec::with_capacity(n_params);
         for _ in 0..n_params {
             reader
-                .read_unsigned()
+                .read_byte()
                 .map_err(|v| v.into())
-                .and_then(|v| WasmValType::from_u64(v))
+                .and_then(|v| WasmValType::from_u8(v))
                 .map(|v| param_types.push(v))?;
         }
         let n_result = reader.read_unsigned()? as usize;
         let mut result_types = SmallVec::with_capacity(n_result);
         for _ in 0..n_result {
             reader
-                .read_unsigned()
+                .read_byte()
                 .map_err(|v| v.into())
-                .and_then(|v| WasmValType::from_u64(v))
+                .and_then(|v| WasmValType::from_u8(v))
                 .map(|v| result_types.push(v))?;
         }
         Ok(Self {
@@ -1294,8 +1333,8 @@ impl WasmExportDesc {
                     .map(|v| Self::Memory(v as usize))
                     .map_err(|v| v.into()),
                 3 => {
-                    let index: usize = reader.read()?;
-                    (index < module.globals.len())
+                    let index: u32 = reader.read()?;
+                    ((index as usize) < module.globals.len())
                         .then(|| Self::Global(unsafe { GlobalVarIndex::new(index) }))
                         .ok_or(WasmDecodeErrorKind::InvalidGlobal)
                 }
@@ -1314,10 +1353,14 @@ pub enum WasmDecodeErrorKind {
     UnexpectedToken,
     /// Detected a bytecode that cannot be decoded.
     InvalidBytecode(u8),
-    /// Unsupported opcode
-    UnsupportedOpCode(WasmOpcode),
+    /// Detected a bytecode that cannot be decoded.
+    InvalidBytecode2(u8, u32),
+    /// Unsupported bytecode
+    UnsupportedBytecode(WasmMnemonic),
     /// Unsupported global data type
     UnsupportedGlobalType(WasmValType),
+    /// Unprocessable section order found.
+    InvalidSectionOrder(WasmSectionId),
     /// Invalid parameter was specified.
     InvalidData,
     /// Invalid stack level.
@@ -2090,11 +2133,11 @@ impl WasmRunnable<'_> {
 
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct LocalVarIndex(usize);
+pub struct LocalVarIndex(u32);
 
 impl LocalVarIndex {
     #[inline]
-    pub const unsafe fn new(val: usize) -> Self {
+    pub const unsafe fn new(val: u32) -> Self {
         Self(val)
     }
 
@@ -2106,11 +2149,11 @@ impl LocalVarIndex {
 
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct GlobalVarIndex(usize);
+pub struct GlobalVarIndex(u32);
 
 impl GlobalVarIndex {
     #[inline]
-    pub const unsafe fn new(val: usize) -> Self {
+    pub const unsafe fn new(val: u32) -> Self {
         Self(val)
     }
 

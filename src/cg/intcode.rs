@@ -1,8 +1,5 @@
 use super::{GlobalVarIndex, LocalVarIndex, StackLevel};
-use crate::{
-    opcode::{WasmOpcode, WasmSingleOpcode},
-    WasmTypeIndex,
-};
+use crate::{bytecode::WasmMnemonic, WasmTypeIndex};
 use alloc::{boxed::Box, vec::Vec};
 
 /// Intermediate code for Webassembly interpreter
@@ -10,7 +7,7 @@ use alloc::{boxed::Box, vec::Vec};
 #[derive(Debug, PartialEq)]
 pub enum WasmIntMnemonic {
     /// Intermediate code that could not be converted
-    Undefined(WasmOpcode, ExceptionPosition),
+    Undefined(WasmMnemonic, ExceptionPosition),
 
     /// No operation marker, this mnemonic will be removed during the compaction phase.
     Nop,
@@ -23,11 +20,11 @@ pub enum WasmIntMnemonic {
     Unreachable(ExceptionPosition),
 
     /// `0C br labelidx`
-    Br(usize),
+    Br(u32),
     /// `0D br_if labelidx`
-    BrIf(usize),
+    BrIf(u32),
     /// `0E br_table vec(labelidx) labelidx`
-    BrTable(Box<[usize]>),
+    BrTable(Box<[u32]>),
 
     /// return from function (-> nil)
     ReturnN,
@@ -271,21 +268,21 @@ pub enum WasmIntMnemonic {
     FusedI64ShrSI(u32),
     FusedI64ShrUI(u32),
 
-    FusedI32BrZ(usize),
-    FusedI32BrEq(usize),
-    FusedI32BrNe(usize),
-    FusedI32BrLtS(usize),
-    FusedI32BrLtU(usize),
-    FusedI32BrGtS(usize),
-    FusedI32BrGtU(usize),
-    FusedI32BrLeS(usize),
-    FusedI32BrLeU(usize),
-    FusedI32BrGeS(usize),
-    FusedI32BrGeU(usize),
+    FusedI32BrZ(u32),
+    FusedI32BrEq(u32),
+    FusedI32BrNe(u32),
+    FusedI32BrLtS(u32),
+    FusedI32BrLtU(u32),
+    FusedI32BrGtS(u32),
+    FusedI32BrGtU(u32),
+    FusedI32BrLeS(u32),
+    FusedI32BrLeU(u32),
+    FusedI32BrGeS(u32),
+    FusedI32BrGeU(u32),
 
-    FusedI64BrZ(usize),
-    FusedI64BrEq(usize),
-    FusedI64BrNe(usize),
+    FusedI64BrZ(u32),
+    FusedI64BrEq(u32),
+    FusedI64BrNe(u32),
 }
 
 impl WasmIntMnemonic {
@@ -355,65 +352,65 @@ impl WasmImc {
 
     pub fn adjust_branch_target<F, E>(&mut self, mut f: F) -> Result<(), E>
     where
-        F: FnMut(WasmOpcode, usize) -> Result<usize, E>,
+        F: FnMut(WasmMnemonic, usize) -> Result<usize, E>,
     {
         use WasmIntMnemonic::*;
         match self.mnemonic_mut() {
             Br(target) => {
-                *target = f(WasmSingleOpcode::Br.into(), *target)?;
+                *target = f(WasmMnemonic::Br, *target as usize)? as u32;
             }
             BrIf(target) => {
-                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
+                *target = f(WasmMnemonic::BrIf, *target as usize)? as u32;
             }
 
             FusedI32BrZ(target) => {
-                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
+                *target = f(WasmMnemonic::BrIf, *target as usize)? as u32;
             }
             FusedI32BrEq(target) => {
-                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
+                *target = f(WasmMnemonic::BrIf, *target as usize)? as u32;
             }
             FusedI32BrNe(target) => {
-                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
+                *target = f(WasmMnemonic::BrIf, *target as usize)? as u32;
             }
             FusedI32BrLtS(target) => {
-                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
+                *target = f(WasmMnemonic::BrIf, *target as usize)? as u32;
             }
             FusedI32BrLtU(target) => {
-                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
+                *target = f(WasmMnemonic::BrIf, *target as usize)? as u32;
             }
             FusedI32BrGtS(target) => {
-                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
+                *target = f(WasmMnemonic::BrIf, *target as usize)? as u32;
             }
             FusedI32BrGtU(target) => {
-                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
+                *target = f(WasmMnemonic::BrIf, *target as usize)? as u32;
             }
             FusedI32BrLeS(target) => {
-                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
+                *target = f(WasmMnemonic::BrIf, *target as usize)? as u32;
             }
             FusedI32BrLeU(target) => {
-                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
+                *target = f(WasmMnemonic::BrIf, *target as usize)? as u32;
             }
             FusedI32BrGeS(target) => {
-                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
+                *target = f(WasmMnemonic::BrIf, *target as usize)? as u32;
             }
             FusedI32BrGeU(target) => {
-                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
+                *target = f(WasmMnemonic::BrIf, *target as usize)? as u32;
             }
 
             FusedI64BrZ(target) => {
-                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
+                *target = f(WasmMnemonic::BrIf, *target as usize)? as u32;
             }
             FusedI64BrEq(target) => {
-                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
+                *target = f(WasmMnemonic::BrIf, *target as usize)? as u32;
             }
             FusedI64BrNe(target) => {
-                *target = f(WasmSingleOpcode::BrIf.into(), *target)?;
+                *target = f(WasmMnemonic::BrIf, *target as usize)? as u32;
             }
 
             BrTable(table) => {
                 let mut vec = Vec::with_capacity(table.len());
                 for target in table.iter() {
-                    vec.push(f(WasmSingleOpcode::BrTable.into(), *target)?);
+                    vec.push(f(WasmMnemonic::BrTable, *target as usize)? as u32);
                 }
                 *table = vec.into_boxed_slice();
             }

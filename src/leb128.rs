@@ -519,6 +519,20 @@ leb128_serialize_s!(i32);
 leb128_serialize_s!(i64);
 leb128_serialize_s!(isize);
 
+impl<'a> ReadLeb128<'a, f32> for Leb128Reader<'_> {
+    #[inline]
+    fn read(&'a mut self) -> Result<f32, ReadError> {
+        self.read_f32()
+    }
+}
+
+impl<'a> ReadLeb128<'a, f64> for Leb128Reader<'_> {
+    #[inline]
+    fn read(&'a mut self) -> Result<f64, ReadError> {
+        self.read_f64()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

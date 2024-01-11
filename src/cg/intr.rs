@@ -1,12 +1,7 @@
 //! WebAssembly Intermediate Code Interpreter
 
 use super::{intcode::*, *};
-use crate::{
-    memory::WasmMemory,
-    opcode::{WasmOpcode, WasmOpcodeFC, WasmSingleOpcode},
-    stack::*,
-    wasm::*,
-};
+use crate::{memory::WasmMemory, stack::*, wasm::*};
 use alloc::{borrow::ToOwned, string::String, vec::Vec};
 use core::{
     fmt, iter,
@@ -37,7 +32,7 @@ impl WasmInterpreter<'_> {
     fn error(
         &mut self,
         kind: WasmRuntimeErrorKind,
-        opcode: WasmOpcode,
+        mnemonic: WasmMnemonic,
         ex_position: ExceptionPosition,
     ) -> WasmRuntimeError {
         let function_name = self
@@ -54,7 +49,7 @@ impl WasmInterpreter<'_> {
             function: self.func_index,
             function_name,
             position: ex_position.position(),
-            opcode,
+            mnemonic,
         }
     }
 
@@ -126,7 +121,7 @@ impl WasmInterpreter<'_> {
                 let var = $value_stack.get_mut($code.base_stack_level());
                 let index = unsafe { var.get_u32() };
                 let ea = WasmMemory::effective_address::<$data_type>($offset, index, $memory.len())
-                    .map_err(|e| self.error(e, WasmSingleOpcode::$opcode.into(), $ex_position))?;
+                    .map_err(|e| self.error(e, WasmMnemonic::$opcode, $ex_position))?;
 
                 unsafe {
                     let p = $memory.as_ptr().byte_add(ea) as *const $data_type;
@@ -146,7 +141,7 @@ impl WasmInterpreter<'_> {
                 let storage: $stor_type =
                     unsafe { $value_stack.get(stack_level.succ(1)).unsafe_into() };
                 let ea = WasmMemory::effective_address::<$data_type>($offset, index, $memory.len())
-                    .map_err(|e| self.error(e, WasmSingleOpcode::$opcode.into(), $ex_position))?;
+                    .map_err(|e| self.error(e, WasmMnemonic::$opcode, $ex_position))?;
                 unsafe {
                     let p = $memory.as_mut_ptr().byte_add(ea) as *mut $data_type;
                     p.write_volatile(storage as $data_type);
@@ -165,7 +160,7 @@ impl WasmInterpreter<'_> {
                 if rhs == 0 {
                     return Err(self.error(
                         WasmRuntimeErrorKind::DivideByZero,
-                        WasmSingleOpcode::$opcode.into(),
+                        WasmMnemonic::$opcode,
                         $ex_position,
                     ));
                 }
@@ -182,7 +177,7 @@ impl WasmInterpreter<'_> {
                 WasmIntMnemonic::Unreachable(position) => {
                     return Err(self.error(
                         WasmRuntimeErrorKind::Unreachable,
-                        WasmOpcode::UNREACHABLE,
+                        WasmMnemonic::Unreachable,
                         position,
                     ));
                 }
@@ -194,7 +189,7 @@ impl WasmInterpreter<'_> {
                 WasmIntMnemonic::Nop | WasmIntMnemonic::Block(_) | WasmIntMnemonic::End(_) => {
                     return Err(self.error(
                         WasmRuntimeErrorKind::InternalInconsistency,
-                        WasmOpcode::UNREACHABLE,
+                        WasmMnemonic::Unreachable,
                         ExceptionPosition::UNKNOWN,
                     ));
                 }
@@ -230,7 +225,7 @@ impl WasmInterpreter<'_> {
                     let func = unsafe { self.module.functions().get_unchecked(func_index) };
                     drop(memory);
                     self.call(
-                        WasmSingleOpcode::Call.into(),
+                        WasmMnemonic::Call,
                         ex_position,
                         code.base_stack_level(),
                         func,
@@ -240,7 +235,7 @@ impl WasmInterpreter<'_> {
                     memory = BORROW_MEMORY!(self)?;
                 }
                 WasmIntMnemonic::CallIndirect(type_index, ex_position) => {
-                    let opcode = WasmOpcode::Single(WasmSingleOpcode::CallIndirect);
+                    let opcode = WasmMnemonic::CallIndirect;
                     let index =
                         unsafe { value_stack.get(code.base_stack_level()).get_i32() as usize };
                     let func = self.module.elem_get(index).ok_or(self.error(
@@ -427,9 +422,9 @@ impl WasmInterpreter<'_> {
                     let count = unsafe { value_stack.get(stack_level.succ(2)).get_u32() } as usize;
 
                     WasmMemory::check_bound(dest as u64, count, memory.len())
-                        .map_err(|k| self.error(k, WasmOpcodeFC::MemoryCopy.into(), ex_position))?;
+                        .map_err(|k| self.error(k, WasmMnemonic::MemoryCopy, ex_position))?;
                     WasmMemory::check_bound(src as u64, count, memory.len())
-                        .map_err(|k| self.error(k, WasmOpcodeFC::MemoryCopy.into(), ex_position))?;
+                        .map_err(|k| self.error(k, WasmMnemonic::MemoryCopy, ex_position))?;
 
                     if count > 0 {
                         unsafe {
@@ -447,7 +442,7 @@ impl WasmInterpreter<'_> {
                     let count = unsafe { value_stack.get(stack_level.succ(2)).get_u32() } as usize;
 
                     WasmMemory::check_bound(base as u64, count, memory.len())
-                        .map_err(|k| self.error(k, WasmOpcodeFC::MemoryFill.into(), ex_position))?;
+                        .map_err(|k| self.error(k, WasmMnemonic::MemoryFill, ex_position))?;
 
                     if count > 0 {
                         unsafe {
@@ -1395,7 +1390,7 @@ impl WasmInterpreter<'_> {
     #[inline]
     fn call(
         &mut self,
-        opcode: WasmOpcode,
+        opcode: WasmMnemonic,
         ex_position: ExceptionPosition,
         stack_pointer: StackLevel,
         target: &WasmFunction,
@@ -1488,7 +1483,7 @@ impl WasmInterpreter<'_> {
 
 struct WasmIntermediateCodeStream<'a> {
     codes: &'a [WasmImc],
-    position: usize,
+    position: u32,
 }
 
 impl<'a> WasmIntermediateCodeStream<'a> {
@@ -1506,14 +1501,14 @@ impl<'a> WasmIntermediateCodeStream<'a> {
 impl WasmIntermediateCodeStream<'_> {
     #[inline]
     fn fetch(&mut self) -> &WasmImc {
-        let code = unsafe { self.codes.get_unchecked(self.position) };
+        let code = unsafe { self.codes.get_unchecked(self.position as usize) };
         self.position += 1;
         code
     }
 
     #[inline]
-    fn set_position(&mut self, val: usize) -> Result<(), WasmRuntimeErrorKind> {
-        if val < self.codes.len() {
+    fn set_position(&mut self, val: u32) -> Result<(), WasmRuntimeErrorKind> {
+        if (val as usize) < self.codes.len() {
             self.position = val;
             Ok(())
         } else {
@@ -1569,7 +1564,7 @@ pub struct WasmRuntimeError {
     function: usize,
     function_name: Option<String>,
     position: usize,
-    opcode: WasmOpcode,
+    mnemonic: WasmMnemonic,
 }
 
 impl WasmRuntimeError {
@@ -1599,8 +1594,8 @@ impl WasmRuntimeError {
     }
 
     #[inline]
-    pub const fn opcode(&self) -> WasmOpcode {
-        self.opcode
+    pub const fn mnemonic(&self) -> WasmMnemonic {
+        self.mnemonic
     }
 }
 
@@ -1613,7 +1608,7 @@ impl From<WasmRuntimeErrorKind> for WasmRuntimeError {
             function: 0,
             function_name: None,
             position: 0,
-            opcode: WasmSingleOpcode::Unreachable.into(),
+            mnemonic: WasmMnemonic::Unreachable,
         }
     }
 }
@@ -1621,7 +1616,7 @@ impl From<WasmRuntimeErrorKind> for WasmRuntimeError {
 impl fmt::Debug for WasmRuntimeError {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let opcode = self.opcode();
+        let mnemonic = self.mnemonic();
         write!(f, "{:?} at", self.kind())?;
         if let Some(function_name) = self.function_name() {
             write!(
@@ -1635,7 +1630,7 @@ impl fmt::Debug for WasmRuntimeError {
             write!(f, " ${}:{}", self.function(), self.position(),)?;
         }
 
-        write!(f, ", 0x{:x}: {:?}", self.file_position(), opcode)
+        write!(f, ", 0x{:x}: {:?}", self.file_position(), mnemonic)
     }
 }
 

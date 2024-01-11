@@ -1,10 +1,10 @@
 use crate::{
+    bytecode::WasmMnemonic,
     cg::{
         intr::{WasmInterpreter, WasmInvocation},
         WasmCodeBlock,
     },
     leb128::*,
-    opcode::WasmSingleOpcode,
     WasmValType, *,
 };
 use alloc::borrow::ToOwned;
@@ -40,6 +40,24 @@ fn instantiate() {
     )
     .unwrap();
     let _ = module.func_by_index(0).unwrap();
+}
+
+#[test]
+fn section_order() {
+    let data = [
+        0, 97, 115, 109, 1, 0, 0, 0, 1, 1, 0, 2, 1, 0, 2, 1, 0, 3, 1, 0, 4, 1, 0, 5, 1, 0,
+    ];
+    WebAssembly::instantiate(&data, |_, _, _| unreachable!()).unwrap();
+
+    let data = [
+        0, 97, 115, 109, 1, 0, 0, 0, 1, 1, 0, 2, 1, 0, 2, 1, 0, 3, 1, 0, 4, 1, 0, 3, 1, 0,
+    ];
+    assert!(matches!(
+        WebAssembly::instantiate(&data, |_, _, _| unreachable!()),
+        Err(WasmDecodeErrorKind::InvalidSectionOrder(
+            WasmSectionId::Function
+        ))
+    ));
 }
 
 #[test]
@@ -328,7 +346,7 @@ fn div32_s() {
         .invoke(0, &info, &mut locals, &result_types)
         .unwrap_err();
     assert_eq!(*result.kind(), WasmRuntimeErrorKind::DivideByZero);
-    assert_eq!(result.opcode(), WasmSingleOpcode::I32DivS.into());
+    assert_eq!(result.mnemonic(), WasmMnemonic::I32DivS);
     assert_eq!(result.position(), 5);
 }
 
@@ -375,7 +393,7 @@ fn div32_u() {
         .invoke(0, &info, &mut locals, &result_types)
         .unwrap_err();
     assert_eq!(*result.kind(), WasmRuntimeErrorKind::DivideByZero);
-    assert_eq!(result.opcode(), WasmSingleOpcode::I32DivU.into());
+    assert_eq!(result.mnemonic(), WasmMnemonic::I32DivU);
     assert_eq!(result.position(), 5);
 }
 
@@ -431,7 +449,7 @@ fn div64_s() {
         .invoke(0, &info, &mut locals, &result_types)
         .unwrap_err();
     assert_eq!(*result.kind(), WasmRuntimeErrorKind::DivideByZero);
-    assert_eq!(result.opcode(), WasmSingleOpcode::I64DivS.into());
+    assert_eq!(result.mnemonic(), WasmMnemonic::I64DivS);
     assert_eq!(result.position(), 5);
 }
 
@@ -478,7 +496,7 @@ fn div64_u() {
         .invoke(0, &info, &mut locals, &result_types)
         .unwrap_err();
     assert_eq!(*result.kind(), WasmRuntimeErrorKind::DivideByZero);
-    assert_eq!(result.opcode(), WasmSingleOpcode::I64DivU.into());
+    assert_eq!(result.mnemonic(), WasmMnemonic::I64DivU);
     assert_eq!(result.position(), 5);
 }
 
