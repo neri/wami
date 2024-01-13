@@ -2944,3 +2944,136 @@ fn float64_opr() {
         }
     }
 }
+
+#[test]
+fn block_nest() {
+    let slice = [0, 0x02, 0x40, 0x02, 0x40, 0x01, 0x0B, 0x0B, 0x0B];
+    let mut stream = Leb128Reader::from_slice(&slice);
+    let module = WasmModule::empty();
+    WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], &module).unwrap();
+
+    let slice = [0, 0x02, 0x40, 0x02, 0x40, 0x01, 0x0B, 0x0B];
+    let mut stream = Leb128Reader::from_slice(&slice);
+    let module = WasmModule::empty();
+    assert_eq!(
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], &module).unwrap_err(),
+        WasmDecodeErrorKind::UnexpectedEof
+    );
+
+    let slice = [0, 0x02, 0x7F, 0x02, 0x7F, 0x41, 0x01, 0x0B, 0x0B, 0x0B];
+    let mut stream = Leb128Reader::from_slice(&slice);
+    let module = WasmModule::empty();
+    WasmCodeBlock::generate(0, 0, &mut stream, &[], &[WasmValType::I32], &module).unwrap();
+
+    let slice = [0, 0x02, 0x7F, 0x02, 0x7F, 0x01, 0x0B, 0x0B, 0x0B];
+    let mut stream = Leb128Reader::from_slice(&slice);
+    let module = WasmModule::empty();
+    assert_eq!(
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], &module).unwrap_err(),
+        WasmDecodeErrorKind::OutOfStack
+    );
+
+    let slice = [0, 0x02, 0x7F, 0x02, 0x7F, 0x41, 0x01, 0x0B, 0x0B, 0x0B];
+    let mut stream = Leb128Reader::from_slice(&slice);
+    let module = WasmModule::empty();
+    assert_eq!(
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], &module).unwrap_err(),
+        WasmDecodeErrorKind::InvalidStackLevel
+    );
+
+    let slice = [0, 0x02, 0x7F, 0x02, 0x7F, 0x41, 0x01, 0x0B, 0x0B, 0x0B];
+    let mut stream = Leb128Reader::from_slice(&slice);
+    let module = WasmModule::empty();
+    assert_eq!(
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[WasmValType::I64], &module).unwrap_err(),
+        WasmDecodeErrorKind::TypeMismatch
+    );
+
+    let slice = [0, 0x02, 0x7F, 0x02, 0x7F, 0x42, 0x01, 0x0B, 0x0B, 0x0B];
+    let mut stream = Leb128Reader::from_slice(&slice);
+    let module = WasmModule::empty();
+    assert_eq!(
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[WasmValType::I32], &module).unwrap_err(),
+        WasmDecodeErrorKind::TypeMismatch
+    );
+
+    let slice = [0, 0x02, 0x7F, 0x02, 0x7E, 0x41, 0x01, 0x0B, 0x0B, 0x0B];
+    let mut stream = Leb128Reader::from_slice(&slice);
+    let module = WasmModule::empty();
+    assert_eq!(
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[WasmValType::I32], &module).unwrap_err(),
+        WasmDecodeErrorKind::TypeMismatch
+    );
+
+    let slice = [0, 0x02, 0x7E, 0x02, 0x7F, 0x41, 0x01, 0x0B, 0x0B, 0x0B];
+    let mut stream = Leb128Reader::from_slice(&slice);
+    let module = WasmModule::empty();
+    assert_eq!(
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[WasmValType::I32], &module).unwrap_err(),
+        WasmDecodeErrorKind::TypeMismatch
+    );
+
+    let slice = [0, 0x02, 0x7E, 0x02, 0x7F, 0x41, 0x01, 0x0B, 0x0B, 0x0B];
+    let mut stream = Leb128Reader::from_slice(&slice);
+    let module = WasmModule::empty();
+    assert_eq!(
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[WasmValType::I64], &module).unwrap_err(),
+        WasmDecodeErrorKind::TypeMismatch
+    );
+
+    let slice = [0, 0x02, 0x7F, 0x02, 0x7F, 0x20, 0x00, 0x0B, 0x0B, 0x0B];
+    let result_types = [WasmValType::I32];
+    let mut stream = Leb128Reader::from_slice(&slice);
+    let info = WasmCodeBlock::generate(
+        0,
+        0,
+        &mut stream,
+        &[WasmValType::I32],
+        &result_types,
+        &module,
+    )
+    .unwrap();
+    let mut interp = WasmInterpreter::new(&module);
+
+    let result = interp
+        .invoke(0, &info, &mut [123.into()], &result_types)
+        .unwrap()
+        .unwrap()
+        .get_i32()
+        .unwrap();
+    assert_eq!(result, 123);
+}
+
+#[test]
+fn block_test() {
+    let module = WebAssembly::instantiate(
+        include_bytes!("../test/tester.wasm"),
+        |_, _, _| unreachable!(),
+    )
+    .unwrap();
+    let runnable = module.func("block_test").unwrap();
+
+    let result = runnable
+        .invoke(&[0.into(), 123.into(), 456.into(), 789.into()])
+        .unwrap()
+        .unwrap()
+        .get_i32()
+        .unwrap();
+    assert_eq!(result, 123);
+
+    let result = runnable
+        .invoke(&[1.into(), 123.into(), 456.into(), 789.into()])
+        .unwrap()
+        .unwrap()
+        .get_i32()
+        .unwrap();
+    assert_eq!(result, 456);
+
+    let result = runnable
+        .invoke(&[2.into(), 123.into(), 456.into(), 789.into()])
+        .unwrap()
+        .unwrap()
+        .get_i32()
+        .unwrap();
+    assert_eq!(result, 789);
+}

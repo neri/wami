@@ -507,17 +507,29 @@ macro_rules! leb128_serialize_s {
     };
 }
 
-leb128_serialize_u!(u8);
 leb128_serialize_u!(u16);
 leb128_serialize_u!(u32);
 leb128_serialize_u!(u64);
 leb128_serialize_u!(usize);
 
-leb128_serialize_s!(i8);
 leb128_serialize_s!(i16);
 leb128_serialize_s!(i32);
 leb128_serialize_s!(i64);
 leb128_serialize_s!(isize);
+
+impl<'a> ReadLeb128<'a, u8> for Leb128Reader<'_> {
+    #[inline]
+    fn read(&'a mut self) -> Result<u8, ReadError> {
+        self.read_byte()
+    }
+}
+
+impl<'a> ReadLeb128<'a, i8> for Leb128Reader<'_> {
+    #[inline]
+    fn read(&'a mut self) -> Result<i8, ReadError> {
+        self.read_byte().map(|v| v as i8)
+    }
+}
 
 impl<'a> ReadLeb128<'a, f32> for Leb128Reader<'_> {
     #[inline]

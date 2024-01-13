@@ -7,10 +7,11 @@ use crate::{
 use alloc::{borrow::ToOwned, boxed::Box, collections::BTreeMap, format, string::*, vec::Vec};
 use core::{
     fmt,
-    mem::size_of,
+    mem::{size_of, ManuallyDrop},
     num::NonZeroU32,
     ops::*,
-    str,
+    ptr::slice_from_raw_parts_mut,
+    slice, str,
     sync::atomic::{AtomicU32, Ordering},
 };
 use smallvec::SmallVec;
@@ -302,15 +303,15 @@ impl WasmModule {
     fn parse_sec_elem(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeErrorKind> {
         let n_items: usize = section.reader.read()?;
         for _ in 0..n_items {
-            let tabidx = section.reader.read_unsigned()? as usize;
+            let tabidx: usize = section.reader.read()?;
             let offset = self.eval_offset(&mut section.reader)? as usize;
-            let n_elements = section.reader.read_unsigned()? as usize;
+            let n_elements: usize = section.reader.read()?;
             let table = self
                 .tables
                 .get_mut(tabidx)
                 .ok_or(WasmDecodeErrorKind::InvalidData)?;
             for i in offset..offset + n_elements {
-                let elem = section.reader.read_unsigned()? as usize;
+                let elem: usize = section.reader.read()?;
                 table.table.get_mut(i).map(|v| *v = elem);
             }
         }
@@ -351,7 +352,7 @@ impl WasmModule {
     fn parse_sec_data(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeErrorKind> {
         let n_items: usize = section.reader.read()?;
         for _ in 0..n_items {
-            let memidx = section.reader.read_unsigned()? as usize;
+            let memidx: usize = section.reader.read()?;
             let offset = self.eval_offset(&mut section.reader)?;
             let src = section.reader.read_blob()?;
             let memory = self
@@ -1010,7 +1011,7 @@ pub struct WasmTable {
 impl WasmTable {
     #[inline]
     fn from_reader(reader: &mut Leb128Reader) -> Result<Self, WasmDecodeErrorKind> {
-        match reader.read_unsigned() {
+        match reader.read_byte() {
             Ok(0x70) => (),
             Err(err) => return Err(err.into()),
             _ => return Err(WasmDecodeErrorKind::UnexpectedToken),
@@ -1164,12 +1165,12 @@ impl WasmTypeIndex {
 
 impl WasmType {
     fn from_reader(reader: &mut Leb128Reader) -> Result<Self, WasmDecodeErrorKind> {
-        match reader.read_unsigned() {
+        match reader.read_byte() {
             Ok(0x60) => (),
             Err(err) => return Err(err.into()),
             _ => return Err(WasmDecodeErrorKind::UnexpectedToken),
         };
-        let n_params = reader.read_unsigned()? as usize;
+        let n_params: usize = reader.read()?;
         let mut param_types = SmallVec::with_capacity(n_params);
         for _ in 0..n_params {
             reader
@@ -1178,7 +1179,7 @@ impl WasmType {
                 .and_then(|v| WasmValType::from_u8(v))
                 .map(|v| param_types.push(v))?;
         }
-        let n_result = reader.read_unsigned()? as usize;
+        let n_result: usize = reader.read()?;
         let mut result_types = SmallVec::with_capacity(n_result);
         for _ in 0..n_result {
             reader
@@ -1276,15 +1277,15 @@ pub enum WasmImportDescriptor {
 impl WasmImportDescriptor {
     #[inline]
     fn from_reader(mut reader: &mut Leb128Reader) -> Result<Self, WasmDecodeErrorKind> {
-        let import_type = reader.read()?;
+        let import_type = reader.read_byte()?;
         match import_type {
             0 => reader
                 .read()
                 .map(|v| Self::Function(WasmTypeIndex(v)))
                 .map_err(|v| v.into()),
-            // 1 => reader.read_unsigned().map(|v| Self::Table(v as usize)),
+            // 1 => reader.read().map(|v| Self::Table(v)),
             2 => WasmLimit::from_reader(&mut reader, true).map(|v| Self::Memory(v)),
-            // 3 => reader.read_unsigned().map(|v| Self::Global(v as usize)),
+            // 3 => reader.read().map(|v| Self::Global(v)),
             _ => Err(WasmDecodeErrorKind::UnexpectedToken),
         }
     }
@@ -1317,21 +1318,15 @@ impl WasmExportDesc {
     #[inline]
     fn new(module: &WasmModule, reader: &mut Leb128Reader) -> Result<Self, WasmDecodeErrorKind> {
         reader
-            .read_unsigned()
+            .read_byte()
             .map_err(|v| v.into())
             .and_then(|v| match v {
                 0 => reader
-                    .read_unsigned()
-                    .map(|v| Self::Function(v as usize))
+                    .read()
+                    .map(|v| Self::Function(v))
                     .map_err(|v| v.into()),
-                1 => reader
-                    .read_unsigned()
-                    .map(|v| Self::Table(v as usize))
-                    .map_err(|v| v.into()),
-                2 => reader
-                    .read_unsigned()
-                    .map(|v| Self::Memory(v as usize))
-                    .map_err(|v| v.into()),
+                1 => reader.read().map(|v| Self::Table(v)).map_err(|v| v.into()),
+                2 => reader.read().map(|v| Self::Memory(v)).map_err(|v| v.into()),
                 3 => {
                     let index: u32 = reader.read()?;
                     ((index as usize) < module.globals.len())
@@ -1715,12 +1710,12 @@ impl WasmUnionValue {
 
     #[inline]
     pub fn write_f32(&mut self, val: f32) {
-        self.f32 = val;
+        self.copy_from_i32(&Self::from(val));
     }
 
     #[inline]
     pub fn write_f64(&mut self, val: f64) {
-        self.f64 = val;
+        *self = Self::from(val);
     }
 
     #[inline]
@@ -2014,17 +2009,17 @@ impl WasmName {
             match name_id {
                 WasmNameSubsectionType::Module => module = reader.get_string().ok(),
                 WasmNameSubsectionType::Function => {
-                    let length = reader.read_unsigned()? as usize;
+                    let length = reader.read()?;
                     for _ in 0..length {
-                        let idx = reader.read_unsigned()? as usize;
+                        let idx: usize = reader.read()?;
                         let s = reader.get_string()?;
                         functions.push((idx, s));
                     }
                 }
                 WasmNameSubsectionType::Global => {
-                    let length = reader.read_unsigned()? as usize;
+                    let length: usize = reader.read()?;
                     for _ in 0..length {
-                        let idx = reader.read_unsigned()? as usize;
+                        let idx: usize = reader.read()?;
                         let s = reader.get_string()?;
                         globals.push((idx, s));
                     }
@@ -2160,5 +2155,76 @@ impl GlobalVarIndex {
     #[inline]
     pub const fn as_usize(&self) -> usize {
         self.0 as usize
+    }
+}
+
+pub struct BrTableVec {
+    inner: *mut u32,
+}
+
+impl BrTableVec {
+    pub fn new(slice: &[u32]) -> Self {
+        let mut vec = Vec::new();
+        vec.push(slice.len() as u32);
+        vec.extend_from_slice(slice);
+        let mut slice = ManuallyDrop::new(vec.into_boxed_slice());
+        let p = slice.as_mut_ptr();
+        Self { inner: p }
+    }
+
+    #[inline]
+    pub const fn len(&self) -> usize {
+        unsafe { self.inner.read() as usize }
+    }
+}
+
+impl Drop for BrTableVec {
+    fn drop(&mut self) {
+        let len = self.len() + 1;
+        let vec = unsafe { Box::from_raw(slice_from_raw_parts_mut(self.inner, len)) };
+        drop(vec);
+    }
+}
+
+impl Deref for BrTableVec {
+    type Target = [u32];
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        unsafe { slice::from_raw_parts(self.inner.add(1), self.len()) }
+    }
+}
+
+impl DerefMut for BrTableVec {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { slice::from_raw_parts_mut(self.inner.add(1), self.len()) }
+    }
+}
+
+impl Clone for BrTableVec {
+    #[inline]
+    fn clone(&self) -> Self {
+        Self::new(self.deref())
+    }
+}
+
+impl<'a> ReadLeb128<'a, BrTableVec> for Leb128Reader<'_> {
+    #[inline]
+    fn read(&'a mut self) -> Result<BrTableVec, ReadError> {
+        let table_len: usize = self.read()?;
+        let table_len = table_len + 1;
+        let mut table = Vec::with_capacity(table_len);
+        for _ in 0..table_len {
+            let br: u32 = self.read()?;
+            table.push(br);
+        }
+        Ok(BrTableVec::new(&table))
+    }
+}
+
+impl fmt::Debug for BrTableVec {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BrTable").finish()
     }
 }

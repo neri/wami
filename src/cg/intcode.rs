@@ -1,44 +1,33 @@
 use super::{GlobalVarIndex, LocalVarIndex, StackLevel};
-use crate::{bytecode::WasmMnemonic, WasmTypeIndex};
-use alloc::{boxed::Box, vec::Vec};
+use crate::{bytecode::WasmMnemonic, BrTableVec, WasmTypeIndex};
 
-/// Intermediate code for Webassembly interpreter
+/// Intermediate instruction for Webassembly interpreter
 #[non_exhaustive]
-#[derive(Debug, PartialEq)]
-pub enum WasmIntMnemonic {
+#[derive(Debug)]
+pub enum WasmImInstruction {
     /// Intermediate code that could not be converted
-    Undefined(WasmMnemonic, ExceptionPosition),
+    NotSupported(WasmMnemonic, ExceptionPosition),
 
-    /// No operation marker, this mnemonic will be removed during the compaction phase.
-    Nop,
-    /// Block Marker, this mnemonic will be removed during the compaction phase.
-    Block(usize),
-    /// End of block marker, this mnemonic will be removed during the compaction phase.
-    End(usize),
+    /// Marker, this code will be removed during the compaction phase.
+    Marker(MarkerKind, u32),
 
-    /// `00 unreachable`
     Unreachable(ExceptionPosition),
 
-    /// `0C br labelidx`
     Br(u32),
-    /// `0D br_if labelidx`
     BrIf(u32),
-    /// `0E br_table vec(labelidx) labelidx`
-    BrTable(Box<[u32]>),
+    BrTable(BrTableVec),
 
-    /// return from function (-> nil)
+    // branch and unwind
+    BrUnwind(u32, StackLevel),
+    BrIfUnwind(u32, StackLevel),
+
     ReturnN,
-    /// return from function (-> integer)
     ReturnI,
-    /// return from function (-> float)
     ReturnF,
 
-    /// `10 call funcidx`
     Call(usize, ExceptionPosition),
-    /// `11 call_indirect typeidx 0x00`
     CallIndirect(WasmTypeIndex, ExceptionPosition),
 
-    /// `1B select`
     SelectI,
     SelectF,
 
@@ -79,22 +68,14 @@ pub enum WasmIntMnemonic {
     F32Store(u32, ExceptionPosition),
     F64Store(u32, ExceptionPosition),
 
-    /// `3F memory.size 0x00`
     MemorySize,
-    /// `40 memory.grow 0x00`
     MemoryGrow,
-    /// `FC 0A memory.copy memory_dst memory_src` (bulk_memory_operations)
     MemoryCopy(ExceptionPosition),
-    /// `FC 0B memory.fill memory` (bulk_memory_operations)
     MemoryFill(ExceptionPosition),
 
-    /// `41 i32.const n`
     I32Const(i32),
-    /// `42 i64.const n`
     I64Const(i64),
-    /// `43 f32.const z`
     F32Const(f32),
-    /// `44 f64.const z`
     F64Const(f64),
 
     I32Eqz,
@@ -285,12 +266,22 @@ pub enum WasmIntMnemonic {
     FusedI64BrNe(u32),
 }
 
-impl WasmIntMnemonic {
+impl WasmImInstruction {
+    pub const NOP: Self = Self::Marker(MarkerKind::Nop, 0);
+
     #[inline]
     pub fn normalized(self) -> Self {
         // TODO:
         self
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum MarkerKind {
+    Nop,
+    Block,
+    Else,
+    End,
 }
 
 #[repr(transparent)]
@@ -314,35 +305,35 @@ impl ExceptionPosition {
 /// Wasm Intermediate Code
 #[derive(Debug)]
 pub struct WasmImc {
-    pub mnemonic: WasmIntMnemonic,
+    pub instruction: WasmImInstruction,
     pub stack_level: StackLevel,
 }
 
 impl WasmImc {
     #[inline]
-    pub const fn from_mnemonic(mnemonic: WasmIntMnemonic) -> Self {
+    pub const fn from_instruction(instruction: WasmImInstruction) -> Self {
         Self {
-            mnemonic,
+            instruction,
             stack_level: StackLevel::zero(),
         }
     }
 
     #[inline]
-    pub const fn new(mnemonic: WasmIntMnemonic, stack_level: StackLevel) -> Self {
+    pub const fn new(instruction: WasmImInstruction, stack_level: StackLevel) -> Self {
         Self {
-            mnemonic,
+            instruction,
             stack_level,
         }
     }
 
     #[inline]
-    pub const fn mnemonic(&self) -> &WasmIntMnemonic {
-        &self.mnemonic
+    pub const fn instruction(&self) -> &WasmImInstruction {
+        &self.instruction
     }
 
     #[inline]
-    pub fn mnemonic_mut(&mut self) -> &mut WasmIntMnemonic {
-        &mut self.mnemonic
+    pub fn instruction_mut(&mut self) -> &mut WasmImInstruction {
+        &mut self.instruction
     }
 
     #[inline]
@@ -350,69 +341,74 @@ impl WasmImc {
         self.stack_level
     }
 
-    pub fn adjust_branch_target<F, E>(&mut self, mut f: F) -> Result<(), E>
+    #[inline]
+    pub fn fix_branch_target<F, E>(&mut self, mut kernel: F) -> Result<(), E>
     where
-        F: FnMut(WasmMnemonic, usize) -> Result<usize, E>,
+        F: FnMut(&mut u32, WasmMnemonic) -> Result<(), E>,
     {
-        use WasmIntMnemonic::*;
-        match self.mnemonic_mut() {
+        use WasmImInstruction::*;
+        match self.instruction_mut() {
             Br(target) => {
-                *target = f(WasmMnemonic::Br, *target as usize)? as u32;
+                kernel(target, WasmMnemonic::Br)?;
             }
             BrIf(target) => {
-                *target = f(WasmMnemonic::BrIf, *target as usize)? as u32;
+                kernel(target, WasmMnemonic::BrIf)?;
+            }
+            BrUnwind(target, _) => {
+                kernel(target, WasmMnemonic::Br)?;
+            }
+            BrIfUnwind(target, _) => {
+                kernel(target, WasmMnemonic::BrIf)?;
             }
 
             FusedI32BrZ(target) => {
-                *target = f(WasmMnemonic::BrIf, *target as usize)? as u32;
+                kernel(target, WasmMnemonic::BrIf)?;
             }
             FusedI32BrEq(target) => {
-                *target = f(WasmMnemonic::BrIf, *target as usize)? as u32;
+                kernel(target, WasmMnemonic::BrIf)?;
             }
             FusedI32BrNe(target) => {
-                *target = f(WasmMnemonic::BrIf, *target as usize)? as u32;
+                kernel(target, WasmMnemonic::BrIf)?;
             }
             FusedI32BrLtS(target) => {
-                *target = f(WasmMnemonic::BrIf, *target as usize)? as u32;
+                kernel(target, WasmMnemonic::BrIf)?;
             }
             FusedI32BrLtU(target) => {
-                *target = f(WasmMnemonic::BrIf, *target as usize)? as u32;
+                kernel(target, WasmMnemonic::BrIf)?;
             }
             FusedI32BrGtS(target) => {
-                *target = f(WasmMnemonic::BrIf, *target as usize)? as u32;
+                kernel(target, WasmMnemonic::BrIf)?;
             }
             FusedI32BrGtU(target) => {
-                *target = f(WasmMnemonic::BrIf, *target as usize)? as u32;
+                kernel(target, WasmMnemonic::BrIf)?;
             }
             FusedI32BrLeS(target) => {
-                *target = f(WasmMnemonic::BrIf, *target as usize)? as u32;
+                kernel(target, WasmMnemonic::BrIf)?;
             }
             FusedI32BrLeU(target) => {
-                *target = f(WasmMnemonic::BrIf, *target as usize)? as u32;
+                kernel(target, WasmMnemonic::BrIf)?;
             }
             FusedI32BrGeS(target) => {
-                *target = f(WasmMnemonic::BrIf, *target as usize)? as u32;
+                kernel(target, WasmMnemonic::BrIf)?;
             }
             FusedI32BrGeU(target) => {
-                *target = f(WasmMnemonic::BrIf, *target as usize)? as u32;
+                kernel(target, WasmMnemonic::BrIf)?;
             }
 
             FusedI64BrZ(target) => {
-                *target = f(WasmMnemonic::BrIf, *target as usize)? as u32;
+                kernel(target, WasmMnemonic::BrIf)?;
             }
             FusedI64BrEq(target) => {
-                *target = f(WasmMnemonic::BrIf, *target as usize)? as u32;
+                kernel(target, WasmMnemonic::BrIf)?;
             }
             FusedI64BrNe(target) => {
-                *target = f(WasmMnemonic::BrIf, *target as usize)? as u32;
+                kernel(target, WasmMnemonic::BrIf)?;
             }
 
             BrTable(table) => {
-                let mut vec = Vec::with_capacity(table.len());
-                for target in table.iter() {
-                    vec.push(f(WasmMnemonic::BrTable, *target as usize)? as u32);
+                for target in table.iter_mut() {
+                    kernel(target, WasmMnemonic::BrTable)?;
                 }
-                *table = vec.into_boxed_slice();
             }
             _ => (),
         }
@@ -420,9 +416,9 @@ impl WasmImc {
     }
 }
 
-impl From<WasmIntMnemonic> for WasmImc {
+impl From<WasmImInstruction> for WasmImc {
     #[inline]
-    fn from(val: WasmIntMnemonic) -> Self {
-        Self::from_mnemonic(val)
+    fn from(val: WasmImInstruction) -> Self {
+        Self::from_instruction(val)
     }
 }

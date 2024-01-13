@@ -1404,4 +1404,36 @@
     local.get $p
   )
 
+  ;; fn block_test(cc: i32, a1: i32, a2: i32, a3: i32) -> i32
+  (func $block_test (export "block_test") (param $cc i32) (param $a1 i32) (param $a2 i32) (param $a3 i32) (result i32)
+    block $top (result i32)
+      local.get $a1
+      local.get $cc
+      i32.eqz
+      br_if $top
+      drop
+      block (result i32)
+        local.get $a2
+        local.get $cc
+        i32.const 1
+        i32.eq
+        br_if $top
+        drop
+        block (result i32)
+          local.get $a3
+          br $top
+        end
+      end
+    end
+  )
+
+  ;; fn if_test(lhs: i32, rhs: i32, cc: bool) -> i32
+  (func $if_test (export "if_test") (param $lhs i32) (param $rhs i32) (param $cc i32) (result i32)
+    local.get $cc
+    if (result i32)
+      local.get $lhs
+    else
+      local.get $rhs
+    end
+  )
 )

@@ -1,4 +1,4 @@
-lead,trail,mnemonic,operand,,,proposal,
+Leading,Trailing,Mnemonic,Operand,,,Proposal,Comment
 0x0,,unreachable,,,,,
 0x1,,nop,,,,,
 0x2,,block,bt,,,,
@@ -250,10 +250,10 @@ lead,trail,mnemonic,operand,,,proposal,
 0xF8,,,,,,,
 0xF9,,,,,,,
 0xFA,,,,,,,
-0xFB,,,,,,prefix,
-0xFC,,,,,,prefix,
-0xFD,,,,,,prefix,
-0xFE,,,,,,prefix,
+0xFB,,,,,,,prefix (gc)
+0xFC,,,,,,,prefix
+0xFD,,,,,,,prefix (simd)
+0xFE,,,,,,,prefix (threads)
 0xFF,,,,,,,
 ,,,,,,,
 0xFB,0x0,struct.new,u32,,,gc,
