@@ -1427,6 +1427,30 @@
     end
   )
 
+  ;; fn loop_test(a1: i32) -> i32
+  (func $loop_test (export "loop_test") (param $a1 i32) (result i32)
+    (local $i i32)
+    (local $acc i32)
+    i32.const 0
+    local.set $i
+    block $top (result i32)
+      loop $loop (result i32)
+        local.get $acc
+        local.get $i
+        local.get $a1
+        i32.ge_s
+        br_if $top
+        local.get $i
+        i32.const 1
+        i32.add
+        local.tee $i
+        i32.add
+        local.set $acc
+        br $loop
+      end
+    end
+  )
+
   ;; fn if_test(lhs: i32, rhs: i32, cc: bool) -> i32
   (func $if_test (export "if_test") (param $lhs i32) (param $rhs i32) (param $cc i32) (result i32)
     local.get $cc

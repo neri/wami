@@ -302,13 +302,25 @@ impl WasmCodeBlock {
                             .ok_or(WasmDecodeErrorKind::BlockMismatch)?;
                         let block = blocks.get(block_index).unwrap().borrow();
                         if let Some(block_type) = block.block_type.into_type() {
-                            let block_type2 =
-                                value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                            if block_type != block_type2 {
-                                return Err(WasmDecodeErrorKind::TypeMismatch);
-                            }
-                            if value_stack.len() != block.stack_level().as_usize() {
+                            if value_stack.len() < block.stack_level().as_usize() {
                                 return Err(WasmDecodeErrorKind::InvalidStackLevel);
+                            }
+                            if block.inst_type == BlockInstType::Loop
+                                && int_codes.last().unwrap().is_control_unreachable()
+                            {
+                                let n_drops = value_stack.len() - block.stack_level().as_usize();
+                                for _ in 1..n_drops {
+                                    value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
+                                }
+                            } else {
+                                let block_type2 =
+                                    value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
+                                if block_type != block_type2 {
+                                    return Err(WasmDecodeErrorKind::TypeMismatch);
+                                }
+                                if value_stack.len() != block.stack_level().as_usize() {
+                                    return Err(WasmDecodeErrorKind::InvalidStackLevel);
+                                }
                             }
                             value_stack.push(block_type);
                         } else {
@@ -356,7 +368,9 @@ impl WasmCodeBlock {
                         .get(block_stack.len() - (label_index as usize) - 1)
                         .ok_or(WasmDecodeErrorKind::OutOfBranch)?;
                     let block = blocks.get(*block_index).unwrap().borrow();
-                    if block.block_type == WasmBlockType::Empty {
+                    if block.block_type == WasmBlockType::Empty
+                        || block.inst_type == BlockInstType::Loop
+                    {
                         int_codes.push(WasmImc::new(
                             WasmImInstruction::Br(*block_index as u32),
                             StackLevel::new(value_stack.len()),
@@ -377,7 +391,9 @@ impl WasmCodeBlock {
                         return Err(WasmDecodeErrorKind::TypeMismatch);
                     }
                     let block = blocks.get(*block_index).unwrap().borrow();
-                    if block.block_type == WasmBlockType::Empty {
+                    if block.block_type == WasmBlockType::Empty
+                        || block.inst_type == BlockInstType::Loop
+                    {
                         int_codes.push(WasmImc::new(
                             WasmImInstruction::BrIf(*block_index as u32),
                             StackLevel::new(value_stack.len()),

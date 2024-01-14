@@ -1386,6 +1386,8 @@ pub enum WasmDecodeErrorKind {
     NoModule(String),
     /// Internal error
     InternalInconsistency,
+    /// For debugging purposes
+    ForDebug(usize),
 }
 
 impl From<leb128::ReadError> for WasmDecodeErrorKind {

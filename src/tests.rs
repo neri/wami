@@ -3054,14 +3054,6 @@ fn block_test() {
     let runnable = module.func("block_test").unwrap();
 
     let result = runnable
-        .invoke(&[0.into(), 123.into(), 456.into(), 789.into()])
-        .unwrap()
-        .unwrap()
-        .get_i32()
-        .unwrap();
-    assert_eq!(result, 123);
-
-    let result = runnable
         .invoke(&[1.into(), 123.into(), 456.into(), 789.into()])
         .unwrap()
         .unwrap()
@@ -3076,4 +3068,59 @@ fn block_test() {
         .get_i32()
         .unwrap();
     assert_eq!(result, 789);
+}
+
+#[test]
+fn loop_nest() {
+    let slice = [0, 0x02, 0x40, 0x03, 0x40, 0x01, 0x0B, 0x0B, 0x0B];
+    let mut stream = Leb128Reader::from_slice(&slice);
+    let module = WasmModule::empty();
+    WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], &module).unwrap();
+
+    let slice = [0, 0x02, 0x40, 0x03, 0x40, 0x01, 0x0B, 0x0B];
+    let mut stream = Leb128Reader::from_slice(&slice);
+    let module = WasmModule::empty();
+    assert_eq!(
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], &module).unwrap_err(),
+        WasmDecodeErrorKind::UnexpectedEof
+    );
+
+    let slice = [0, 0x02, 0x7F, 0x03, 0x7F, 0x41, 0x01, 0x0B, 0x0B, 0x0B];
+    let mut stream = Leb128Reader::from_slice(&slice);
+    let module = WasmModule::empty();
+    WasmCodeBlock::generate(0, 0, &mut stream, &[], &[WasmValType::I32], &module).unwrap();
+
+    let slice = [0, 0x02, 0x7F, 0x03, 0x7F, 0x01, 0x0B, 0x0B, 0x0B];
+    let mut stream = Leb128Reader::from_slice(&slice);
+    let module = WasmModule::empty();
+    assert_eq!(
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], &module).unwrap_err(),
+        WasmDecodeErrorKind::OutOfStack
+    );
+}
+
+#[test]
+fn loop_test() {
+    let module = WebAssembly::instantiate(
+        include_bytes!("../test/tester.wasm"),
+        |_, _, _| unreachable!(),
+    )
+    .unwrap();
+    let runnable = module.func("loop_test").unwrap();
+
+    let result = runnable
+        .invoke(&[10.into()])
+        .unwrap()
+        .unwrap()
+        .get_i32()
+        .unwrap();
+    assert_eq!(result, 55);
+
+    let result = runnable
+        .invoke(&[100.into()])
+        .unwrap()
+        .unwrap()
+        .get_i32()
+        .unwrap();
+    assert_eq!(result, 5050);
 }

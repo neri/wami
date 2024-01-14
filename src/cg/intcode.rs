@@ -341,6 +341,19 @@ impl WasmImc {
         self.stack_level
     }
 
+    pub fn is_control_unreachable(&self) -> bool {
+        match self.instruction() {
+            WasmImInstruction::Unreachable(_)
+            | WasmImInstruction::Br(_)
+            | WasmImInstruction::BrUnwind(_, _)
+            | WasmImInstruction::BrTable(_)
+            | WasmImInstruction::ReturnN
+            | WasmImInstruction::ReturnI
+            | WasmImInstruction::ReturnF => true,
+            _ => false,
+        }
+    }
+
     #[inline]
     pub fn fix_branch_target<F, E>(&mut self, mut kernel: F) -> Result<(), E>
     where
