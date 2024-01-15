@@ -1,5 +1,5 @@
 use super::{GlobalVarIndex, LocalVarIndex, StackLevel};
-use crate::{bytecode::WasmMnemonic, BrTableVec, WasmTypeIndex};
+use crate::{bytecode::WasmMnemonic, BrTableVec, ExceptionPosition, WasmTypeIndex};
 
 /// Intermediate instruction for Webassembly interpreter
 #[non_exhaustive]
@@ -285,24 +285,6 @@ pub enum MarkerKind {
     If,
     Else,
     End,
-}
-
-#[repr(transparent)]
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ExceptionPosition(u32);
-
-impl ExceptionPosition {
-    pub const UNKNOWN: Self = Self::new(0);
-
-    #[inline]
-    pub const fn new(position: usize) -> Self {
-        Self(position as u32)
-    }
-
-    #[inline]
-    pub const fn position(&self) -> usize {
-        self.0 as usize
-    }
 }
 
 /// Wasm Intermediate Code

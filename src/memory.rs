@@ -25,7 +25,7 @@ impl WasmMemory {
     }
 
     #[inline]
-    pub fn new(limit: WasmLimit) -> Result<Self, WasmDecodeErrorKind> {
+    pub fn new(limit: WasmLimit) -> Result<Self, CompileErrorKind> {
         let memory = Self {
             data: RwLockNb::new(SharedDataStore::new()),
             size: AtomicU32::new(0),
@@ -39,7 +39,7 @@ impl WasmMemory {
         memory
             .grow(limit.min())
             .map(|_| memory)
-            .map_err(|_| WasmDecodeErrorKind::OutOfMemory)
+            .map_err(|_| CompileErrorKind::OutOfMemory)
     }
 
     #[inline]

@@ -311,13 +311,13 @@ impl WasmInterpreter<'_> {
                 | WasmImInstruction::GlobalGetF(global_ref) => {
                     let global = self.module.global_get(global_ref);
                     let ref_a = value_stack.get_mut(code.base_stack_level());
-                    *ref_a = global.value().into();
+                    *ref_a = global.raw_value();
                 }
                 WasmImInstruction::GlobalSetI(global_ref)
                 | WasmImInstruction::GlobalSetF(global_ref) => {
                     let global = self.module.global_get(global_ref);
                     let ref_a = value_stack.get(code.base_stack_level());
-                    global.set_value(*ref_a);
+                    global.set_raw_value(*ref_a);
                 }
 
                 WasmImInstruction::I32Load(offset, ex_position) => {

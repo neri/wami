@@ -1,9 +1,9 @@
 pub mod intcode;
 pub mod intr;
 
-use self::intcode::{ExceptionPosition, WasmImInstruction, WasmImc};
+use self::intcode::{WasmImInstruction, WasmImc};
 use crate::{bytecode::*, cg::intcode::MarkerKind, leb128::*, *};
-use alloc::{boxed::Box, vec::Vec};
+use alloc::{boxed::Box, string::ToString, vec::Vec};
 use bitflags::*;
 use core::{cell::RefCell, fmt};
 use smallvec::SmallVec;
@@ -69,7 +69,45 @@ impl WasmCodeBlock {
         param_types: &[WasmValType],
         result_types: &[WasmValType],
         module: &WasmModule,
-    ) -> Result<Self, WasmDecodeErrorKind> {
+    ) -> Result<Self, CompileError> {
+        let mut ex_position = ExceptionPosition::UNKNOWN;
+        Self::_generate(
+            func_index,
+            file_position,
+            reader,
+            param_types,
+            result_types,
+            module,
+            &mut ex_position,
+        )
+        .map_err(|err| {
+            if matches!(err.source(), CompileErrorSource::Unknown) {
+                reader.set_position(ex_position.position());
+                let bc = WasmBytecode::fetch(reader).ok();
+                let name = match module.names() {
+                    Some(v) => v.func_by_index(func_index).map(|v| v.to_string()),
+                    None => None,
+                };
+                CompileError::new(
+                    err.kind().clone(),
+                    ExceptionPosition::new(file_position + ex_position.position()),
+                    CompileErrorSource::Function(func_index, name, ex_position, bc),
+                )
+            } else {
+                err
+            }
+        })
+    }
+
+    pub fn _generate(
+        func_index: usize,
+        file_position: usize,
+        reader: &mut Leb128Reader,
+        param_types: &[WasmValType],
+        result_types: &[WasmValType],
+        module: &WasmModule,
+        position: &mut ExceptionPosition,
+    ) -> Result<Self, CompileError> {
         let local_types = {
             let n_local_var_types: usize = reader.read()?;
             let mut local_var_types = Vec::with_capacity(n_local_var_types);
@@ -92,24 +130,39 @@ impl WasmCodeBlock {
         let mut value_stack = Vec::new();
         let mut max_stack = 0;
         let mut max_block_level = 0;
+        let mut base_stack_level = StackLevel::new(0);
         let mut flags = WasmBlockFlag::LEAF_FUNCTION;
 
         let mut int_codes: Vec<WasmImc> = Vec::new();
 
+        #[inline]
+        fn unwind_stack<T>(
+            stack: &mut Vec<T>,
+            new_level: StackLevel,
+        ) -> Result<(), CompileErrorKind> {
+            let new_level = new_level.as_usize();
+            if stack.len() < new_level {
+                return Err(CompileErrorKind::InvalidStackLevel);
+            }
+            for _ in 0..(stack.len() - new_level) {
+                stack.pop().unwrap();
+            }
+            Ok(())
+        }
         macro_rules! MEM_LOAD {
             ($val_type:ident, $mnemonic:ident, $bytecode:ident, $arg:expr, $module:ident, $reader:ident, $position:ident, $int_codes:ident, $value_stack:ident,) => {
                 #[cfg(test)]
                 assert_matches!($bytecode, WasmBytecode::$mnemonic(_));
 
                 if !$module.has_memory() {
-                    return Err(WasmDecodeErrorKind::OutOfMemory);
+                    return Err(CompileErrorKind::OutOfMemory.into());
                 }
-                let a = $value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
+                let a = $value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
                 if a != WasmValType::I32 {
-                    return Err(WasmDecodeErrorKind::TypeMismatch);
+                    return Err(CompileErrorKind::TypeMismatch.into());
                 }
                 $int_codes.push(WasmImc::new(
-                    WasmImInstruction::$mnemonic($arg.offset, $position).normalized(),
+                    WasmImInstruction::$mnemonic($arg.offset, *($position)).normalized(),
                     StackLevel::new($value_stack.len()),
                 ));
                 $value_stack.push(WasmValType::$val_type);
@@ -121,15 +174,15 @@ impl WasmCodeBlock {
                 assert_matches!($bytecode, WasmBytecode::$mnemonic(_));
 
                 if !$module.has_memory() {
-                    return Err(WasmDecodeErrorKind::OutOfMemory);
+                    return Err(CompileErrorKind::OutOfMemory.into());
                 }
-                let d = $value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                let i = $value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
+                let d = $value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
+                let i = $value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
                 if i != WasmValType::I32 && d != WasmValType::$val_type {
-                    return Err(WasmDecodeErrorKind::TypeMismatch);
+                    return Err(CompileErrorKind::TypeMismatch.into());
                 }
                 $int_codes.push(WasmImc::new(
-                    WasmImInstruction::$mnemonic($arg.offset, $position).normalized(),
+                    WasmImInstruction::$mnemonic($arg.offset, *($position)).normalized(),
                     StackLevel::new($value_stack.len()),
                 ));
             };
@@ -139,9 +192,9 @@ impl WasmCodeBlock {
                 #[cfg(test)]
                 assert_matches!($bytecode, WasmBytecode::$mnemonic);
 
-                let a = *$value_stack.last().ok_or(WasmDecodeErrorKind::OutOfStack)?;
+                let a = *$value_stack.last().ok_or(CompileErrorKind::OutOfStack)?;
                 if a != WasmValType::$val_type {
-                    return Err(WasmDecodeErrorKind::TypeMismatch);
+                    return Err(CompileErrorKind::TypeMismatch.into());
                 }
                 $int_codes.push(WasmImc::new(
                     WasmImInstruction::$mnemonic,
@@ -154,9 +207,9 @@ impl WasmCodeBlock {
                 #[cfg(test)]
                 assert_matches!($bytecode, WasmBytecode::$mnemonic);
 
-                let a = $value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
+                let a = $value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
                 if a != WasmValType::$in_type {
-                    return Err(WasmDecodeErrorKind::TypeMismatch);
+                    return Err(CompileErrorKind::TypeMismatch.into());
                 }
                 $int_codes.push(WasmImc::new(
                     WasmImInstruction::$mnemonic,
@@ -170,10 +223,10 @@ impl WasmCodeBlock {
                 #[cfg(test)]
                 assert_matches!($bytecode, WasmBytecode::$mnemonic);
 
-                let a = $value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                let b = $value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
+                let a = $value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
+                let b = $value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
                 if a != b || a != WasmValType::$val_type {
-                    return Err(WasmDecodeErrorKind::TypeMismatch);
+                    return Err(CompileErrorKind::TypeMismatch.into());
                 }
                 $int_codes.push(WasmImc::new(
                     WasmImInstruction::$mnemonic,
@@ -187,10 +240,10 @@ impl WasmCodeBlock {
                 #[cfg(test)]
                 assert_matches!($bytecode, WasmBytecode::$mnemonic);
 
-                let a = $value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                let b = *$value_stack.last().ok_or(WasmDecodeErrorKind::OutOfStack)?;
+                let a = $value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
+                let b = *$value_stack.last().ok_or(CompileErrorKind::OutOfStack)?;
                 if a != b || a != WasmValType::$val_type {
-                    return Err(WasmDecodeErrorKind::TypeMismatch);
+                    return Err(CompileErrorKind::TypeMismatch.into());
                 }
                 $int_codes.push(WasmImc::new(
                     WasmImInstruction::$mnemonic,
@@ -203,13 +256,13 @@ impl WasmCodeBlock {
                 #[cfg(test)]
                 assert_matches!($bytecode, WasmBytecode::$mnemonic);
 
-                let a = $value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                let b = *$value_stack.last().ok_or(WasmDecodeErrorKind::OutOfStack)?;
+                let a = $value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
+                let b = *$value_stack.last().ok_or(CompileErrorKind::OutOfStack)?;
                 if a != b || a != WasmValType::$val_type {
-                    return Err(WasmDecodeErrorKind::TypeMismatch);
+                    return Err(CompileErrorKind::TypeMismatch.into());
                 }
                 $int_codes.push(WasmImc::new(
-                    WasmImInstruction::$mnemonic($position),
+                    WasmImInstruction::$mnemonic(*($position)),
                     StackLevel::new($value_stack.len() - 1),
                 ));
             };
@@ -218,12 +271,12 @@ impl WasmCodeBlock {
         loop {
             max_stack = max_stack.max(value_stack.len());
             max_block_level = max_block_level.max(block_stack.len());
-            let position = ExceptionPosition::new(reader.position());
+            *position = ExceptionPosition::new(reader.position());
             let bytecode = WasmBytecode::fetch(reader)?;
             match bytecode {
                 WasmBytecode::Unreachable => {
                     int_codes.push(WasmImc::new(
-                        WasmImInstruction::Unreachable(position),
+                        WasmImInstruction::Unreachable(*position),
                         StackLevel::new(value_stack.len()),
                     ));
                 }
@@ -237,6 +290,7 @@ impl WasmCodeBlock {
                         block_type,
                         StackLevel::new(value_stack.len()),
                     ));
+                    base_stack_level = block.borrow().stack_level();
                     block_stack.push(block_index);
                     blocks.push(block);
                     int_codes.push(WasmImc::new(
@@ -251,6 +305,7 @@ impl WasmCodeBlock {
                         block_type,
                         StackLevel::new(value_stack.len()),
                     ));
+                    base_stack_level = block.borrow().stack_level();
                     block_stack.push(block_index);
                     blocks.push(block);
                     int_codes.push(WasmImc::new(
@@ -259,9 +314,9 @@ impl WasmCodeBlock {
                     ));
                 }
                 WasmBytecode::If(block_type) => {
-                    let cc = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
+                    let cc = value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
                     if cc != WasmValType::I32 {
-                        return Err(WasmDecodeErrorKind::TypeMismatch);
+                        return Err(CompileErrorKind::TypeMismatch.into());
                     }
                     let block_index = blocks.len();
                     let block = RefCell::new(BlockContext::new(
@@ -269,6 +324,7 @@ impl WasmCodeBlock {
                         block_type,
                         StackLevel::new(value_stack.len()),
                     ));
+                    base_stack_level = block.borrow().stack_level();
                     block_stack.push(block_index);
                     blocks.push(block);
                     int_codes.push(WasmImc::new(
@@ -277,20 +333,13 @@ impl WasmCodeBlock {
                     ));
                 }
                 WasmBytecode::Else => {
-                    let block_index = block_stack
-                        .last()
-                        .ok_or(WasmDecodeErrorKind::ElseWithoutIf)?;
+                    let block_index = block_stack.last().ok_or(CompileErrorKind::ElseWithoutIf)?;
                     let block = blocks.get(*block_index).unwrap().borrow();
                     if block.inst_type != BlockInstType::If {
-                        return Err(WasmDecodeErrorKind::ElseWithoutIf);
+                        return Err(CompileErrorKind::ElseWithoutIf.into());
                     }
-                    if value_stack.len() < block.stack_level().as_usize() {
-                        return Err(WasmDecodeErrorKind::InvalidStackLevel);
-                    }
-                    let n_drops = value_stack.len() - block.stack_level().as_usize();
-                    for _ in 0..n_drops {
-                        value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                    }
+                    unwind_stack(&mut value_stack, block.stack_level())?;
+                    base_stack_level = block.stack_level();
                     int_codes.push(WasmImc::new(
                         WasmImInstruction::Marker(MarkerKind::Else, *block_index as u32),
                         StackLevel::new(value_stack.len()),
@@ -298,47 +347,62 @@ impl WasmCodeBlock {
                 }
                 WasmBytecode::End => {
                     if block_stack.len() > 0 {
-                        let block_index = block_stack
-                            .pop()
-                            .ok_or(WasmDecodeErrorKind::BlockMismatch)?;
+                        let block_index =
+                            block_stack.pop().ok_or(CompileErrorKind::BlockMismatch)?;
                         let block = blocks.get(block_index).unwrap().borrow();
                         if let Some(block_type) = block.block_type.into_type() {
                             if value_stack.len() < block.stack_level().as_usize() {
-                                return Err(WasmDecodeErrorKind::InvalidStackLevel);
+                                return Err(CompileErrorKind::InvalidStackLevel.into());
                             }
                             if block.inst_type == BlockInstType::Loop
                                 && int_codes.last().unwrap().is_control_unreachable()
                             {
-                                let n_drops = value_stack.len() - block.stack_level().as_usize();
-                                for _ in 1..n_drops {
-                                    value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                                }
+                                unwind_stack(&mut value_stack, block.stack_level())?;
                             } else {
                                 let block_type2 =
-                                    value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
+                                    value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
                                 if block_type != block_type2 {
-                                    return Err(WasmDecodeErrorKind::TypeMismatch);
+                                    return Err(CompileErrorKind::TypeMismatch.into());
                                 }
-                                if value_stack.len() != block.stack_level().as_usize() {
-                                    return Err(WasmDecodeErrorKind::InvalidStackLevel);
+                                if int_codes.last().unwrap().is_control_unreachable() {
+                                    unwind_stack(&mut value_stack, block.stack_level())?;
+                                } else {
+                                    if value_stack.len() != block.stack_level().as_usize() {
+                                        return Err(CompileErrorKind::InvalidStackLevel.into());
+                                    }
                                 }
                             }
                             value_stack.push(block_type);
                         } else {
-                            if value_stack.len() != block.stack_level().as_usize() {
-                                return Err(WasmDecodeErrorKind::InvalidStackLevel);
+                            if int_codes.last().unwrap().is_control_unreachable() {
+                                unwind_stack(&mut value_stack, block.stack_level())?;
+                            } else {
+                                if value_stack.len() != block.stack_level().as_usize() {
+                                    return Err(CompileErrorKind::InvalidStackLevel.into());
+                                }
                             }
                         }
                         int_codes.push(WasmImc::new(
                             WasmImInstruction::Marker(MarkerKind::End, block_index as u32),
                             StackLevel::new(value_stack.len()),
                         ));
+                        base_stack_level = match block_stack.last() {
+                            Some(v) => blocks.get(*v).unwrap().borrow().stack_level(),
+                            None => StackLevel::new(0),
+                        };
                     } else {
+                        if int_codes
+                            .last()
+                            .map(|v| v.is_control_unreachable())
+                            .unwrap_or(false)
+                        {
+                            break;
+                        }
                         if let Some(result_type) = result_types.first() {
                             let result_type2 =
-                                value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
+                                value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
                             if *result_type != result_type2 {
-                                return Err(WasmDecodeErrorKind::TypeMismatch);
+                                return Err(CompileErrorKind::TypeMismatch.into());
                             }
                             match result_type {
                                 WasmValType::I32 | WasmValType::I64 => {
@@ -367,7 +431,7 @@ impl WasmCodeBlock {
                 WasmBytecode::Br(label_index) => {
                     let block_index = block_stack
                         .get(block_stack.len() - (label_index as usize) - 1)
-                        .ok_or(WasmDecodeErrorKind::OutOfBranch)?;
+                        .ok_or(CompileErrorKind::OutOfBranch)?;
                     let block = blocks.get(*block_index).unwrap().borrow();
                     if block.block_type == WasmBlockType::Empty
                         || block.inst_type == BlockInstType::Loop
@@ -386,10 +450,10 @@ impl WasmCodeBlock {
                 WasmBytecode::BrIf(label_index) => {
                     let block_index = block_stack
                         .get(block_stack.len() - (label_index as usize) - 1)
-                        .ok_or(WasmDecodeErrorKind::OutOfBranch)?;
-                    let cc = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
+                        .ok_or(CompileErrorKind::OutOfBranch)?;
+                    let cc = value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
                     if cc != WasmValType::I32 {
-                        return Err(WasmDecodeErrorKind::TypeMismatch);
+                        return Err(CompileErrorKind::TypeMismatch.into());
                     }
                     let block = blocks.get(*block_index).unwrap().borrow();
                     if block.block_type == WasmBlockType::Empty
@@ -407,20 +471,20 @@ impl WasmCodeBlock {
                     }
                 }
                 WasmBytecode::BrTable(mut table) => {
-                    let cc = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
+                    let cc = value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
                     if cc != WasmValType::I32 {
-                        return Err(WasmDecodeErrorKind::TypeMismatch);
+                        return Err(CompileErrorKind::TypeMismatch.into());
                     }
                     let mut block_type = None;
                     for item in table.iter_mut() {
                         let block_index = block_stack
                             .get(block_stack.len() - (*item as usize) - 1)
-                            .ok_or(WasmDecodeErrorKind::OutOfBranch)?;
+                            .ok_or(CompileErrorKind::OutOfBranch)?;
                         let block = blocks.get(*block_index).unwrap().borrow();
                         match block_type {
                             Some(block_type) => {
                                 if block_type != block.block_type {
-                                    return Err(WasmDecodeErrorKind::TypeMismatch);
+                                    return Err(CompileErrorKind::TypeMismatch.into());
                                 }
                             }
                             None => {
@@ -438,7 +502,7 @@ impl WasmCodeBlock {
                         }
                         _ => {
                             int_codes.push(WasmImc::new(
-                                WasmImInstruction::NotSupported(WasmMnemonic::BrTable, position),
+                                WasmImInstruction::NotSupported(WasmMnemonic::BrTable, *position),
                                 StackLevel::new(value_stack.len()),
                             ));
                         }
@@ -447,10 +511,9 @@ impl WasmCodeBlock {
 
                 WasmBytecode::Return => {
                     if let Some(result_type) = result_types.first() {
-                        let result_type2 =
-                            value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
+                        let result_type2 = value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
                         if *result_type != result_type2 {
-                            return Err(WasmDecodeErrorKind::TypeMismatch);
+                            return Err(CompileErrorKind::TypeMismatch.into());
                         }
                         match result_type {
                             WasmValType::I32 | WasmValType::I64 => int_codes.push(WasmImc::new(
@@ -475,9 +538,9 @@ impl WasmCodeBlock {
                     let function = module
                         .functions()
                         .get(func_index as usize)
-                        .ok_or(WasmDecodeErrorKind::InvalidData)?;
+                        .ok_or(CompileErrorKind::InvalidData)?;
                     int_codes.push(WasmImc::new(
-                        WasmImInstruction::Call(func_index as usize, position),
+                        WasmImInstruction::Call(func_index as usize, *position),
                         StackLevel::new(value_stack.len()),
                     ));
                     // TODO: type check
@@ -491,14 +554,14 @@ impl WasmCodeBlock {
                 WasmBytecode::CallIndirect(type_index, _reserved) => {
                     flags.remove(WasmBlockFlag::LEAF_FUNCTION);
                     let type_index = WasmTypeIndex::new(module, type_index)
-                        .ok_or(WasmDecodeErrorKind::InvalidData)?;
+                        .ok_or(CompileErrorKind::InvalidData)?;
                     let func_type = module.type_by_index(type_index);
-                    let index = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
+                    let index = value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
                     if index != WasmValType::I32 {
-                        return Err(WasmDecodeErrorKind::TypeMismatch);
+                        return Err(CompileErrorKind::TypeMismatch.into());
                     }
                     int_codes.push(WasmImc::new(
-                        WasmImInstruction::CallIndirect(type_index, position),
+                        WasmImInstruction::CallIndirect(type_index, *position),
                         StackLevel::new(value_stack.len()),
                     ));
                     // TODO: type check
@@ -511,15 +574,15 @@ impl WasmCodeBlock {
                 }
 
                 WasmBytecode::Drop => {
-                    value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
+                    value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
                 }
 
                 WasmBytecode::Select => {
-                    let cc = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                    let b = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                    let a = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
+                    let cc = value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
+                    let b = value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
+                    let a = value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
                     if a != b || cc != WasmValType::I32 {
-                        return Err(WasmDecodeErrorKind::TypeMismatch);
+                        return Err(CompileErrorKind::TypeMismatch.into());
                     }
                     int_codes.push(WasmImc::new(
                         WasmImInstruction::SelectI,
@@ -531,7 +594,7 @@ impl WasmCodeBlock {
                 WasmBytecode::LocalGet(local_index) => {
                     let val = *local_types
                         .get(local_index as usize)
-                        .ok_or(WasmDecodeErrorKind::InvalidLocal)?;
+                        .ok_or(CompileErrorKind::InvalidLocal)?;
                     int_codes.push(WasmImc::new(
                         WasmImInstruction::LocalGetI(unsafe { LocalVarIndex::new(local_index) }),
                         StackLevel::new(value_stack.len()),
@@ -541,10 +604,10 @@ impl WasmCodeBlock {
                 WasmBytecode::LocalSet(local_index) => {
                     let val = *local_types
                         .get(local_index as usize)
-                        .ok_or(WasmDecodeErrorKind::InvalidLocal)?;
-                    let stack = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
+                        .ok_or(CompileErrorKind::InvalidLocal)?;
+                    let stack = value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
                     if stack != val {
-                        return Err(WasmDecodeErrorKind::TypeMismatch);
+                        return Err(CompileErrorKind::TypeMismatch.into());
                     }
                     int_codes.push(WasmImc::new(
                         WasmImInstruction::LocalSetI(unsafe { LocalVarIndex::new(local_index) }),
@@ -554,10 +617,10 @@ impl WasmCodeBlock {
                 WasmBytecode::LocalTee(local_index) => {
                     let val = *local_types
                         .get(local_index as usize)
-                        .ok_or(WasmDecodeErrorKind::InvalidLocal)?;
-                    let stack = *value_stack.last().ok_or(WasmDecodeErrorKind::OutOfStack)?;
+                        .ok_or(CompileErrorKind::InvalidLocal)?;
+                    let stack = *value_stack.last().ok_or(CompileErrorKind::OutOfStack)?;
                     if stack != val {
-                        return Err(WasmDecodeErrorKind::TypeMismatch);
+                        return Err(CompileErrorKind::TypeMismatch.into());
                     }
                     int_codes.push(WasmImc::new(
                         WasmImInstruction::LocalTeeI(unsafe { LocalVarIndex::new(local_index) }),
@@ -570,7 +633,7 @@ impl WasmCodeBlock {
                         .globals()
                         .get(global_index as usize)
                         .map(|v| v.val_type())
-                        .ok_or(WasmDecodeErrorKind::InvalidGlobal)?;
+                        .ok_or(CompileErrorKind::InvalidGlobal)?;
                     int_codes.push(WasmImc::new(
                         WasmImInstruction::GlobalGetI(unsafe { GlobalVarIndex::new(global_index) }),
                         StackLevel::new(value_stack.len()),
@@ -581,15 +644,15 @@ impl WasmCodeBlock {
                     let global = module
                         .globals()
                         .get(global_index as usize)
-                        .ok_or(WasmDecodeErrorKind::InvalidGlobal)?;
+                        .ok_or(CompileErrorKind::InvalidGlobal)?;
                     let val_type = global.val_type();
                     let is_mutable = global.is_mutable();
                     if !is_mutable {
-                        return Err(WasmDecodeErrorKind::InvalidGlobal);
+                        return Err(CompileErrorKind::InvalidGlobal.into());
                     }
-                    let stack = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
+                    let stack = value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
                     if stack != val_type {
-                        return Err(WasmDecodeErrorKind::TypeMismatch);
+                        return Err(CompileErrorKind::TypeMismatch.into());
                     }
                     int_codes.push(WasmImc::new(
                         WasmImInstruction::GlobalSetI(unsafe { GlobalVarIndex::new(global_index) }),
@@ -695,7 +758,7 @@ impl WasmCodeBlock {
 
                 WasmBytecode::MemorySize(index) => {
                     if (index as usize) >= module.memories().len() {
-                        return Err(WasmDecodeErrorKind::OutOfMemory);
+                        return Err(CompileErrorKind::OutOfMemory.into());
                     }
                     int_codes.push(WasmImc::new(
                         WasmImInstruction::MemorySize,
@@ -706,15 +769,15 @@ impl WasmCodeBlock {
 
                 WasmBytecode::MemoryGrow(index) => {
                     if (index as usize) >= module.memories().len() {
-                        return Err(WasmDecodeErrorKind::OutOfMemory);
+                        return Err(CompileErrorKind::OutOfMemory.into());
                     }
                     int_codes.push(WasmImc::new(
                         WasmImInstruction::MemoryGrow,
                         StackLevel::new(value_stack.len() - 1),
                     ));
-                    let a = *value_stack.last().ok_or(WasmDecodeErrorKind::OutOfStack)?;
+                    let a = *value_stack.last().ok_or(CompileErrorKind::OutOfStack)?;
                     if a != WasmValType::I32 {
-                        return Err(WasmDecodeErrorKind::TypeMismatch);
+                        return Err(CompileErrorKind::TypeMismatch.into());
                     }
                 }
 
@@ -1242,53 +1305,57 @@ impl WasmCodeBlock {
 
                 WasmBytecode::MemoryCopy => {
                     if !module.has_memory() {
-                        return Err(WasmDecodeErrorKind::OutOfMemory);
+                        return Err(CompileErrorKind::OutOfMemory.into());
                     }
                     let memory_dst = reader.read_unsigned()? as usize;
                     if memory_dst >= module.memories().len() {
-                        return Err(WasmDecodeErrorKind::OutOfMemory);
+                        return Err(CompileErrorKind::OutOfMemory.into());
                     }
                     let memory_src = reader.read_unsigned()? as usize;
                     if memory_src >= module.memories().len() {
-                        return Err(WasmDecodeErrorKind::OutOfMemory);
+                        return Err(CompileErrorKind::OutOfMemory.into());
                     }
 
-                    let a = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                    let b = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                    let c = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
+                    let a = value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
+                    let b = value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
+                    let c = value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
                     if a != WasmValType::I32 || b != WasmValType::I32 || c != WasmValType::I32 {
-                        return Err(WasmDecodeErrorKind::TypeMismatch);
+                        return Err(CompileErrorKind::TypeMismatch.into());
                     }
 
                     int_codes.push(WasmImc::new(
-                        WasmImInstruction::MemoryCopy(position),
+                        WasmImInstruction::MemoryCopy(*position),
                         StackLevel::new(value_stack.len()),
                     ));
                 }
 
                 WasmBytecode::MemoryFill => {
                     if !module.has_memory() {
-                        return Err(WasmDecodeErrorKind::OutOfMemory);
+                        return Err(CompileErrorKind::OutOfMemory.into());
                     }
                     let index = reader.read_unsigned()? as usize;
                     if index >= module.memories().len() {
-                        return Err(WasmDecodeErrorKind::OutOfMemory);
+                        return Err(CompileErrorKind::OutOfMemory.into());
                     }
 
-                    let a = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                    let b = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
-                    let c = value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
+                    let a = value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
+                    let b = value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
+                    let c = value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
                     if a != WasmValType::I32 || b != WasmValType::I32 || c != WasmValType::I32 {
-                        return Err(WasmDecodeErrorKind::TypeMismatch);
+                        return Err(CompileErrorKind::TypeMismatch.into());
                     }
 
                     int_codes.push(WasmImc::new(
-                        WasmImInstruction::MemoryFill(position),
+                        WasmImInstruction::MemoryFill(*position),
                         StackLevel::new(value_stack.len()),
                     ));
                 }
 
-                _ => return Err(WasmDecodeErrorKind::UnsupportedBytecode(bytecode.into())),
+                _ => return Err(CompileErrorKind::UnsupportedBytecode(bytecode.into()).into()),
+            }
+
+            if base_stack_level.as_usize() > value_stack.len() {
+                return Err(CompileErrorKind::OutOfStack.into());
             }
         }
 
@@ -1299,7 +1366,7 @@ impl WasmCodeBlock {
 
         if result_types.len() == 0 {
             if value_stack.len() > 0 {
-                return Err(WasmDecodeErrorKind::InvalidStackLevel);
+                return Err(CompileErrorKind::InvalidStackLevel.into());
             }
         }
 
@@ -1469,17 +1536,17 @@ impl WasmCodeBlock {
                     WasmMnemonic::If => {
                         *target = blocks
                             .get(*target as usize)
-                            .ok_or(WasmDecodeErrorKind::OutOfBranch)
+                            .ok_or(CompileErrorKind::OutOfBranch)
                             .map(|block: &RefCell<BlockContext>| block.borrow().else_position)?;
                     }
                     _ => {
                         *target = blocks
                             .get(*target as usize)
-                            .ok_or(WasmDecodeErrorKind::OutOfBranch)
+                            .ok_or(CompileErrorKind::OutOfBranch)
                             .map(|block| block.borrow().preferred_target())?;
                     }
                 }
-                Result::<(), WasmDecodeErrorKind>::Ok(())
+                Result::<(), CompileErrorKind>::Ok(())
             })?;
         }
 

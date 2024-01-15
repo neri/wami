@@ -5,6 +5,7 @@
 #![feature(slice_split_at_unchecked)]
 #![feature(float_minimum_maximum)]
 #![feature(negative_impls)]
+#![feature(error_in_core)]
 //
 #![feature(core_intrinsics)]
 #![allow(internal_features)]

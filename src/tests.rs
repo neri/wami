@@ -10,6 +10,7 @@ use crate::{
 use alloc::borrow::ToOwned;
 use core::f64::consts::PI;
 use num_traits::Zero;
+use std::assert_matches::assert_matches;
 
 #[test]
 fn instantiate() {
@@ -17,22 +18,31 @@ fn instantiate() {
     WebAssembly::instantiate(&data, |_, _, _| unreachable!()).unwrap();
 
     let data = [0, 97, 115, 109, 1, 0, 0];
-    assert!(matches!(
-        WebAssembly::instantiate(&data, |_, _, _| unreachable!()),
-        Err(WasmDecodeErrorKind::BadExecutable)
-    ));
+    assert_matches!(
+        WebAssembly::instantiate(&data, |_, _, _| unreachable!())
+            .unwrap_err()
+            .downcast_ref::<CompileErrorKind>()
+            .unwrap(),
+        CompileErrorKind::BadExecutable
+    );
 
     let data = [0, 97, 115, 109, 2, 0, 0, 0];
-    assert!(matches!(
-        WebAssembly::instantiate(&data, |_, _, _| unreachable!()),
-        Err(WasmDecodeErrorKind::BadExecutable)
-    ));
+    assert_matches!(
+        WebAssembly::instantiate(&data, |_, _, _| unreachable!())
+            .unwrap_err()
+            .downcast_ref::<CompileErrorKind>()
+            .unwrap(),
+        CompileErrorKind::BadExecutable
+    );
 
     let data = [0, 97, 115, 109, 1, 0, 0, 0, 1];
-    assert!(matches!(
-        WebAssembly::instantiate(&data, |_, _, _| unreachable!()),
-        Err(WasmDecodeErrorKind::UnexpectedEof)
-    ));
+    assert_matches!(
+        WebAssembly::instantiate(&data, |_, _, _| unreachable!())
+            .unwrap_err()
+            .downcast_ref::<CompileErrorKind>()
+            .unwrap(),
+        CompileErrorKind::UnexpectedEof
+    );
 
     let module = WebAssembly::instantiate(
         include_bytes!("../test/tester.wasm"),
@@ -52,12 +62,13 @@ fn section_order() {
     let data = [
         0, 97, 115, 109, 1, 0, 0, 0, 1, 1, 0, 2, 1, 0, 2, 1, 0, 3, 1, 0, 4, 1, 0, 3, 1, 0,
     ];
-    assert!(matches!(
-        WebAssembly::instantiate(&data, |_, _, _| unreachable!()),
-        Err(WasmDecodeErrorKind::InvalidSectionOrder(
-            WasmSectionId::Function
-        ))
-    ));
+    assert_matches!(
+        WebAssembly::instantiate(&data, |_, _, _| unreachable!())
+            .unwrap_err()
+            .downcast_ref::<CompileErrorKind>()
+            .unwrap(),
+        CompileErrorKind::InvalidSectionOrder(WasmSectionId::Function)
+    );
 }
 
 #[test]
@@ -84,10 +95,12 @@ fn i32_const_type_mismatch() {
     let result_types = [WasmValType::I64];
     let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::empty();
-    assert!(matches!(
-        WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module),
-        Err(WasmDecodeErrorKind::TypeMismatch)
-    ));
+    assert_matches!(
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module)
+            .unwrap_err()
+            .kind(),
+        CompileErrorKind::TypeMismatch
+    );
 
     let slice = [0, 0x41, 0x00, 0x01, 0x0B];
     let result_types = [WasmValType::I32];
@@ -138,10 +151,12 @@ fn i64_const_type_mismatch() {
     let result_types = [WasmValType::I32];
     let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::empty();
-    assert!(matches!(
-        WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module),
-        Err(WasmDecodeErrorKind::TypeMismatch)
-    ));
+    assert_matches!(
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module)
+            .unwrap_err()
+            .kind(),
+        CompileErrorKind::TypeMismatch
+    );
 }
 
 #[test]
@@ -2955,9 +2970,11 @@ fn block_nest() {
     let slice = [0, 0x02, 0x40, 0x02, 0x40, 0x01, 0x0B, 0x0B];
     let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::empty();
-    assert_eq!(
-        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], &module).unwrap_err(),
-        WasmDecodeErrorKind::UnexpectedEof
+    assert_matches!(
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], &module)
+            .unwrap_err()
+            .kind(),
+        CompileErrorKind::UnexpectedEof
     );
 
     let slice = [0, 0x02, 0x7F, 0x02, 0x7F, 0x41, 0x01, 0x0B, 0x0B, 0x0B];
@@ -2968,57 +2985,71 @@ fn block_nest() {
     let slice = [0, 0x02, 0x7F, 0x02, 0x7F, 0x01, 0x0B, 0x0B, 0x0B];
     let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::empty();
-    assert_eq!(
-        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], &module).unwrap_err(),
-        WasmDecodeErrorKind::OutOfStack
+    assert_matches!(
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], &module)
+            .unwrap_err()
+            .kind(),
+        CompileErrorKind::OutOfStack
     );
 
     let slice = [0, 0x02, 0x7F, 0x02, 0x7F, 0x41, 0x01, 0x0B, 0x0B, 0x0B];
     let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::empty();
-    assert_eq!(
-        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], &module).unwrap_err(),
-        WasmDecodeErrorKind::InvalidStackLevel
+    assert_matches!(
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], &module)
+            .unwrap_err()
+            .kind(),
+        CompileErrorKind::InvalidStackLevel
     );
 
     let slice = [0, 0x02, 0x7F, 0x02, 0x7F, 0x41, 0x01, 0x0B, 0x0B, 0x0B];
     let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::empty();
-    assert_eq!(
-        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[WasmValType::I64], &module).unwrap_err(),
-        WasmDecodeErrorKind::TypeMismatch
+    assert_matches!(
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[WasmValType::I64], &module)
+            .unwrap_err()
+            .kind(),
+        CompileErrorKind::TypeMismatch
     );
 
     let slice = [0, 0x02, 0x7F, 0x02, 0x7F, 0x42, 0x01, 0x0B, 0x0B, 0x0B];
     let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::empty();
-    assert_eq!(
-        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[WasmValType::I32], &module).unwrap_err(),
-        WasmDecodeErrorKind::TypeMismatch
+    assert_matches!(
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[WasmValType::I32], &module)
+            .unwrap_err()
+            .kind(),
+        CompileErrorKind::TypeMismatch
     );
 
     let slice = [0, 0x02, 0x7F, 0x02, 0x7E, 0x41, 0x01, 0x0B, 0x0B, 0x0B];
     let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::empty();
-    assert_eq!(
-        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[WasmValType::I32], &module).unwrap_err(),
-        WasmDecodeErrorKind::TypeMismatch
+    assert_matches!(
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[WasmValType::I32], &module)
+            .unwrap_err()
+            .kind(),
+        CompileErrorKind::TypeMismatch
     );
 
     let slice = [0, 0x02, 0x7E, 0x02, 0x7F, 0x41, 0x01, 0x0B, 0x0B, 0x0B];
     let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::empty();
-    assert_eq!(
-        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[WasmValType::I32], &module).unwrap_err(),
-        WasmDecodeErrorKind::TypeMismatch
+    assert_matches!(
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[WasmValType::I32], &module)
+            .unwrap_err()
+            .kind(),
+        CompileErrorKind::TypeMismatch
     );
 
     let slice = [0, 0x02, 0x7E, 0x02, 0x7F, 0x41, 0x01, 0x0B, 0x0B, 0x0B];
     let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::empty();
-    assert_eq!(
-        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[WasmValType::I64], &module).unwrap_err(),
-        WasmDecodeErrorKind::TypeMismatch
+    assert_matches!(
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[WasmValType::I64], &module)
+            .unwrap_err()
+            .kind(),
+        CompileErrorKind::TypeMismatch
     );
 
     let slice = [0, 0x02, 0x7F, 0x02, 0x7F, 0x20, 0x00, 0x0B, 0x0B, 0x0B];
@@ -3080,9 +3111,11 @@ fn loop_nest() {
     let slice = [0, 0x02, 0x40, 0x03, 0x40, 0x01, 0x0B, 0x0B];
     let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::empty();
-    assert_eq!(
-        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], &module).unwrap_err(),
-        WasmDecodeErrorKind::UnexpectedEof
+    assert_matches!(
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], &module)
+            .unwrap_err()
+            .kind(),
+        CompileErrorKind::UnexpectedEof
     );
 
     let slice = [0, 0x02, 0x7F, 0x03, 0x7F, 0x41, 0x01, 0x0B, 0x0B, 0x0B];
@@ -3093,9 +3126,11 @@ fn loop_nest() {
     let slice = [0, 0x02, 0x7F, 0x03, 0x7F, 0x01, 0x0B, 0x0B, 0x0B];
     let mut stream = Leb128Reader::from_slice(&slice);
     let module = WasmModule::empty();
-    assert_eq!(
-        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], &module).unwrap_err(),
-        WasmDecodeErrorKind::OutOfStack
+    assert_matches!(
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], &module)
+            .unwrap_err()
+            .kind(),
+        CompileErrorKind::OutOfStack
     );
 }
 

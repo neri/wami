@@ -6,13 +6,14 @@ use crate::{
 };
 use alloc::{borrow::ToOwned, boxed::Box, collections::BTreeMap, format, string::*, vec::Vec};
 use core::{
+    error::Error,
     fmt,
-    mem::{size_of, ManuallyDrop},
+    mem::{size_of, transmute, ManuallyDrop},
     num::NonZeroU32,
     ops::*,
     ptr::slice_from_raw_parts_mut,
     slice, str,
-    sync::atomic::{AtomicU32, Ordering},
+    sync::atomic::{AtomicU64, Ordering},
 };
 use smallvec::SmallVec;
 
@@ -48,10 +49,7 @@ impl WebAssembly {
     }
 
     /// Instantiate wasm module
-    pub fn instantiate<F>(
-        bytes: &[u8],
-        imports_resolver: F,
-    ) -> Result<WasmModule, WasmDecodeErrorKind>
+    pub fn instantiate<F>(bytes: &[u8], imports_resolver: F) -> Result<WasmModule, Box<dyn Error>>
     where
         F: FnMut(&str, &str, &WasmType) -> ImportResult<WasmDynFunc> + Copy,
     {
@@ -60,7 +58,7 @@ impl WebAssembly {
 
     /// Compile wasm module
     #[inline]
-    pub fn compile(bytes: &[u8]) -> Result<WasmModule, WasmDecodeErrorKind> {
+    pub fn compile(bytes: &[u8]) -> Result<WasmModule, Box<dyn Error>> {
         WasmModule::compile(bytes)
     }
 
@@ -88,6 +86,12 @@ pub struct WasmModule {
     n_ext_func: usize,
 }
 
+impl fmt::Debug for WasmModule {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("WasmModule").finish()
+    }
+}
+
 impl WasmModule {
     #[cfg(test)]
     pub fn empty() -> Self {
@@ -108,9 +112,9 @@ impl WasmModule {
     }
 
     #[inline]
-    fn compile(bytes: &[u8]) -> Result<Self, WasmDecodeErrorKind> {
+    fn compile(bytes: &[u8]) -> Result<Self, Box<dyn Error>> {
         if !WebAssembly::identify(bytes) {
-            return Err(WasmDecodeErrorKind::BadExecutable);
+            return Err(CompileErrorKind::BadExecutable.into());
         }
         let mut module = Self::default();
         let mut reader = Leb128Reader::from_slice(&bytes[8..]);
@@ -118,19 +122,15 @@ impl WasmModule {
         let mut last_section_id = WasmSectionId::Type;
 
         while let Some(mut section) = WasmSection::from_reader(reader)? {
-            if section.section_id.depends_on_order() {
-                if last_section_id > section.section_id {
-                    return Err(WasmDecodeErrorKind::InvalidSectionOrder(section.section_id));
-                } else {
-                    last_section_id = section.section_id;
-                }
-            }
             match section.section_id {
                 WasmSectionId::Custom => {
                     match section.reader.read() {
                         Ok(section_name) => {
                             let mut blob = Vec::new();
-                            section.reader.read_to_end(&mut blob)?;
+                            section
+                                .reader
+                                .read_to_end(&mut blob)
+                                .map_err(|err| CompileErrorKind::from(err))?;
 
                             match section_name {
                                 WasmName::SECTION_NAME => {
@@ -148,21 +148,35 @@ impl WasmModule {
                             // ignored
                         }
                     };
-                    Ok(())
                 }
-                WasmSectionId::Type => module.parse_sec_type(section),
-                WasmSectionId::Import => module.parse_sec_import(section),
-                WasmSectionId::Function => module.parse_sec_func(section),
-                WasmSectionId::Table => module.parse_sec_table(section),
-                WasmSectionId::Memory => module.parse_sec_memory(section),
-                WasmSectionId::Global => module.parse_sec_global(section),
-                WasmSectionId::Export => module.parse_sec_export(section),
-                WasmSectionId::Start => module.parse_sec_start(section),
-                WasmSectionId::Element => module.parse_sec_elem(section),
-                WasmSectionId::Code => module.parse_sec_code(section),
-                WasmSectionId::Data => module.parse_sec_data(section),
-                WasmSectionId::DataCount => module.parse_sec_data_count(section),
-            }?;
+                _ => (),
+            }
+        }
+        reader.reset();
+
+        while let Some(section) = WasmSection::from_reader(reader)? {
+            if section.section_id.depends_on_order() {
+                if last_section_id > section.section_id {
+                    return Err(CompileErrorKind::InvalidSectionOrder(section.section_id).into());
+                } else {
+                    last_section_id = section.section_id;
+                }
+            }
+            match section.section_id {
+                WasmSectionId::Custom => (),
+                WasmSectionId::Type => module.parse_sec_type(section)?,
+                WasmSectionId::Import => module.parse_sec_import(section)?,
+                WasmSectionId::Function => module.parse_sec_func(section)?,
+                WasmSectionId::Table => module.parse_sec_table(section)?,
+                WasmSectionId::Memory => module.parse_sec_memory(section)?,
+                WasmSectionId::Global => module.parse_sec_global(section)?,
+                WasmSectionId::Export => module.parse_sec_export(section)?,
+                WasmSectionId::Start => module.parse_sec_start(section)?,
+                WasmSectionId::Element => module.parse_sec_elem(section)?,
+                WasmSectionId::Code => module.parse_sec_code(section)?,
+                WasmSectionId::Data => module.parse_sec_data(section)?,
+                WasmSectionId::DataCount => module.parse_sec_data_count(section)?,
+            };
         }
 
         module.types.shrink_to_fit();
@@ -176,10 +190,7 @@ impl WasmModule {
         Ok(module)
     }
 
-    pub fn instantiate<F>(
-        mut self,
-        mut imports_resolver: F,
-    ) -> Result<WasmModule, WasmDecodeErrorKind>
+    pub fn instantiate<F>(mut self, mut imports_resolver: F) -> Result<WasmModule, Box<dyn Error>>
     where
         F: FnMut(&str, &str, &WasmType) -> ImportResult<WasmDynFunc> + Copy,
     {
@@ -196,10 +207,10 @@ impl WasmModule {
                             self.functions[func_idx].resolve(dyn_func)?;
                         }
                         ImportResult::NoModule => {
-                            return Err(WasmDecodeErrorKind::NoModule(import.mod_name.clone()))
+                            return Err(CompileErrorKind::NoModule(import.mod_name.clone()).into())
                         }
                         ImportResult::NoMethod => {
-                            return Err(WasmDecodeErrorKind::NoMethod(import.name.clone()))
+                            return Err(CompileErrorKind::NoMethod(import.name.clone()).into())
                         }
                     }
                     func_idx += 1;
@@ -213,7 +224,7 @@ impl WasmModule {
     }
 
     /// Parse "type" section
-    fn parse_sec_type(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeErrorKind> {
+    fn parse_sec_type(&mut self, mut section: WasmSection) -> Result<(), CompileErrorKind> {
         let n_items: usize = section.reader.read()?;
         for _ in 0..n_items {
             let ft = WasmType::from_reader(&mut section.reader)?;
@@ -223,7 +234,7 @@ impl WasmModule {
     }
 
     /// Parse "import" section
-    fn parse_sec_import(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeErrorKind> {
+    fn parse_sec_import(&mut self, mut section: WasmSection) -> Result<(), CompileErrorKind> {
         let n_items: usize = section.reader.read()?;
         for _ in 0..n_items {
             let import = WasmImport::from_reader(&mut section.reader)?;
@@ -232,7 +243,7 @@ impl WasmModule {
                     let func_type = self
                         .types
                         .get(type_index.as_usize())
-                        .ok_or(WasmDecodeErrorKind::InvalidType(type_index))?;
+                        .ok_or(CompileErrorKind::InvalidType(type_index))?;
                     self.functions.push(WasmFunction::from_import(
                         self.n_ext_func,
                         type_index,
@@ -251,7 +262,7 @@ impl WasmModule {
     }
 
     /// Parse "func" section
-    fn parse_sec_func(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeErrorKind> {
+    fn parse_sec_func(&mut self, mut section: WasmSection) -> Result<(), CompileErrorKind> {
         let n_items: usize = section.reader.read()?;
         let base_index = self.imports.len();
         for index in 0..n_items {
@@ -259,7 +270,7 @@ impl WasmModule {
             let func_type = self
                 .types
                 .get(type_index.as_usize())
-                .ok_or(WasmDecodeErrorKind::InvalidType(type_index))?;
+                .ok_or(CompileErrorKind::InvalidType(type_index))?;
             self.functions.push(WasmFunction::internal(
                 base_index + index,
                 type_index,
@@ -270,7 +281,7 @@ impl WasmModule {
     }
 
     /// Parse "export" section
-    fn parse_sec_export(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeErrorKind> {
+    fn parse_sec_export(&mut self, mut section: WasmSection) -> Result<(), CompileErrorKind> {
         let n_items: usize = section.reader.read()?;
         for _ in 0..n_items {
             let export = WasmExport::new(&self, &mut section.reader)?;
@@ -280,7 +291,7 @@ impl WasmModule {
     }
 
     /// Parse "memory" section
-    fn parse_sec_memory(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeErrorKind> {
+    fn parse_sec_memory(&mut self, mut section: WasmSection) -> Result<(), CompileErrorKind> {
         let n_items: usize = section.reader.read()?;
         for _ in 0..n_items {
             let limit = WasmLimit::from_reader(&mut section.reader, true)?;
@@ -290,7 +301,7 @@ impl WasmModule {
     }
 
     /// Parse "table" section
-    fn parse_sec_table(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeErrorKind> {
+    fn parse_sec_table(&mut self, mut section: WasmSection) -> Result<(), CompileErrorKind> {
         let n_items: usize = section.reader.read()?;
         for _ in 0..n_items {
             let table = WasmTable::from_reader(&mut section.reader)?;
@@ -300,7 +311,7 @@ impl WasmModule {
     }
 
     /// Parse "elem" section
-    fn parse_sec_elem(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeErrorKind> {
+    fn parse_sec_elem(&mut self, mut section: WasmSection) -> Result<(), CompileErrorKind> {
         let n_items: usize = section.reader.read()?;
         for _ in 0..n_items {
             let tabidx: usize = section.reader.read()?;
@@ -309,7 +320,7 @@ impl WasmModule {
             let table = self
                 .tables
                 .get_mut(tabidx)
-                .ok_or(WasmDecodeErrorKind::InvalidData)?;
+                .ok_or(CompileErrorKind::InvalidData)?;
             for i in offset..offset + n_elements {
                 let elem: usize = section.reader.read()?;
                 table.table.get_mut(i).map(|v| *v = elem);
@@ -319,7 +330,7 @@ impl WasmModule {
     }
 
     /// Parse "code" section
-    fn parse_sec_code(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeErrorKind> {
+    fn parse_sec_code(&mut self, mut section: WasmSection) -> Result<(), CompileError> {
         let n_items: usize = section.reader.read()?;
         for i in 0..n_items {
             let index = i + self.n_ext_func;
@@ -327,7 +338,7 @@ impl WasmModule {
             let func_def = self
                 .functions
                 .get(index)
-                .ok_or(WasmDecodeErrorKind::OutOfFunction)?;
+                .ok_or(CompileErrorKind::OutOfFunction)?;
             let length: usize = section.reader.read()?;
             let file_position = section.file_position() + section.reader.position();
             let mut reader = section.reader.sub_slice(length).unwrap();
@@ -342,14 +353,14 @@ impl WasmModule {
 
             self.functions
                 .get_mut(index)
-                .ok_or(WasmDecodeErrorKind::OutOfFunction)
+                .ok_or(CompileErrorKind::OutOfFunction)
                 .and_then(|v| v.set_code_block(code_block))?;
         }
         Ok(())
     }
 
     /// Parse "data" section
-    fn parse_sec_data(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeErrorKind> {
+    fn parse_sec_data(&mut self, mut section: WasmSection) -> Result<(), CompileErrorKind> {
         let n_items: usize = section.reader.read()?;
         for _ in 0..n_items {
             let memidx: usize = section.reader.read()?;
@@ -358,21 +369,21 @@ impl WasmModule {
             let memory = self
                 .memories
                 .get_mut(memidx)
-                .ok_or(WasmDecodeErrorKind::InvalidData)?;
+                .ok_or(CompileErrorKind::InvalidData)?;
             memory.write_slice(offset, src).unwrap();
         }
         Ok(())
     }
 
     /// Parse "start" section
-    fn parse_sec_start(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeErrorKind> {
+    fn parse_sec_start(&mut self, mut section: WasmSection) -> Result<(), CompileErrorKind> {
         let index: usize = section.reader.read()?;
         self.start = Some(index);
         Ok(())
     }
 
     /// Parse "global" section
-    fn parse_sec_global(&mut self, mut section: WasmSection) -> Result<(), WasmDecodeErrorKind> {
+    fn parse_sec_global(&mut self, mut section: WasmSection) -> Result<(), CompileErrorKind> {
         let n_items: usize = section.reader.read()?;
         for _ in 0..n_items {
             let val_type = section
@@ -384,7 +395,7 @@ impl WasmModule {
             let value = self.eval_expr(&mut section.reader)?;
 
             if !value.is_valid_type(val_type) {
-                return Err(WasmDecodeErrorKind::InvalidGlobal);
+                return Err(CompileErrorKind::InvalidGlobal);
             }
 
             WasmGlobal::new(value, is_mutable).map(|v| self.globals.push(v))?;
@@ -393,23 +404,20 @@ impl WasmModule {
     }
 
     /// Parse "datacount" section
-    fn parse_sec_data_count(
-        &mut self,
-        mut section: WasmSection,
-    ) -> Result<(), WasmDecodeErrorKind> {
+    fn parse_sec_data_count(&mut self, mut section: WasmSection) -> Result<(), CompileErrorKind> {
         let count: usize = section.reader.read()?;
         self.data_count = Some(count);
         Ok(())
     }
 
-    fn eval_offset(&self, mut reader: &mut Leb128Reader) -> Result<usize, WasmDecodeErrorKind> {
+    fn eval_offset(&self, mut reader: &mut Leb128Reader) -> Result<usize, CompileErrorKind> {
         self.eval_expr(&mut reader)
-            .and_then(|v| v.get_i32().map_err(|_| WasmDecodeErrorKind::InvalidData))
+            .and_then(|v| v.get_i32().map_err(|_| CompileErrorKind::InvalidData))
             .map(|v| v as usize)
     }
 
     /// Evaluate constant expression
-    fn eval_expr(&self, reader: &mut Leb128Reader) -> Result<WasmValue, WasmDecodeErrorKind> {
+    fn eval_expr(&self, reader: &mut Leb128Reader) -> Result<WasmValue, CompileErrorKind> {
         let mut vs = Vec::new();
         loop {
             let bc = WasmBytecode::fetch(reader)?;
@@ -421,10 +429,10 @@ impl WasmModule {
                 WasmBytecode::End => match vs.last() {
                     Some(v) => return Ok(*v),
                     None => {
-                        return Err(WasmDecodeErrorKind::InvalidData);
+                        return Err(CompileErrorKind::InvalidData);
                     }
                 },
-                _ => return Err(WasmDecodeErrorKind::UnsupportedBytecode(bc.mnemonic())),
+                _ => return Err(CompileErrorKind::UnsupportedBytecode(bc.mnemonic())),
             }
         }
     }
@@ -633,13 +641,13 @@ pub struct WasmSection<'a> {
 impl<'a> WasmSection<'a> {
     pub fn from_reader<'b>(
         reader: &'b mut Leb128Reader<'a>,
-    ) -> Result<Option<WasmSection<'a>>, WasmDecodeErrorKind> {
+    ) -> Result<Option<WasmSection<'a>>, CompileErrorKind> {
         if reader.is_eof() {
             return Ok(None);
         }
         let section_type = reader.read_byte()?;
         let Some(section_id) = WasmSectionId::from_u8(section_type) else {
-            return Err(WasmDecodeErrorKind::UnexpectedToken);
+            return Err(CompileErrorKind::UnexpectedToken);
         };
 
         let magic_numer = 8;
@@ -647,7 +655,7 @@ impl<'a> WasmSection<'a> {
         let file_position = reader.position() + magic_numer;
         let _reader = reader
             .sub_slice(length)
-            .ok_or(WasmDecodeErrorKind::InternalInconsistency)?;
+            .ok_or(CompileErrorKind::InternalInconsistency)?;
 
         Ok(Some(Self {
             section_id,
@@ -744,7 +752,7 @@ pub enum WasmValType {
 
 impl WasmValType {
     #[inline]
-    pub const fn from_u8(v: u8) -> Result<Self, WasmDecodeErrorKind> {
+    pub const fn from_u8(v: u8) -> Result<Self, CompileErrorKind> {
         match v {
             0x7F => Ok(Self::I32),
             0x7E => Ok(Self::I64),
@@ -755,12 +763,12 @@ impl WasmValType {
             // 0x77 => Ok(Self::I16),
             // 0x70 => Ok(Self::FuncRef),
             // 0x6F => Ok(Self::ExternRef),
-            _ => Err(WasmDecodeErrorKind::UnexpectedToken),
+            _ => Err(CompileErrorKind::UnexpectedToken),
         }
     }
 
     #[inline]
-    pub const fn from_i64(v: i64) -> Result<Self, WasmDecodeErrorKind> {
+    pub const fn from_i64(v: i64) -> Result<Self, CompileErrorKind> {
         match v {
             -1 => Ok(Self::I32),
             -2 => Ok(Self::I64),
@@ -771,7 +779,7 @@ impl WasmValType {
             // -9 => Ok(Self::I16),
             // -16 => Ok(Self::FuncRef),
             // -17 => Ok(Self::ExternRef),
-            _ => Err(WasmDecodeErrorKind::UnexpectedToken),
+            _ => Err(CompileErrorKind::UnexpectedToken),
         }
     }
 
@@ -852,14 +860,14 @@ pub enum WasmBlockType {
 }
 
 impl WasmBlockType {
-    pub const fn from_i64(v: i64) -> Result<Self, WasmDecodeErrorKind> {
+    pub const fn from_i64(v: i64) -> Result<Self, CompileErrorKind> {
         match v {
             -64 => Ok(Self::Empty),
             -1 => Ok(Self::I32),
             -2 => Ok(Self::I64),
             -3 => Ok(Self::F32),
             -4 => Ok(Self::F64),
-            _ => Err(WasmDecodeErrorKind::InvalidData),
+            _ => Err(CompileErrorKind::InvalidData),
         }
     }
 
@@ -906,12 +914,9 @@ impl WasmLimit {
     }
 
     #[inline]
-    fn from_reader(
-        reader: &mut Leb128Reader,
-        is_memory: bool,
-    ) -> Result<Self, WasmDecodeErrorKind> {
+    fn from_reader(reader: &mut Leb128Reader, is_memory: bool) -> Result<Self, CompileErrorKind> {
         let limit_type = reader.read().map_err(|v| v.into()).and_then(|v| {
-            WasmLimitType::new(v, is_memory).ok_or(WasmDecodeErrorKind::UnexpectedToken)
+            WasmLimitType::new(v, is_memory).ok_or(CompileErrorKind::UnexpectedToken)
         })?;
 
         let min = reader.read()?;
@@ -1010,11 +1015,11 @@ pub struct WasmTable {
 
 impl WasmTable {
     #[inline]
-    fn from_reader(reader: &mut Leb128Reader) -> Result<Self, WasmDecodeErrorKind> {
+    fn from_reader(reader: &mut Leb128Reader) -> Result<Self, CompileErrorKind> {
         match reader.read_byte() {
             Ok(0x70) => (),
             Err(err) => return Err(err.into()),
-            _ => return Err(WasmDecodeErrorKind::UnexpectedToken),
+            _ => return Err(CompileErrorKind::UnexpectedToken),
         };
         WasmLimit::from_reader(reader, false).map(|limit| {
             let size = limit.min() as usize;
@@ -1105,9 +1110,9 @@ impl WasmFunction {
     pub(crate) fn set_code_block(
         &mut self,
         code_block: WasmCodeBlock,
-    ) -> Result<(), WasmDecodeErrorKind> {
+    ) -> Result<(), CompileErrorKind> {
         if self.is_external {
-            Err(WasmDecodeErrorKind::OutOfFunction)
+            Err(CompileErrorKind::OutOfFunction)
         } else {
             match self.content {
                 WasmFunctionContent::Unresolved => {
@@ -1115,13 +1120,13 @@ impl WasmFunction {
                     Ok(())
                 }
                 WasmFunctionContent::CodeBlock(_) | WasmFunctionContent::Dynamic(_) => {
-                    Err(WasmDecodeErrorKind::InternalInconsistency)
+                    Err(CompileErrorKind::InternalInconsistency)
                 }
             }
         }
     }
 
-    pub(crate) fn resolve(&mut self, dyn_func: WasmDynFunc) -> Result<(), WasmDecodeErrorKind> {
+    pub(crate) fn resolve(&mut self, dyn_func: WasmDynFunc) -> Result<(), CompileErrorKind> {
         if self.is_external {
             match self.content {
                 WasmFunctionContent::Unresolved => {
@@ -1129,11 +1134,11 @@ impl WasmFunction {
                     Ok(())
                 }
                 WasmFunctionContent::CodeBlock(_) | WasmFunctionContent::Dynamic(_) => {
-                    Err(WasmDecodeErrorKind::InternalInconsistency)
+                    Err(CompileErrorKind::InternalInconsistency)
                 }
             }
         } else {
-            Err(WasmDecodeErrorKind::OutOfFunction)
+            Err(CompileErrorKind::OutOfFunction)
         }
     }
 }
@@ -1164,11 +1169,11 @@ impl WasmTypeIndex {
 }
 
 impl WasmType {
-    fn from_reader(reader: &mut Leb128Reader) -> Result<Self, WasmDecodeErrorKind> {
+    fn from_reader(reader: &mut Leb128Reader) -> Result<Self, CompileErrorKind> {
         match reader.read_byte() {
             Ok(0x60) => (),
             Err(err) => return Err(err.into()),
-            _ => return Err(WasmDecodeErrorKind::UnexpectedToken),
+            _ => return Err(CompileErrorKind::UnexpectedToken),
         };
         let n_params: usize = reader.read()?;
         let mut param_types = SmallVec::with_capacity(n_params);
@@ -1253,7 +1258,7 @@ pub struct WasmImport {
 
 impl WasmImport {
     #[inline]
-    fn from_reader(reader: &mut Leb128Reader) -> Result<Self, WasmDecodeErrorKind> {
+    fn from_reader(reader: &mut Leb128Reader) -> Result<Self, CompileErrorKind> {
         let mod_name = reader.get_string()?;
         let name = reader.get_string()?;
         let desc = WasmImportDescriptor::from_reader(reader)?;
@@ -1276,7 +1281,7 @@ pub enum WasmImportDescriptor {
 
 impl WasmImportDescriptor {
     #[inline]
-    fn from_reader(mut reader: &mut Leb128Reader) -> Result<Self, WasmDecodeErrorKind> {
+    fn from_reader(mut reader: &mut Leb128Reader) -> Result<Self, CompileErrorKind> {
         let import_type = reader.read_byte()?;
         match import_type {
             0 => reader
@@ -1286,7 +1291,7 @@ impl WasmImportDescriptor {
             // 1 => reader.read().map(|v| Self::Table(v)),
             2 => WasmLimit::from_reader(&mut reader, true).map(|v| Self::Memory(v)),
             // 3 => reader.read().map(|v| Self::Global(v)),
-            _ => Err(WasmDecodeErrorKind::UnexpectedToken),
+            _ => Err(CompileErrorKind::UnexpectedToken),
         }
     }
 }
@@ -1299,7 +1304,7 @@ pub struct WasmExport {
 
 impl WasmExport {
     #[inline]
-    fn new(module: &WasmModule, reader: &mut Leb128Reader) -> Result<Self, WasmDecodeErrorKind> {
+    fn new(module: &WasmModule, reader: &mut Leb128Reader) -> Result<Self, CompileErrorKind> {
         let name = reader.get_string()?;
         let desc = WasmExportDesc::new(module, reader)?;
         Ok(Self { name, desc })
@@ -1316,7 +1321,7 @@ pub enum WasmExportDesc {
 
 impl WasmExportDesc {
     #[inline]
-    fn new(module: &WasmModule, reader: &mut Leb128Reader) -> Result<Self, WasmDecodeErrorKind> {
+    fn new(module: &WasmModule, reader: &mut Leb128Reader) -> Result<Self, CompileErrorKind> {
         reader
             .read_byte()
             .map_err(|v| v.into())
@@ -1331,15 +1336,136 @@ impl WasmExportDesc {
                     let index: u32 = reader.read()?;
                     ((index as usize) < module.globals.len())
                         .then(|| Self::Global(unsafe { GlobalVarIndex::new(index) }))
-                        .ok_or(WasmDecodeErrorKind::InvalidGlobal)
+                        .ok_or(CompileErrorKind::InvalidGlobal)
                 }
-                _ => Err(WasmDecodeErrorKind::UnexpectedToken),
+                _ => Err(CompileErrorKind::UnexpectedToken),
             })
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum WasmDecodeErrorKind {
+pub struct CompileError {
+    kind: CompileErrorKind,
+    file_position: ExceptionPosition,
+    source: CompileErrorSource,
+}
+
+#[derive(Debug)]
+pub enum CompileErrorSource {
+    Unknown,
+    Function(
+        usize,
+        Option<String>,
+        ExceptionPosition,
+        Option<WasmBytecode>,
+    ),
+}
+
+impl CompileError {
+    #[inline]
+    pub fn new(
+        kind: CompileErrorKind,
+        file_position: ExceptionPosition,
+        source: CompileErrorSource,
+    ) -> Self {
+        Self {
+            kind,
+            file_position,
+            source,
+        }
+    }
+
+    #[inline]
+    pub fn kind(&self) -> &CompileErrorKind {
+        &self.kind
+    }
+
+    #[inline]
+    pub fn file_position(&self) -> &ExceptionPosition {
+        &self.file_position
+    }
+
+    #[inline]
+    pub fn source(&self) -> &CompileErrorSource {
+        &self.source
+    }
+}
+
+impl fmt::Debug for CompileError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        (self as &dyn fmt::Display).fmt(f)
+    }
+}
+
+impl fmt::Display for CompileError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.source() {
+            CompileErrorSource::Unknown => {
+                write!(
+                    f,
+                    "CompileError: {:?} at {:x}",
+                    self.kind,
+                    self.file_position.position(),
+                )
+            }
+            CompileErrorSource::Function(func_idx, name, position, bytecode) => {
+                write!(
+                    f,
+                    "CompileError: {:?} at function[{}]{} 0x{:x}(0x{:x}) {}",
+                    self.kind,
+                    func_idx,
+                    name.as_ref()
+                        .map(|v| format!(" <{}>", v))
+                        .unwrap_or("".to_string()),
+                    self.file_position.position(),
+                    position.position(),
+                    bytecode
+                        .as_ref()
+                        .map(|v| format!("{:?}", v))
+                        .unwrap_or("???".to_string()),
+                )
+            }
+        }
+    }
+}
+
+impl Error for CompileError {}
+
+impl From<CompileErrorKind> for CompileError {
+    #[inline]
+    fn from(value: CompileErrorKind) -> Self {
+        CompileError {
+            kind: value,
+            file_position: ExceptionPosition::UNKNOWN,
+            source: CompileErrorSource::Unknown,
+        }
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ExceptionPosition(u32);
+
+impl ExceptionPosition {
+    pub const UNKNOWN: Self = Self::new(0);
+
+    #[inline]
+    pub const fn new(position: usize) -> Self {
+        Self(position as u32)
+    }
+
+    #[inline]
+    pub const fn position(&self) -> usize {
+        self.0 as usize
+    }
+
+    #[inline]
+    pub const fn is_valid(&self) -> bool {
+        self.0 != 0
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum CompileErrorKind {
     /// Not an executable file.
     BadExecutable,
     /// Unexpected end of stream.
@@ -1390,14 +1516,29 @@ pub enum WasmDecodeErrorKind {
     ForDebug(usize),
 }
 
-impl From<leb128::ReadError> for WasmDecodeErrorKind {
+impl fmt::Display for CompileErrorKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl Error for CompileErrorKind {}
+
+impl From<leb128::ReadError> for CompileErrorKind {
     #[inline]
     fn from(value: leb128::ReadError) -> Self {
         match value {
-            ReadError::InvalidData => WasmDecodeErrorKind::InvalidData,
-            ReadError::UnexpectedEof => WasmDecodeErrorKind::UnexpectedEof,
-            ReadError::OutOfBounds => WasmDecodeErrorKind::UnexpectedToken,
+            ReadError::InvalidData => CompileErrorKind::InvalidData,
+            ReadError::UnexpectedEof => CompileErrorKind::UnexpectedEof,
+            ReadError::OutOfBounds => CompileErrorKind::UnexpectedToken,
         }
+    }
+}
+
+impl From<leb128::ReadError> for CompileError {
+    #[inline]
+    fn from(value: leb128::ReadError) -> Self {
+        CompileError::from(CompileErrorKind::from(value))
     }
 }
 
@@ -1945,34 +2086,36 @@ unsafe impl UnsafeInto<f64> for WasmUnionValue {
 
 /// WebAssembly global variable
 pub struct WasmGlobal {
-    data: AtomicU32,
+    data: AtomicU64,
     val_type: WasmValType,
     is_mutable: bool,
 }
 
 impl WasmGlobal {
     #[inline]
-    pub fn new(val: WasmValue, is_mutable: bool) -> Result<Self, WasmDecodeErrorKind> {
+    pub fn new(val: WasmValue, is_mutable: bool) -> Result<Self, CompileErrorKind> {
         let val_type = val.val_type();
-        // TODO: another type
-        let val = val
-            .get_u32()
-            .map_err(|_| WasmDecodeErrorKind::UnsupportedGlobalType(val_type))?;
+        let val = WasmUnionValue::from(val);
         Ok(Self {
-            data: AtomicU32::new(val),
+            data: AtomicU64::new(unsafe { val.get_u64() }),
             val_type,
             is_mutable,
         })
     }
 
     #[inline]
-    pub fn value(&self) -> WasmValue {
-        self.data.load(Ordering::Relaxed).into()
+    pub fn raw_value(&self) -> WasmUnionValue {
+        unsafe { transmute(self.data.load(Ordering::Relaxed)) }
     }
 
     #[inline]
-    pub fn set_value(&self, val: WasmUnionValue) {
-        self.data.store(unsafe { val.get_u32() }, Ordering::SeqCst);
+    pub fn value(&self) -> WasmValue {
+        unsafe { self.raw_value().get_by_type(self.val_type) }
+    }
+
+    #[inline]
+    pub fn set_raw_value(&self, val: WasmUnionValue) {
+        self.data.store(unsafe { transmute(val) }, Ordering::SeqCst);
     }
 
     #[inline]
@@ -1996,7 +2139,7 @@ pub struct WasmName {
 impl WasmName {
     pub const SECTION_NAME: &'static str = "name";
 
-    fn from_reader(reader: &mut Leb128Reader) -> Result<Self, WasmDecodeErrorKind> {
+    fn from_reader(reader: &mut Leb128Reader) -> Result<Self, CompileErrorKind> {
         let mut module = None;
         let mut functions = Vec::new();
         let mut globals = Vec::new();
