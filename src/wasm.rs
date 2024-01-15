@@ -242,7 +242,7 @@ impl WasmModule {
                 }
                 WasmImportDescriptor::Memory(memtype) => {
                     // TODO: import memory
-                    self.memories[0] = WasmMemory::new(memtype)?;
+                    self.memories.push(WasmMemory::new(memtype)?);
                 }
             }
             self.imports.push(import);

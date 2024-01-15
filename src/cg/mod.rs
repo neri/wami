@@ -263,17 +263,16 @@ impl WasmCodeBlock {
                     if cc != WasmValType::I32 {
                         return Err(WasmDecodeErrorKind::TypeMismatch);
                     }
-                    let target = blocks.len();
+                    let block_index = blocks.len();
                     let block = RefCell::new(BlockContext::new(
                         BlockInstType::If,
                         block_type,
                         StackLevel::new(value_stack.len()),
                     ));
-                    block_stack.push(target);
+                    block_stack.push(block_index);
                     blocks.push(block);
-                    // TODO: if else block
                     int_codes.push(WasmImc::new(
-                        WasmImInstruction::NotSupported(bytecode.into(), position),
+                        WasmImInstruction::Marker(MarkerKind::If, block_index as u32),
                         StackLevel::new(value_stack.len()),
                     ));
                 }
@@ -285,13 +284,15 @@ impl WasmCodeBlock {
                     if block.inst_type != BlockInstType::If {
                         return Err(WasmDecodeErrorKind::ElseWithoutIf);
                     }
+                    if value_stack.len() < block.stack_level().as_usize() {
+                        return Err(WasmDecodeErrorKind::InvalidStackLevel);
+                    }
                     let n_drops = value_stack.len() - block.stack_level().as_usize();
                     for _ in 0..n_drops {
                         value_stack.pop().ok_or(WasmDecodeErrorKind::OutOfStack)?;
                     }
-                    // TODO: if else block
                     int_codes.push(WasmImc::new(
-                        WasmImInstruction::NotSupported(bytecode.into(), position),
+                        WasmImInstruction::Marker(MarkerKind::Else, *block_index as u32),
                         StackLevel::new(value_stack.len()),
                     ));
                 }
@@ -464,7 +465,7 @@ impl WasmCodeBlock {
                     } else {
                         int_codes.push(WasmImc::new(
                             WasmImInstruction::ReturnN,
-                            StackLevel::new(value_stack.len() - 1),
+                            StackLevel::new(value_stack.len()),
                         ));
                     }
                 }
@@ -1432,7 +1433,19 @@ impl WasmCodeBlock {
                         let ref mut block = blocks[target as usize].borrow_mut();
                         block.start_position = compacted.len() as u32;
                     }
+                    MarkerKind::If => {
+                        let ref mut block = blocks[target as usize].borrow_mut();
+                        block.start_position = compacted.len() as u32;
+                        compacted.push(WasmImc::new(
+                            WasmImInstruction::If(target),
+                            code.stack_level,
+                        ));
+                    }
                     MarkerKind::Else => {
+                        compacted.push(WasmImc::new(
+                            WasmImInstruction::Br(target),
+                            code.stack_level,
+                        ));
                         let ref mut block = blocks[target as usize].borrow_mut();
                         block.else_position = compacted.len() as u32;
                     }
@@ -1451,11 +1464,21 @@ impl WasmCodeBlock {
 
         // fixes branching targets
         for code in int_codes.iter_mut() {
-            code.fix_branch_target(|target, _opcode| {
-                *target = blocks
-                    .get(*target as usize)
-                    .ok_or(WasmDecodeErrorKind::OutOfBranch)
-                    .map(|block| block.borrow().preferred_target())?;
+            code.fix_branch_target(|target, mnemonic| {
+                match mnemonic {
+                    WasmMnemonic::If => {
+                        *target = blocks
+                            .get(*target as usize)
+                            .ok_or(WasmDecodeErrorKind::OutOfBranch)
+                            .map(|block: &RefCell<BlockContext>| block.borrow().else_position)?;
+                    }
+                    _ => {
+                        *target = blocks
+                            .get(*target as usize)
+                            .ok_or(WasmDecodeErrorKind::OutOfBranch)
+                            .map(|block| block.borrow().preferred_target())?;
+                    }
+                }
                 Result::<(), WasmDecodeErrorKind>::Ok(())
             })?;
         }

@@ -13,6 +13,8 @@ pub enum WasmImInstruction {
 
     Unreachable(ExceptionPosition),
 
+    If(u32),
+
     Br(u32),
     BrIf(u32),
     BrTable(BrTableVec),
@@ -280,6 +282,7 @@ impl WasmImInstruction {
 pub enum MarkerKind {
     Nop,
     Block,
+    If,
     Else,
     End,
 }
@@ -361,6 +364,10 @@ impl WasmImc {
     {
         use WasmImInstruction::*;
         match self.instruction_mut() {
+            If(target) => {
+                kernel(target, WasmMnemonic::If)?;
+            }
+
             Br(target) => {
                 kernel(target, WasmMnemonic::Br)?;
             }

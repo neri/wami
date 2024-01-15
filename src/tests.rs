@@ -3124,3 +3124,63 @@ fn loop_test() {
         .unwrap();
     assert_eq!(result, 5050);
 }
+
+#[test]
+fn if_test() {
+    let module = WebAssembly::instantiate(
+        include_bytes!("../test/tester.wasm"),
+        |_, _, _| unreachable!(),
+    )
+    .unwrap();
+    let runnable = module.func("if_test1").unwrap();
+
+    let result = runnable
+        .invoke(&[123.into(), 456.into(), 1.into()])
+        .unwrap()
+        .unwrap()
+        .get_i32()
+        .unwrap();
+    assert_eq!(result, 123);
+
+    let result = runnable
+        .invoke(&[123.into(), 456.into(), 2.into()])
+        .unwrap()
+        .unwrap()
+        .get_i32()
+        .unwrap();
+    assert_eq!(result, 123);
+
+    let result = runnable
+        .invoke(&[123.into(), 456.into(), 0.into()])
+        .unwrap()
+        .unwrap()
+        .get_i32()
+        .unwrap();
+    assert_eq!(result, 456);
+
+    let runnable = module.func("if_test2").unwrap();
+
+    let result = runnable
+        .invoke(&[123.into(), 456.into(), 1.into()])
+        .unwrap()
+        .unwrap()
+        .get_i32()
+        .unwrap();
+    assert_eq!(result, 123);
+
+    let result = runnable
+        .invoke(&[123.into(), 456.into(), 2.into()])
+        .unwrap()
+        .unwrap()
+        .get_i32()
+        .unwrap();
+    assert_eq!(result, 123);
+
+    let result = runnable
+        .invoke(&[123.into(), 456.into(), 0.into()])
+        .unwrap()
+        .unwrap()
+        .get_i32()
+        .unwrap();
+    assert_eq!(result, 456);
+}

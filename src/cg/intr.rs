@@ -194,6 +194,12 @@ impl WasmInterpreter<'_> {
                     ));
                 }
 
+                WasmImInstruction::If(target) => {
+                    let cc = unsafe { value_stack.get(code.base_stack_level()).get_bool() };
+                    if !cc {
+                        codes.set_position(target)?;
+                    }
+                }
                 WasmImInstruction::Br(target) => {
                     codes.set_position(target)?;
                 }

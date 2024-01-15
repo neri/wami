@@ -1451,8 +1451,22 @@
     end
   )
 
-  ;; fn if_test(lhs: i32, rhs: i32, cc: bool) -> i32
-  (func $if_test (export "if_test") (param $lhs i32) (param $rhs i32) (param $cc i32) (result i32)
+  ;; fn if_test1(lhs: i32, rhs: i32, cc: bool) -> i32
+  (func $if_test1 (export "if_test1") (param $lhs i32) (param $rhs i32) (param $cc i32) (result i32)
+    (local $i i32)
+    local.get $cc
+    if
+      local.get $lhs
+      local.set $i
+    else
+      local.get $rhs
+      local.set $i
+    end
+    local.get $i
+  )
+
+  ;; fn if_test2(lhs: i32, rhs: i32, cc: bool) -> i32
+  (func $if_test2 (export "if_test2") (param $lhs i32) (param $rhs i32) (param $cc i32) (result i32)
     local.get $cc
     if (result i32)
       local.get $lhs
