@@ -207,10 +207,10 @@ impl WasmModule {
                             self.functions[func_idx].resolve(dyn_func)?;
                         }
                         ImportResult::NoModule => {
-                            return Err(CompileErrorKind::NoModule(import.mod_name.clone()).into())
+                            return Err(LinkError::NoModule(import.mod_name.clone()).into())
                         }
                         ImportResult::NoMethod => {
-                            return Err(CompileErrorKind::NoMethod(import.name.clone()).into())
+                            return Err(LinkError::NoMethod(import.name.clone()).into())
                         }
                     }
                     func_idx += 1;
@@ -1126,7 +1126,7 @@ impl WasmFunction {
         }
     }
 
-    pub(crate) fn resolve(&mut self, dyn_func: WasmDynFunc) -> Result<(), CompileErrorKind> {
+    pub(crate) fn resolve(&mut self, dyn_func: WasmDynFunc) -> Result<(), LinkError> {
         if self.is_external {
             match self.content {
                 WasmFunctionContent::Unresolved => {
@@ -1134,11 +1134,11 @@ impl WasmFunction {
                     Ok(())
                 }
                 WasmFunctionContent::CodeBlock(_) | WasmFunctionContent::Dynamic(_) => {
-                    Err(CompileErrorKind::InternalInconsistency)
+                    Err(LinkError::InternalInconsistency)
                 }
             }
         } else {
-            Err(CompileErrorKind::OutOfFunction)
+            Err(LinkError::InternalInconsistency)
         }
     }
 }
@@ -1506,10 +1506,8 @@ pub enum CompileErrorKind {
     BlockMismatch,
     /// The `else` block and the `if` block do not match.
     ElseWithoutIf,
-    /// Imported function does not exist.
-    NoMethod(String),
-    /// Imported module does not exist.
-    NoModule(String),
+    ///
+    ElseNotExists,
     /// Internal error
     InternalInconsistency,
     /// For debugging purposes
@@ -1541,6 +1539,24 @@ impl From<leb128::ReadError> for CompileError {
         CompileError::from(CompileErrorKind::from(value))
     }
 }
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum LinkError {
+    /// Imported function does not exist.
+    NoMethod(String),
+    /// Imported module does not exist.
+    NoModule(String),
+
+    InternalInconsistency,
+}
+
+impl fmt::Display for LinkError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl Error for LinkError {}
 
 #[derive(Debug, PartialEq)]
 pub enum WasmRuntimeErrorKind {

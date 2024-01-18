@@ -3161,6 +3161,46 @@ fn loop_test() {
 }
 
 #[test]
+fn if_nest() {
+    let slice = [0, 0x41, 0x01, 0x04, 0x40, 0x01, 0x0B, 0x0B];
+    let mut stream = Leb128Reader::from_slice(&slice);
+    let module = WasmModule::empty();
+    WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], &module).unwrap();
+
+    let slice = [0, 0x41, 0x01, 0x04, 0x40, 0x01, 0x05, 0x01, 0x0B, 0x0B];
+    let mut stream = Leb128Reader::from_slice(&slice);
+    let module = WasmModule::empty();
+    WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], &module).unwrap();
+
+    let slice = [
+        0, 0x41, 0x01, 0x04, 0x7F, 0x41, 0x01, 0x05, 0x41, 0x01, 0x0B, 0x1A, 0x0B,
+    ];
+    let mut stream = Leb128Reader::from_slice(&slice);
+    let module = WasmModule::empty();
+    WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], &module).unwrap();
+
+    let slice = [0, 0x41, 0x01, 0x04, 0x7F, 0x41, 0x01, 0x0B, 0x1A, 0x0B];
+    let mut stream = Leb128Reader::from_slice(&slice);
+    let module = WasmModule::empty();
+    assert_matches!(
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], &module)
+            .unwrap_err()
+            .kind(),
+        CompileErrorKind::ElseNotExists
+    );
+
+    let slice = [0, 0x05, 0x01, 0x0B];
+    let mut stream = Leb128Reader::from_slice(&slice);
+    let module = WasmModule::empty();
+    assert_matches!(
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], &module)
+            .unwrap_err()
+            .kind(),
+        CompileErrorKind::ElseWithoutIf
+    );
+}
+
+#[test]
 fn if_test() {
     let module = WebAssembly::instantiate(
         include_bytes!("../test/tester.wasm"),

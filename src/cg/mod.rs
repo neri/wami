@@ -334,11 +334,31 @@ impl WasmCodeBlock {
                 }
                 WasmBytecode::Else => {
                     let block_index = block_stack.last().ok_or(CompileErrorKind::ElseWithoutIf)?;
-                    let block = blocks.get(*block_index).unwrap().borrow();
+                    let mut block = blocks.get(*block_index).unwrap().borrow_mut();
                     if block.inst_type != BlockInstType::If {
                         return Err(CompileErrorKind::ElseWithoutIf.into());
                     }
-                    unwind_stack(&mut value_stack, block.stack_level())?;
+                    block.flags |= BlockContext::ELSE_EXISTS;
+
+                    if let Some(block_type) = block.block_type.into_type() {
+                        if value_stack.len() < block.stack_level().as_usize() {
+                            return Err(CompileErrorKind::InvalidStackLevel.into());
+                        }
+                        let block_type2 = value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
+                        if block_type != block_type2 {
+                            return Err(CompileErrorKind::TypeMismatch.into());
+                        }
+                        if block.is_control_unreachable() {
+                            unwind_stack(&mut value_stack, block.stack_level())?;
+                        } else {
+                            if value_stack.len() != block.stack_level().as_usize() {
+                                return Err(CompileErrorKind::InvalidStackLevel.into());
+                            }
+                        }
+                    } else {
+                        unwind_stack(&mut value_stack, block.stack_level())?;
+                    }
+
                     base_stack_level = block.stack_level();
                     int_codes.push(WasmImc::new(
                         WasmImInstruction::Marker(MarkerKind::Else, *block_index as u32),
@@ -349,12 +369,19 @@ impl WasmCodeBlock {
                     if block_stack.len() > 0 {
                         let block_index =
                             block_stack.pop().ok_or(CompileErrorKind::BlockMismatch)?;
-                        let block = blocks.get(block_index).unwrap().borrow();
+                        let mut block = blocks.get(block_index).unwrap().borrow_mut();
+                        if int_codes.last().unwrap().is_control_unreachable() {
+                            block.flags |= BlockContext::UNREACHABLE_END;
+                        }
+
                         if let Some(block_type) = block.block_type.into_type() {
+                            if block.inst_type == BlockInstType::If && !block.else_exists() {
+                                return Err(CompileErrorKind::ElseNotExists.into());
+                            }
                             if value_stack.len() < block.stack_level().as_usize() {
                                 return Err(CompileErrorKind::InvalidStackLevel.into());
                             }
-                            if block.inst_type == BlockInstType::Loop
+                            if matches!(block.inst_type, BlockInstType::Loop | BlockInstType::If)
                                 && int_codes.last().unwrap().is_control_unreachable()
                             {
                                 unwind_stack(&mut value_stack, block.stack_level())?;
@@ -364,7 +391,7 @@ impl WasmCodeBlock {
                                 if block_type != block_type2 {
                                     return Err(CompileErrorKind::TypeMismatch.into());
                                 }
-                                if int_codes.last().unwrap().is_control_unreachable() {
+                                if block.is_control_unreachable() {
                                     unwind_stack(&mut value_stack, block.stack_level())?;
                                 } else {
                                     if value_stack.len() != block.stack_level().as_usize() {
@@ -374,7 +401,7 @@ impl WasmCodeBlock {
                             }
                             value_stack.push(block_type);
                         } else {
-                            if int_codes.last().unwrap().is_control_unreachable() {
+                            if block.is_control_unreachable() {
                                 unwind_stack(&mut value_stack, block.stack_level())?;
                             } else {
                                 if value_stack.len() != block.stack_level().as_usize() {
@@ -1583,15 +1610,19 @@ enum BlockInstType {
 
 #[derive(Debug, Copy, Clone)]
 struct BlockContext {
-    pub inst_type: BlockInstType,
-    pub block_type: WasmBlockType,
+    inst_type: BlockInstType,
+    block_type: WasmBlockType,
     stack_level: StackLevel,
-    pub start_position: u32,
-    pub end_position: u32,
-    pub else_position: u32,
+    start_position: u32,
+    end_position: u32,
+    else_position: u32,
+    flags: usize,
 }
 
 impl BlockContext {
+    const UNREACHABLE_END: usize = 0b0001;
+    const ELSE_EXISTS: usize = 0b0010;
+
     #[inline]
     pub fn new(
         inst_type: BlockInstType,
@@ -1605,6 +1636,7 @@ impl BlockContext {
             start_position: 0,
             end_position: 0,
             else_position: 0,
+            flags: 0,
         }
     }
 
@@ -1620,6 +1652,16 @@ impl BlockContext {
     #[inline]
     pub fn stack_level(&self) -> StackLevel {
         self.stack_level
+    }
+
+    #[inline]
+    pub fn is_control_unreachable(&self) -> bool {
+        (self.flags & Self::UNREACHABLE_END) != 0
+    }
+
+    #[inline]
+    pub fn else_exists(&self) -> bool {
+        (self.flags & Self::ELSE_EXISTS) != 0
     }
 }
 

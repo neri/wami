@@ -1469,14 +1469,9 @@
   (func $if_test2 (export "if_test2") (param $lhs i32) (param $rhs i32) (param $cc i32) (result i32)
     local.get $cc
     if (result i32)
-      i64.const 1111
-      i64.const 2222
       local.get $lhs
-      br 0
     else
-      i64.const 3333
       local.get $rhs
-      br 0
     end
   )
 
