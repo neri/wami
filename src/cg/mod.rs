@@ -2,7 +2,7 @@ pub mod intcode;
 pub mod intr;
 
 use self::intcode::{WasmImInstruction, WasmImc};
-use crate::{bytecode::*, cg::intcode::MarkerKind, leb128::*, *};
+use crate::{cg::intcode::MarkerKind, leb128::*, opcode::*, *};
 use alloc::{boxed::Box, string::ToString, vec::Vec};
 use bitflags::*;
 use core::{cell::RefCell, fmt};
@@ -16,7 +16,7 @@ pub struct WasmCodeBlock {
     func_index: usize,
     file_position: usize,
     local_types: SmallVec<[WasmValType; 16]>,
-    max_stack: usize,
+    max_stack_level: StackLevel,
     flags: WasmBlockFlag,
     int_codes: Box<[WasmImc]>,
 }
@@ -45,8 +45,8 @@ impl WasmCodeBlock {
 
     /// Returns the maximum size of the value stack.
     #[inline]
-    pub const fn max_value_stack(&self) -> usize {
-        self.max_stack
+    pub const fn max_value_stack(&self) -> StackLevel {
+        self.max_stack_level
     }
 
     /// Returns whether or not this function block does not call any other functions.
@@ -83,7 +83,7 @@ impl WasmCodeBlock {
         .map_err(|err| {
             if matches!(err.source(), CompileErrorSource::Unknown) {
                 reader.set_position(ex_position.position());
-                let bc = WasmBytecode::fetch(reader).ok();
+                let bc = WasmOpcode::fetch(reader).ok();
                 let name = match module.names() {
                     Some(v) => v.func_by_index(func_index).map(|v| v.to_string()),
                     None => None,
@@ -127,43 +127,27 @@ impl WasmCodeBlock {
 
         let mut blocks = Vec::new();
         let mut block_stack = Vec::new();
-        let mut value_stack = Vec::new();
-        let mut max_stack = 0;
         let mut max_block_level = 0;
+        let mut value_stack = ValueStackVerifier::new();
         let mut base_stack_level = StackLevel::new(0);
         let mut flags = WasmBlockFlag::LEAF_FUNCTION;
+        let mut int_codes = Vec::new();
 
-        let mut int_codes: Vec<WasmImc> = Vec::new();
-
-        #[inline]
-        fn unwind_stack<T>(
-            stack: &mut Vec<T>,
-            new_level: StackLevel,
-        ) -> Result<(), CompileErrorKind> {
-            let new_level = new_level.as_usize();
-            if stack.len() < new_level {
-                return Err(CompileErrorKind::InvalidStackLevel);
-            }
-            for _ in 0..(stack.len() - new_level) {
-                stack.pop().unwrap();
-            }
-            Ok(())
-        }
         macro_rules! MEM_LOAD {
             ($val_type:ident, $mnemonic:ident, $bytecode:ident, $arg:expr, $module:ident, $reader:ident, $position:ident, $int_codes:ident, $value_stack:ident,) => {
                 #[cfg(test)]
-                assert_matches!($bytecode, WasmBytecode::$mnemonic(_));
+                assert_matches!($bytecode, WasmOpcode::$mnemonic(_));
 
                 if !$module.has_memory() {
                     return Err(CompileErrorKind::OutOfMemory.into());
                 }
-                let a = $value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
+                let a = $value_stack.pop()?;
                 if a != WasmValType::I32 {
                     return Err(CompileErrorKind::TypeMismatch.into());
                 }
                 $int_codes.push(WasmImc::new(
                     WasmImInstruction::$mnemonic($arg.offset, *($position)).normalized(),
-                    StackLevel::new($value_stack.len()),
+                    $value_stack.stack_level(),
                 ));
                 $value_stack.push(WasmValType::$val_type);
             };
@@ -171,49 +155,49 @@ impl WasmCodeBlock {
         macro_rules! MEM_STORE {
             ($val_type:ident, $mnemonic:ident, $bytecode:ident, $arg:expr, $module:ident, $reader:ident, $position:ident, $int_codes:ident, $value_stack:ident,) => {
                 #[cfg(test)]
-                assert_matches!($bytecode, WasmBytecode::$mnemonic(_));
+                assert_matches!($bytecode, WasmOpcode::$mnemonic(_));
 
                 if !$module.has_memory() {
                     return Err(CompileErrorKind::OutOfMemory.into());
                 }
-                let d = $value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
-                let i = $value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
+                let d = $value_stack.pop()?;
+                let i = $value_stack.pop()?;
                 if i != WasmValType::I32 && d != WasmValType::$val_type {
                     return Err(CompileErrorKind::TypeMismatch.into());
                 }
                 $int_codes.push(WasmImc::new(
                     WasmImInstruction::$mnemonic($arg.offset, *($position)).normalized(),
-                    StackLevel::new($value_stack.len()),
+                    $value_stack.stack_level(),
                 ));
             };
         }
         macro_rules! UNARY {
             ($val_type:ident, $mnemonic:ident, $bytecode:ident, $position:ident, $int_codes:ident, $value_stack:ident,) => {
                 #[cfg(test)]
-                assert_matches!($bytecode, WasmBytecode::$mnemonic);
+                assert_matches!($bytecode, WasmOpcode::$mnemonic);
 
-                let a = *$value_stack.last().ok_or(CompileErrorKind::OutOfStack)?;
+                let a = *$value_stack.last()?;
                 if a != WasmValType::$val_type {
                     return Err(CompileErrorKind::TypeMismatch.into());
                 }
                 $int_codes.push(WasmImc::new(
                     WasmImInstruction::$mnemonic,
-                    StackLevel::new($value_stack.len() - 1),
+                    $value_stack.stack_level_m1()?,
                 ));
             };
         }
         macro_rules! UNARY2 {
             ($in_type:ident, $out_type:ident, $mnemonic:ident, $bytecode:ident, $position:ident, $int_codes:ident, $value_stack:ident,) => {
                 #[cfg(test)]
-                assert_matches!($bytecode, WasmBytecode::$mnemonic);
+                assert_matches!($bytecode, WasmOpcode::$mnemonic);
 
-                let a = $value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
+                let a = $value_stack.pop()?;
                 if a != WasmValType::$in_type {
                     return Err(CompileErrorKind::TypeMismatch.into());
                 }
                 $int_codes.push(WasmImc::new(
                     WasmImInstruction::$mnemonic,
-                    StackLevel::new($value_stack.len()),
+                    $value_stack.stack_level(),
                 ));
                 $value_stack.push(WasmValType::$out_type);
             };
@@ -221,16 +205,16 @@ impl WasmCodeBlock {
         macro_rules! BIN_CMP {
             ($val_type:ident, $mnemonic:ident, $bytecode:ident, $position:ident, $int_codes:ident, $value_stack:ident,) => {
                 #[cfg(test)]
-                assert_matches!($bytecode, WasmBytecode::$mnemonic);
+                assert_matches!($bytecode, WasmOpcode::$mnemonic);
 
-                let a = $value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
-                let b = $value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
+                let a = $value_stack.pop()?;
+                let b = $value_stack.pop()?;
                 if a != b || a != WasmValType::$val_type {
                     return Err(CompileErrorKind::TypeMismatch.into());
                 }
                 $int_codes.push(WasmImc::new(
                     WasmImInstruction::$mnemonic,
-                    StackLevel::new($value_stack.len()),
+                    $value_stack.stack_level(),
                 ));
                 $value_stack.push(WasmValType::I32);
             };
@@ -238,83 +222,82 @@ impl WasmCodeBlock {
         macro_rules! BIN_OP {
             ($val_type:ident, $mnemonic:ident, $bytecode:ident, $position:ident, $int_codes:ident, $value_stack:ident,) => {
                 #[cfg(test)]
-                assert_matches!($bytecode, WasmBytecode::$mnemonic);
+                assert_matches!($bytecode, WasmOpcode::$mnemonic);
 
-                let a = $value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
-                let b = *$value_stack.last().ok_or(CompileErrorKind::OutOfStack)?;
+                let a = $value_stack.pop()?;
+                let b = *$value_stack.last()?;
                 if a != b || a != WasmValType::$val_type {
                     return Err(CompileErrorKind::TypeMismatch.into());
                 }
                 $int_codes.push(WasmImc::new(
                     WasmImInstruction::$mnemonic,
-                    StackLevel::new($value_stack.len() - 1),
+                    $value_stack.stack_level_m1()?,
                 ));
             };
         }
         macro_rules! BIN_DIV {
             ($val_type:ident, $mnemonic:ident, $bytecode:ident, $position:ident, $int_codes:ident, $value_stack:ident,) => {
                 #[cfg(test)]
-                assert_matches!($bytecode, WasmBytecode::$mnemonic);
+                assert_matches!($bytecode, WasmOpcode::$mnemonic);
 
-                let a = $value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
-                let b = *$value_stack.last().ok_or(CompileErrorKind::OutOfStack)?;
+                let a = $value_stack.pop()?;
+                let b = *$value_stack.last()?;
                 if a != b || a != WasmValType::$val_type {
                     return Err(CompileErrorKind::TypeMismatch.into());
                 }
                 $int_codes.push(WasmImc::new(
                     WasmImInstruction::$mnemonic(*($position)),
-                    StackLevel::new($value_stack.len() - 1),
+                    $value_stack.stack_level_m1()?,
                 ));
             };
         }
 
         loop {
-            max_stack = max_stack.max(value_stack.len());
             max_block_level = max_block_level.max(block_stack.len());
             *position = ExceptionPosition::new(reader.position());
-            let bytecode = WasmBytecode::fetch(reader)?;
+            let bytecode = WasmOpcode::fetch(reader)?;
             match bytecode {
-                WasmBytecode::Unreachable => {
+                WasmOpcode::Unreachable => {
                     int_codes.push(WasmImc::new(
                         WasmImInstruction::Unreachable(*position),
-                        StackLevel::new(value_stack.len()),
+                        value_stack.stack_level(),
                     ));
                 }
 
-                WasmBytecode::Nop => (),
+                WasmOpcode::Nop => (),
 
-                WasmBytecode::Block(block_type) => {
+                WasmOpcode::Block(block_type) => {
                     let block_index = blocks.len();
                     let block = RefCell::new(BlockContext::new(
                         BlockInstType::Block,
                         block_type,
-                        StackLevel::new(value_stack.len()),
+                        value_stack.stack_level(),
                     ));
                     base_stack_level = block.borrow().stack_level();
                     block_stack.push(block_index);
                     blocks.push(block);
                     int_codes.push(WasmImc::new(
                         WasmImInstruction::Marker(MarkerKind::Block, block_index as u32),
-                        StackLevel::new(value_stack.len()),
+                        value_stack.stack_level(),
                     ));
                 }
-                WasmBytecode::Loop(block_type) => {
+                WasmOpcode::Loop(block_type) => {
                     let block_index = blocks.len();
                     let block = RefCell::new(BlockContext::new(
                         BlockInstType::Loop,
                         block_type,
-                        StackLevel::new(value_stack.len()),
+                        value_stack.stack_level(),
                     ));
                     base_stack_level = block.borrow().stack_level();
                     block_stack.push(block_index);
                     blocks.push(block);
                     int_codes.push(WasmImc::new(
                         WasmImInstruction::Marker(MarkerKind::Block, block_index as u32),
-                        StackLevel::new(value_stack.len()),
+                        value_stack.stack_level(),
                     ));
                 }
-                WasmBytecode::If(block_type) => {
-                    let cc = value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
+                WasmOpcode::If(block_type) => {
+                    let cc = value_stack.pop()?;
                     if cc != WasmValType::I32 {
                         return Err(CompileErrorKind::TypeMismatch.into());
                     }
@@ -322,17 +305,17 @@ impl WasmCodeBlock {
                     let block = RefCell::new(BlockContext::new(
                         BlockInstType::If,
                         block_type,
-                        StackLevel::new(value_stack.len()),
+                        value_stack.stack_level(),
                     ));
                     base_stack_level = block.borrow().stack_level();
                     block_stack.push(block_index);
                     blocks.push(block);
                     int_codes.push(WasmImc::new(
                         WasmImInstruction::Marker(MarkerKind::If, block_index as u32),
-                        StackLevel::new(value_stack.len()),
+                        value_stack.stack_level(),
                     ));
                 }
-                WasmBytecode::Else => {
+                WasmOpcode::Else => {
                     let block_index = block_stack.last().ok_or(CompileErrorKind::ElseWithoutIf)?;
                     let mut block = blocks.get(*block_index).unwrap().borrow_mut();
                     if block.inst_type != BlockInstType::If {
@@ -341,31 +324,31 @@ impl WasmCodeBlock {
                     block.flags |= BlockContext::ELSE_EXISTS;
 
                     if let Some(block_type) = block.block_type.into_type() {
-                        if value_stack.len() < block.stack_level().as_usize() {
+                        if value_stack.stack_level() < block.stack_level() {
                             return Err(CompileErrorKind::InvalidStackLevel.into());
                         }
-                        let block_type2 = value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
+                        let block_type2 = value_stack.pop()?;
                         if block_type != block_type2 {
                             return Err(CompileErrorKind::TypeMismatch.into());
                         }
                         if block.is_control_unreachable() {
-                            unwind_stack(&mut value_stack, block.stack_level())?;
+                            value_stack.unwind(block.stack_level())?;
                         } else {
-                            if value_stack.len() != block.stack_level().as_usize() {
+                            if value_stack.stack_level() != block.stack_level() {
                                 return Err(CompileErrorKind::InvalidStackLevel.into());
                             }
                         }
                     } else {
-                        unwind_stack(&mut value_stack, block.stack_level())?;
+                        value_stack.unwind(block.stack_level())?;
                     }
 
                     base_stack_level = block.stack_level();
                     int_codes.push(WasmImc::new(
                         WasmImInstruction::Marker(MarkerKind::Else, *block_index as u32),
-                        StackLevel::new(value_stack.len()),
+                        value_stack.stack_level(),
                     ));
                 }
-                WasmBytecode::End => {
+                WasmOpcode::End => {
                     if block_stack.len() > 0 {
                         let block_index =
                             block_stack.pop().ok_or(CompileErrorKind::BlockMismatch)?;
@@ -378,23 +361,22 @@ impl WasmCodeBlock {
                             if block.inst_type == BlockInstType::If && !block.else_exists() {
                                 return Err(CompileErrorKind::ElseNotExists.into());
                             }
-                            if value_stack.len() < block.stack_level().as_usize() {
+                            if value_stack.stack_level() < block.stack_level() {
                                 return Err(CompileErrorKind::InvalidStackLevel.into());
                             }
                             if matches!(block.inst_type, BlockInstType::Loop | BlockInstType::If)
                                 && int_codes.last().unwrap().is_control_unreachable()
                             {
-                                unwind_stack(&mut value_stack, block.stack_level())?;
+                                value_stack.unwind(block.stack_level())?;
                             } else {
-                                let block_type2 =
-                                    value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
+                                let block_type2 = value_stack.pop()?;
                                 if block_type != block_type2 {
                                     return Err(CompileErrorKind::TypeMismatch.into());
                                 }
                                 if block.is_control_unreachable() {
-                                    unwind_stack(&mut value_stack, block.stack_level())?;
+                                    value_stack.unwind(block.stack_level())?;
                                 } else {
-                                    if value_stack.len() != block.stack_level().as_usize() {
+                                    if value_stack.stack_level() != block.stack_level() {
                                         return Err(CompileErrorKind::InvalidStackLevel.into());
                                     }
                                 }
@@ -402,16 +384,16 @@ impl WasmCodeBlock {
                             value_stack.push(block_type);
                         } else {
                             if block.is_control_unreachable() {
-                                unwind_stack(&mut value_stack, block.stack_level())?;
+                                value_stack.unwind(block.stack_level())?;
                             } else {
-                                if value_stack.len() != block.stack_level().as_usize() {
+                                if value_stack.stack_level() != block.stack_level() {
                                     return Err(CompileErrorKind::InvalidStackLevel.into());
                                 }
                             }
                         }
                         int_codes.push(WasmImc::new(
                             WasmImInstruction::Marker(MarkerKind::End, block_index as u32),
-                            StackLevel::new(value_stack.len()),
+                            value_stack.stack_level(),
                         ));
                         base_stack_level = match block_stack.last() {
                             Some(v) => blocks.get(*v).unwrap().borrow().stack_level(),
@@ -426,8 +408,7 @@ impl WasmCodeBlock {
                             break;
                         }
                         if let Some(result_type) = result_types.first() {
-                            let result_type2 =
-                                value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
+                            let result_type2 = value_stack.pop()?;
                             if *result_type != result_type2 {
                                 return Err(CompileErrorKind::TypeMismatch.into());
                             }
@@ -435,27 +416,27 @@ impl WasmCodeBlock {
                                 WasmValType::I32 | WasmValType::I64 => {
                                     int_codes.push(WasmImc::new(
                                         WasmImInstruction::ReturnI,
-                                        StackLevel::new(value_stack.len()),
+                                        value_stack.stack_level(),
                                     ))
                                 }
                                 WasmValType::F32 | WasmValType::F64 => {
                                     int_codes.push(WasmImc::new(
                                         WasmImInstruction::ReturnF,
-                                        StackLevel::new(value_stack.len()),
+                                        value_stack.stack_level(),
                                     ))
                                 }
                             }
                         } else {
                             int_codes.push(WasmImc::new(
                                 WasmImInstruction::ReturnN,
-                                StackLevel::new(value_stack.len()),
+                                value_stack.stack_level(),
                             ));
                         }
                         break;
                     }
                 }
 
-                WasmBytecode::Br(label_index) => {
+                WasmOpcode::Br(label_index) => {
                     let block_index = block_stack
                         .get(block_stack.len() - (label_index as usize) - 1)
                         .ok_or(CompileErrorKind::OutOfBranch)?;
@@ -465,20 +446,20 @@ impl WasmCodeBlock {
                     {
                         int_codes.push(WasmImc::new(
                             WasmImInstruction::Br(*block_index as u32),
-                            StackLevel::new(value_stack.len()),
+                            value_stack.stack_level(),
                         ));
                     } else {
                         int_codes.push(WasmImc::new(
                             WasmImInstruction::BrUnwind(*block_index as u32, block.stack_level()),
-                            StackLevel::new(value_stack.len() - 1),
+                            value_stack.stack_level_m1()?,
                         ));
                     }
                 }
-                WasmBytecode::BrIf(label_index) => {
+                WasmOpcode::BrIf(label_index) => {
                     let block_index = block_stack
                         .get(block_stack.len() - (label_index as usize) - 1)
                         .ok_or(CompileErrorKind::OutOfBranch)?;
-                    let cc = value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
+                    let cc = value_stack.pop()?;
                     if cc != WasmValType::I32 {
                         return Err(CompileErrorKind::TypeMismatch.into());
                     }
@@ -488,17 +469,17 @@ impl WasmCodeBlock {
                     {
                         int_codes.push(WasmImc::new(
                             WasmImInstruction::BrIf(*block_index as u32),
-                            StackLevel::new(value_stack.len()),
+                            value_stack.stack_level(),
                         ));
                     } else {
                         int_codes.push(WasmImc::new(
                             WasmImInstruction::BrIfUnwind(*block_index as u32, block.stack_level()),
-                            StackLevel::new(value_stack.len() - 1),
+                            value_stack.stack_level_m1()?,
                         ));
                     }
                 }
-                WasmBytecode::BrTable(mut table) => {
-                    let cc = value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
+                WasmOpcode::BrTable(mut table) => {
+                    let cc = value_stack.pop()?;
                     if cc != WasmValType::I32 {
                         return Err(CompileErrorKind::TypeMismatch.into());
                     }
@@ -524,43 +505,43 @@ impl WasmCodeBlock {
                         None | Some(WasmBlockType::Empty) => {
                             int_codes.push(WasmImc::new(
                                 WasmImInstruction::BrTable(table),
-                                StackLevel::new(value_stack.len()),
+                                value_stack.stack_level(),
                             ));
                         }
                         _ => {
                             int_codes.push(WasmImc::new(
                                 WasmImInstruction::NotSupported(WasmMnemonic::BrTable, *position),
-                                StackLevel::new(value_stack.len()),
+                                value_stack.stack_level(),
                             ));
                         }
                     }
                 }
 
-                WasmBytecode::Return => {
+                WasmOpcode::Return => {
                     if let Some(result_type) = result_types.first() {
-                        let result_type2 = value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
+                        let result_type2 = value_stack.pop()?;
                         if *result_type != result_type2 {
                             return Err(CompileErrorKind::TypeMismatch.into());
                         }
                         match result_type {
                             WasmValType::I32 | WasmValType::I64 => int_codes.push(WasmImc::new(
                                 WasmImInstruction::ReturnI,
-                                StackLevel::new(value_stack.len()),
+                                value_stack.stack_level(),
                             )),
                             WasmValType::F32 | WasmValType::F64 => int_codes.push(WasmImc::new(
                                 WasmImInstruction::ReturnF,
-                                StackLevel::new(value_stack.len()),
+                                value_stack.stack_level(),
                             )),
                         }
                     } else {
                         int_codes.push(WasmImc::new(
                             WasmImInstruction::ReturnN,
-                            StackLevel::new(value_stack.len()),
+                            value_stack.stack_level(),
                         ));
                     }
                 }
 
-                WasmBytecode::Call(func_index) => {
+                WasmOpcode::Call(func_index) => {
                     flags.remove(WasmBlockFlag::LEAF_FUNCTION);
                     let function = module
                         .functions()
@@ -568,94 +549,94 @@ impl WasmCodeBlock {
                         .ok_or(CompileErrorKind::InvalidData)?;
                     int_codes.push(WasmImc::new(
                         WasmImInstruction::Call(func_index as usize, *position),
-                        StackLevel::new(value_stack.len()),
+                        value_stack.stack_level(),
                     ));
                     // TODO: type check
                     for _param in function.param_types() {
-                        value_stack.pop();
+                        value_stack.pop()?;
                     }
                     for result in function.result_types() {
                         value_stack.push(result.clone());
                     }
                 }
-                WasmBytecode::CallIndirect(type_index, _reserved) => {
+                WasmOpcode::CallIndirect(type_index, _reserved) => {
                     flags.remove(WasmBlockFlag::LEAF_FUNCTION);
                     let type_index = WasmTypeIndex::new(module, type_index)
                         .ok_or(CompileErrorKind::InvalidData)?;
                     let func_type = module.type_by_index(type_index);
-                    let index = value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
+                    let index = value_stack.pop()?;
                     if index != WasmValType::I32 {
                         return Err(CompileErrorKind::TypeMismatch.into());
                     }
                     int_codes.push(WasmImc::new(
                         WasmImInstruction::CallIndirect(type_index, *position),
-                        StackLevel::new(value_stack.len()),
+                        value_stack.stack_level(),
                     ));
                     // TODO: type check
                     for _param in func_type.param_types() {
-                        value_stack.pop();
+                        value_stack.pop()?;
                     }
                     for result in func_type.result_types() {
                         value_stack.push(result.clone());
                     }
                 }
 
-                WasmBytecode::Drop => {
-                    value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
+                WasmOpcode::Drop => {
+                    value_stack.pop()?;
                 }
 
-                WasmBytecode::Select => {
-                    let cc = value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
-                    let b = value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
-                    let a = value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
+                WasmOpcode::Select => {
+                    let cc = value_stack.pop()?;
+                    let b = value_stack.pop()?;
+                    let a = value_stack.pop()?;
                     if a != b || cc != WasmValType::I32 {
                         return Err(CompileErrorKind::TypeMismatch.into());
                     }
                     int_codes.push(WasmImc::new(
                         WasmImInstruction::SelectI,
-                        StackLevel::new(value_stack.len()),
+                        value_stack.stack_level(),
                     ));
                     value_stack.push(a);
                 }
 
-                WasmBytecode::LocalGet(local_index) => {
+                WasmOpcode::LocalGet(local_index) => {
                     let val = *local_types
                         .get(local_index as usize)
                         .ok_or(CompileErrorKind::InvalidLocal)?;
                     int_codes.push(WasmImc::new(
                         WasmImInstruction::LocalGetI(unsafe { LocalVarIndex::new(local_index) }),
-                        StackLevel::new(value_stack.len()),
+                        value_stack.stack_level(),
                     ));
                     value_stack.push(val);
                 }
-                WasmBytecode::LocalSet(local_index) => {
+                WasmOpcode::LocalSet(local_index) => {
                     let val = *local_types
                         .get(local_index as usize)
                         .ok_or(CompileErrorKind::InvalidLocal)?;
-                    let stack = value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
+                    let stack = value_stack.pop()?;
                     if stack != val {
                         return Err(CompileErrorKind::TypeMismatch.into());
                     }
                     int_codes.push(WasmImc::new(
                         WasmImInstruction::LocalSetI(unsafe { LocalVarIndex::new(local_index) }),
-                        StackLevel::new(value_stack.len()),
+                        value_stack.stack_level(),
                     ));
                 }
-                WasmBytecode::LocalTee(local_index) => {
+                WasmOpcode::LocalTee(local_index) => {
                     let val = *local_types
                         .get(local_index as usize)
                         .ok_or(CompileErrorKind::InvalidLocal)?;
-                    let stack = *value_stack.last().ok_or(CompileErrorKind::OutOfStack)?;
+                    let stack = *value_stack.last()?;
                     if stack != val {
                         return Err(CompileErrorKind::TypeMismatch.into());
                     }
                     int_codes.push(WasmImc::new(
                         WasmImInstruction::LocalTeeI(unsafe { LocalVarIndex::new(local_index) }),
-                        StackLevel::new(value_stack.len() - 1),
+                        value_stack.stack_level_m1()?,
                     ));
                 }
 
-                WasmBytecode::GlobalGet(global_index) => {
+                WasmOpcode::GlobalGet(global_index) => {
                     let val_type = module
                         .globals()
                         .get(global_index as usize)
@@ -663,11 +644,11 @@ impl WasmCodeBlock {
                         .ok_or(CompileErrorKind::InvalidGlobal)?;
                     int_codes.push(WasmImc::new(
                         WasmImInstruction::GlobalGetI(unsafe { GlobalVarIndex::new(global_index) }),
-                        StackLevel::new(value_stack.len()),
+                        value_stack.stack_level(),
                     ));
                     value_stack.push(val_type);
                 }
-                WasmBytecode::GlobalSet(global_index) => {
+                WasmOpcode::GlobalSet(global_index) => {
                     let global = module
                         .globals()
                         .get(global_index as usize)
@@ -677,183 +658,183 @@ impl WasmCodeBlock {
                     if !is_mutable {
                         return Err(CompileErrorKind::InvalidGlobal.into());
                     }
-                    let stack = value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
+                    let stack = value_stack.pop()?;
                     if stack != val_type {
                         return Err(CompileErrorKind::TypeMismatch.into());
                     }
                     int_codes.push(WasmImc::new(
                         WasmImInstruction::GlobalSetI(unsafe { GlobalVarIndex::new(global_index) }),
-                        StackLevel::new(value_stack.len()),
+                        value_stack.stack_level(),
                     ));
                 }
 
-                WasmBytecode::I32Load(memarg) => {
+                WasmOpcode::I32Load(memarg) => {
                     #[rustfmt::skip]
                     MEM_LOAD!(I32, I32Load, bytecode, memarg, module, reader, position, int_codes, value_stack, );
                 }
-                WasmBytecode::I32Load8S(memarg) => {
+                WasmOpcode::I32Load8S(memarg) => {
                     #[rustfmt::skip]
                     MEM_LOAD!(I32, I32Load8S, bytecode, memarg, module, reader, position, int_codes, value_stack, );
                 }
-                WasmBytecode::I32Load8U(memarg) => {
+                WasmOpcode::I32Load8U(memarg) => {
                     #[rustfmt::skip]
                     MEM_LOAD!(I32, I32Load8U, bytecode, memarg, module, reader, position, int_codes, value_stack, );
                 }
-                WasmBytecode::I32Load16S(memarg) => {
+                WasmOpcode::I32Load16S(memarg) => {
                     #[rustfmt::skip]
                     MEM_LOAD!(I32, I32Load16S, bytecode, memarg, module, reader, position, int_codes, value_stack, );
                 }
-                WasmBytecode::I32Load16U(memarg) => {
+                WasmOpcode::I32Load16U(memarg) => {
                     #[rustfmt::skip]
                     MEM_LOAD!(I32, I32Load16U, bytecode, memarg, module, reader, position, int_codes, value_stack, );
                 }
 
-                WasmBytecode::I64Load(memarg) => {
+                WasmOpcode::I64Load(memarg) => {
                     #[rustfmt::skip]
                     MEM_LOAD!(I64, I64Load, bytecode, memarg, module, reader, position, int_codes, value_stack, );
                 }
-                WasmBytecode::I64Load8S(memarg) => {
+                WasmOpcode::I64Load8S(memarg) => {
                     #[rustfmt::skip]
                     MEM_LOAD!(I64, I64Load8S, bytecode, memarg, module, reader, position, int_codes, value_stack, );
                 }
-                WasmBytecode::I64Load8U(memarg) => {
+                WasmOpcode::I64Load8U(memarg) => {
                     #[rustfmt::skip]
                     MEM_LOAD!(I64, I64Load8U, bytecode, memarg, module, reader, position, int_codes, value_stack, );
                 }
-                WasmBytecode::I64Load16S(memarg) => {
+                WasmOpcode::I64Load16S(memarg) => {
                     #[rustfmt::skip]
                     MEM_LOAD!(I64, I64Load16S, bytecode, memarg, module, reader, position, int_codes, value_stack, );
                 }
-                WasmBytecode::I64Load16U(memarg) => {
+                WasmOpcode::I64Load16U(memarg) => {
                     #[rustfmt::skip]
                     MEM_LOAD!(I64, I64Load16U, bytecode, memarg, module, reader, position, int_codes, value_stack, );
                 }
-                WasmBytecode::I64Load32S(memarg) => {
+                WasmOpcode::I64Load32S(memarg) => {
                     #[rustfmt::skip]
                     MEM_LOAD!(I64, I64Load32S, bytecode, memarg, module, reader, position, int_codes, value_stack, );
                 }
-                WasmBytecode::I64Load32U(memarg) => {
+                WasmOpcode::I64Load32U(memarg) => {
                     #[rustfmt::skip]
                     MEM_LOAD!(I64, I64Load32U, bytecode, memarg, module, reader, position, int_codes, value_stack, );
                 }
 
-                WasmBytecode::I32Store(memarg) => {
+                WasmOpcode::I32Store(memarg) => {
                     #[rustfmt::skip]
                     MEM_STORE!(I32, I32Store, bytecode, memarg, module, reader, position, int_codes, value_stack, );
                 }
-                WasmBytecode::I32Store8(memarg) => {
+                WasmOpcode::I32Store8(memarg) => {
                     #[rustfmt::skip]
                     MEM_STORE!(I32, I32Store8, bytecode, memarg, module, reader, position, int_codes, value_stack, );
                 }
-                WasmBytecode::I32Store16(memarg) => {
+                WasmOpcode::I32Store16(memarg) => {
                     #[rustfmt::skip]
                     MEM_STORE!(I32, I32Store16, bytecode, memarg, module, reader, position, int_codes, value_stack, );
                 }
-                WasmBytecode::I64Store(memarg) => {
+                WasmOpcode::I64Store(memarg) => {
                     #[rustfmt::skip]
                     MEM_STORE!(I64, I64Store, bytecode, memarg, module, reader, position, int_codes, value_stack, );
                 }
-                WasmBytecode::I64Store8(memarg) => {
+                WasmOpcode::I64Store8(memarg) => {
                     #[rustfmt::skip]
                     MEM_STORE!(I64, I64Store8, bytecode, memarg, module, reader, position, int_codes, value_stack, );
                 }
-                WasmBytecode::I64Store16(memarg) => {
+                WasmOpcode::I64Store16(memarg) => {
                     #[rustfmt::skip]
                     MEM_STORE!(I64, I64Store16, bytecode, memarg, module, reader, position, int_codes, value_stack, );
                 }
-                WasmBytecode::I64Store32(memarg) => {
+                WasmOpcode::I64Store32(memarg) => {
                     #[rustfmt::skip]
                     MEM_STORE!(I64, I64Store32, bytecode, memarg, module, reader, position, int_codes, value_stack, );
                 }
 
-                WasmBytecode::F32Load(memarg) => {
+                WasmOpcode::F32Load(memarg) => {
                     #[rustfmt::skip]
                     MEM_LOAD!(F32, F32Load, bytecode, memarg, module, reader, position, int_codes, value_stack, );
                 }
-                WasmBytecode::F64Load(memarg) => {
+                WasmOpcode::F64Load(memarg) => {
                     #[rustfmt::skip]
                     MEM_LOAD!(F64, F64Load, bytecode, memarg, module, reader, position, int_codes, value_stack, );
                 }
-                WasmBytecode::F32Store(memarg) => {
+                WasmOpcode::F32Store(memarg) => {
                     #[rustfmt::skip]
                     MEM_STORE!(F32, F32Store, bytecode, memarg, module, reader, position, int_codes, value_stack, );
                 }
-                WasmBytecode::F64Store(memarg) => {
+                WasmOpcode::F64Store(memarg) => {
                     #[rustfmt::skip]
                     MEM_STORE!(F64, F64Store, bytecode, memarg, module, reader, position, int_codes, value_stack, );
                 }
 
-                WasmBytecode::MemorySize(index) => {
+                WasmOpcode::MemorySize(index) => {
                     if (index as usize) >= module.memories().len() {
                         return Err(CompileErrorKind::OutOfMemory.into());
                     }
                     int_codes.push(WasmImc::new(
                         WasmImInstruction::MemorySize,
-                        StackLevel::new(value_stack.len()),
+                        value_stack.stack_level(),
                     ));
                     value_stack.push(WasmValType::I32);
                 }
 
-                WasmBytecode::MemoryGrow(index) => {
+                WasmOpcode::MemoryGrow(index) => {
                     if (index as usize) >= module.memories().len() {
                         return Err(CompileErrorKind::OutOfMemory.into());
                     }
                     int_codes.push(WasmImc::new(
                         WasmImInstruction::MemoryGrow,
-                        StackLevel::new(value_stack.len() - 1),
+                        value_stack.stack_level_m1()?,
                     ));
-                    let a = *value_stack.last().ok_or(CompileErrorKind::OutOfStack)?;
+                    let a = *value_stack.last()?;
                     if a != WasmValType::I32 {
                         return Err(CompileErrorKind::TypeMismatch.into());
                     }
                 }
 
-                WasmBytecode::I32Const(val) => {
+                WasmOpcode::I32Const(val) => {
                     int_codes.push(WasmImc::new(
                         WasmImInstruction::I32Const(val),
-                        StackLevel::new(value_stack.len()),
+                        value_stack.stack_level(),
                     ));
                     value_stack.push(WasmValType::I32);
                 }
-                WasmBytecode::I64Const(val) => {
+                WasmOpcode::I64Const(val) => {
                     int_codes.push(WasmImc::new(
                         WasmImInstruction::I64Const(val),
-                        StackLevel::new(value_stack.len()),
+                        value_stack.stack_level(),
                     ));
                     value_stack.push(WasmValType::I64);
                 }
-                WasmBytecode::F32Const(val) => {
+                WasmOpcode::F32Const(val) => {
                     int_codes.push(WasmImc::new(
                         WasmImInstruction::F32Const(val),
-                        StackLevel::new(value_stack.len()),
+                        value_stack.stack_level(),
                     ));
                     value_stack.push(WasmValType::F32);
                 }
-                WasmBytecode::F64Const(val) => {
+                WasmOpcode::F64Const(val) => {
                     int_codes.push(WasmImc::new(
                         WasmImInstruction::F64Const(val),
-                        StackLevel::new(value_stack.len()),
+                        value_stack.stack_level(),
                     ));
                     value_stack.push(WasmValType::F64);
                 }
 
                 // unary operator [i32] -> [i32]
-                WasmBytecode::I32Eqz => {
+                WasmOpcode::I32Eqz => {
                     UNARY!(I32, I32Eqz, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I32Clz => {
+                WasmOpcode::I32Clz => {
                     UNARY!(I32, I32Clz, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I32Ctz => {
+                WasmOpcode::I32Ctz => {
                     UNARY!(I32, I32Ctz, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I32Popcnt => {
+                WasmOpcode::I32Popcnt => {
                     UNARY!(I32, I32Popcnt, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I32Extend8S => {
+                WasmOpcode::I32Extend8S => {
                     UNARY!(I32, I32Extend8S, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I32Extend16S => {
+                WasmOpcode::I32Extend16S => {
                     UNARY!(
                         I32,
                         I32Extend16S,
@@ -865,129 +846,129 @@ impl WasmCodeBlock {
                 }
 
                 // binary operator [i32, i32] -> [i32]
-                WasmBytecode::I32Eq => {
+                WasmOpcode::I32Eq => {
                     BIN_CMP!(I32, I32Eq, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I32Ne => {
+                WasmOpcode::I32Ne => {
                     BIN_CMP!(I32, I32Ne, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I32LtS => {
+                WasmOpcode::I32LtS => {
                     BIN_CMP!(I32, I32LtS, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I32LtU => {
+                WasmOpcode::I32LtU => {
                     BIN_CMP!(I32, I32LtU, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I32GtS => {
+                WasmOpcode::I32GtS => {
                     BIN_CMP!(I32, I32GtS, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I32GtU => {
+                WasmOpcode::I32GtU => {
                     BIN_CMP!(I32, I32GtU, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I32LeS => {
+                WasmOpcode::I32LeS => {
                     BIN_CMP!(I32, I32LeS, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I32LeU => {
+                WasmOpcode::I32LeU => {
                     BIN_CMP!(I32, I32LeU, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I32GeS => {
+                WasmOpcode::I32GeS => {
                     BIN_CMP!(I32, I32GeS, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I32GeU => {
+                WasmOpcode::I32GeU => {
                     BIN_CMP!(I32, I32GeU, bytecode, position, int_codes, value_stack,);
                 }
 
-                WasmBytecode::I32Add => {
+                WasmOpcode::I32Add => {
                     BIN_OP!(I32, I32Add, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I32Sub => {
+                WasmOpcode::I32Sub => {
                     BIN_OP!(I32, I32Sub, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I32Mul => {
+                WasmOpcode::I32Mul => {
                     BIN_OP!(I32, I32Mul, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I32DivS => {
+                WasmOpcode::I32DivS => {
                     BIN_DIV!(I32, I32DivS, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I32DivU => {
+                WasmOpcode::I32DivU => {
                     BIN_DIV!(I32, I32DivU, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I32RemS => {
+                WasmOpcode::I32RemS => {
                     BIN_DIV!(I32, I32RemS, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I32RemU => {
+                WasmOpcode::I32RemU => {
                     BIN_DIV!(I32, I32RemU, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I32And => {
+                WasmOpcode::I32And => {
                     BIN_OP!(I32, I32And, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I32Or => {
+                WasmOpcode::I32Or => {
                     BIN_OP!(I32, I32Or, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I32Xor => {
+                WasmOpcode::I32Xor => {
                     BIN_OP!(I32, I32Xor, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I32Shl => {
+                WasmOpcode::I32Shl => {
                     BIN_OP!(I32, I32Shl, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I32ShrS => {
+                WasmOpcode::I32ShrS => {
                     BIN_OP!(I32, I32ShrS, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I32ShrU => {
+                WasmOpcode::I32ShrU => {
                     BIN_OP!(I32, I32ShrU, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I32Rotl => {
+                WasmOpcode::I32Rotl => {
                     BIN_OP!(I32, I32Rotl, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I32Rotr => {
+                WasmOpcode::I32Rotr => {
                     BIN_OP!(I32, I32Rotr, bytecode, position, int_codes, value_stack,);
                 }
 
                 // binary operator [i64, i64] -> [i32]
-                WasmBytecode::I64Eq => {
+                WasmOpcode::I64Eq => {
                     BIN_CMP!(I64, I64Eq, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64Ne => {
+                WasmOpcode::I64Ne => {
                     BIN_CMP!(I64, I64Ne, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64LtS => {
+                WasmOpcode::I64LtS => {
                     BIN_CMP!(I64, I64LtS, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64LtU => {
+                WasmOpcode::I64LtU => {
                     BIN_CMP!(I64, I64LtU, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64GtS => {
+                WasmOpcode::I64GtS => {
                     BIN_CMP!(I64, I64GtS, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64GtU => {
+                WasmOpcode::I64GtU => {
                     BIN_CMP!(I64, I64GtU, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64LeS => {
+                WasmOpcode::I64LeS => {
                     BIN_CMP!(I64, I64LeS, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64LeU => {
+                WasmOpcode::I64LeU => {
                     BIN_CMP!(I64, I64LeU, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64GeS => {
+                WasmOpcode::I64GeS => {
                     BIN_CMP!(I64, I64GeS, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64GeU => {
+                WasmOpcode::I64GeU => {
                     BIN_CMP!(I64, I64GeU, bytecode, position, int_codes, value_stack,);
                 }
 
                 // unary operator [i64] -> [i64]
-                WasmBytecode::I64Clz => {
+                WasmOpcode::I64Clz => {
                     UNARY!(I64, I64Clz, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64Ctz => {
+                WasmOpcode::I64Ctz => {
                     UNARY!(I64, I64Ctz, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64Popcnt => {
+                WasmOpcode::I64Popcnt => {
                     UNARY!(I64, I64Popcnt, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64Extend8S => {
+                WasmOpcode::I64Extend8S => {
                     UNARY!(I64, I64Extend8S, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64Extend16S => {
+                WasmOpcode::I64Extend16S => {
                     UNARY!(
                         I64,
                         I64Extend16S,
@@ -997,7 +978,7 @@ impl WasmCodeBlock {
                         value_stack,
                     );
                 }
-                WasmBytecode::I64Extend32S => {
+                WasmOpcode::I64Extend32S => {
                     UNARY!(
                         I64,
                         I64Extend32S,
@@ -1009,328 +990,328 @@ impl WasmCodeBlock {
                 }
 
                 // binary operator [i64, i64] -> [i64]
-                WasmBytecode::I64Add => {
+                WasmOpcode::I64Add => {
                     BIN_OP!(I64, I64Add, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64Sub => {
+                WasmOpcode::I64Sub => {
                     BIN_OP!(I64, I64Sub, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64Mul => {
+                WasmOpcode::I64Mul => {
                     BIN_OP!(I64, I64Mul, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64DivS => {
+                WasmOpcode::I64DivS => {
                     BIN_DIV!(I64, I64DivS, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64DivU => {
+                WasmOpcode::I64DivU => {
                     BIN_DIV!(I64, I64DivU, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64RemS => {
+                WasmOpcode::I64RemS => {
                     BIN_DIV!(I64, I64RemS, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64RemU => {
+                WasmOpcode::I64RemU => {
                     BIN_DIV!(I64, I64RemU, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64And => {
+                WasmOpcode::I64And => {
                     BIN_OP!(I64, I64And, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64Or => {
+                WasmOpcode::I64Or => {
                     BIN_OP!(I64, I64Or, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64Xor => {
+                WasmOpcode::I64Xor => {
                     BIN_OP!(I64, I64Xor, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64Shl => {
+                WasmOpcode::I64Shl => {
                     BIN_OP!(I64, I64Shl, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64ShrS => {
+                WasmOpcode::I64ShrS => {
                     BIN_OP!(I64, I64ShrS, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64ShrU => {
+                WasmOpcode::I64ShrU => {
                     BIN_OP!(I64, I64ShrU, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64Rotl => {
+                WasmOpcode::I64Rotl => {
                     BIN_OP!(I64, I64Rotl, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64Rotr => {
+                WasmOpcode::I64Rotr => {
                     BIN_OP!(I64, I64Rotr, bytecode, position, int_codes, value_stack,);
                 }
 
                 // [i64] -> [i32]
-                WasmBytecode::I64Eqz => {
+                WasmOpcode::I64Eqz => {
                     UNARY2!(I64, I32, I64Eqz, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I32WrapI64 => {
+                WasmOpcode::I32WrapI64 => {
                     #[rustfmt::skip]
                     UNARY2!(I64, I32, I32WrapI64, bytecode, position, int_codes, value_stack,);
                 }
 
                 // [i32] -> [i64]
-                WasmBytecode::I64ExtendI32S => {
+                WasmOpcode::I64ExtendI32S => {
                     #[rustfmt::skip]
                     UNARY2!(I32, I64, I64ExtendI32S, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64ExtendI32U => {
+                WasmOpcode::I64ExtendI32U => {
                     #[rustfmt::skip]
                     UNARY2!(I32, I64, I64ExtendI32U, bytecode, position, int_codes, value_stack,);
                 }
 
                 // [f32, f32] -> [i32]
-                WasmBytecode::F32Eq => {
+                WasmOpcode::F32Eq => {
                     BIN_CMP!(F32, F32Eq, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F32Ne => {
+                WasmOpcode::F32Ne => {
                     BIN_CMP!(F32, F32Ne, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F32Lt => {
+                WasmOpcode::F32Lt => {
                     BIN_CMP!(F32, F32Lt, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F32Gt => {
+                WasmOpcode::F32Gt => {
                     BIN_CMP!(F32, F32Gt, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F32Le => {
+                WasmOpcode::F32Le => {
                     BIN_CMP!(F32, F32Le, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F32Ge => {
+                WasmOpcode::F32Ge => {
                     BIN_CMP!(F32, F32Ge, bytecode, position, int_codes, value_stack,);
                 }
 
                 // [f32] -> [f32]
-                WasmBytecode::F32Abs => {
+                WasmOpcode::F32Abs => {
                     UNARY!(F32, F32Abs, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F32Neg => {
+                WasmOpcode::F32Neg => {
                     UNARY!(F32, F32Neg, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F32Ceil => {
+                WasmOpcode::F32Ceil => {
                     UNARY!(F32, F32Ceil, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F32Floor => {
+                WasmOpcode::F32Floor => {
                     UNARY!(F32, F32Floor, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F32Trunc => {
+                WasmOpcode::F32Trunc => {
                     UNARY!(F32, F32Trunc, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F32Nearest => {
+                WasmOpcode::F32Nearest => {
                     UNARY!(F32, F32Nearest, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F32Sqrt => {
+                WasmOpcode::F32Sqrt => {
                     UNARY!(F32, F32Sqrt, bytecode, position, int_codes, value_stack,);
                 }
 
                 // [f32, f32] -> [f32]
-                WasmBytecode::F32Add => {
+                WasmOpcode::F32Add => {
                     BIN_OP!(F32, F32Add, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F32Sub => {
+                WasmOpcode::F32Sub => {
                     BIN_OP!(F32, F32Sub, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F32Mul => {
+                WasmOpcode::F32Mul => {
                     BIN_OP!(F32, F32Mul, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F32Div => {
+                WasmOpcode::F32Div => {
                     BIN_OP!(F32, F32Div, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F32Min => {
+                WasmOpcode::F32Min => {
                     BIN_OP!(F32, F32Min, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F32Max => {
+                WasmOpcode::F32Max => {
                     BIN_OP!(F32, F32Max, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F32Copysign => {
+                WasmOpcode::F32Copysign => {
                     BIN_OP!(F32, F32Copysign, bytecode, position, int_codes, value_stack,);
                 }
 
                 // [f64, f64] -> [i32]
-                WasmBytecode::F64Eq => {
+                WasmOpcode::F64Eq => {
                     BIN_CMP!(F64, F64Eq, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F64Ne => {
+                WasmOpcode::F64Ne => {
                     BIN_CMP!(F64, F64Ne, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F64Lt => {
+                WasmOpcode::F64Lt => {
                     BIN_CMP!(F64, F64Lt, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F64Gt => {
+                WasmOpcode::F64Gt => {
                     BIN_CMP!(F64, F64Gt, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F64Le => {
+                WasmOpcode::F64Le => {
                     BIN_CMP!(F64, F64Le, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F64Ge => {
+                WasmOpcode::F64Ge => {
                     BIN_CMP!(F64, F64Ge, bytecode, position, int_codes, value_stack,);
                 }
 
                 // [f64] -> [f64]
-                WasmBytecode::F64Abs => {
+                WasmOpcode::F64Abs => {
                     UNARY!(F64, F64Abs, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F64Neg => {
+                WasmOpcode::F64Neg => {
                     UNARY!(F64, F64Neg, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F64Ceil => {
+                WasmOpcode::F64Ceil => {
                     UNARY!(F64, F64Ceil, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F64Floor => {
+                WasmOpcode::F64Floor => {
                     UNARY!(F64, F64Floor, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F64Trunc => {
+                WasmOpcode::F64Trunc => {
                     UNARY!(F64, F64Trunc, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F64Nearest => {
+                WasmOpcode::F64Nearest => {
                     UNARY!(F64, F64Nearest, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F64Sqrt => {
+                WasmOpcode::F64Sqrt => {
                     UNARY!(F64, F64Sqrt, bytecode, position, int_codes, value_stack,);
                 }
 
                 // [f64, f64] -> [f64]
-                WasmBytecode::F64Add => {
+                WasmOpcode::F64Add => {
                     BIN_OP!(F64, F64Add, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F64Sub => {
+                WasmOpcode::F64Sub => {
                     BIN_OP!(F64, F64Sub, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F64Mul => {
+                WasmOpcode::F64Mul => {
                     BIN_OP!(F64, F64Mul, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F64Div => {
+                WasmOpcode::F64Div => {
                     BIN_OP!(F64, F64Div, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F64Min => {
+                WasmOpcode::F64Min => {
                     BIN_OP!(F64, F64Min, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F64Max => {
+                WasmOpcode::F64Max => {
                     BIN_OP!(F64, F64Max, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F64Copysign => {
+                WasmOpcode::F64Copysign => {
                     BIN_OP!(F64, F64Copysign, bytecode, position, int_codes, value_stack,);
                 }
 
                 // [f32] -> [i32]
-                WasmBytecode::I32TruncF32S => {
+                WasmOpcode::I32TruncF32S => {
                     #[rustfmt::skip]
                     UNARY2!(F32, I32, I32TruncF32S, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I32TruncF32U => {
+                WasmOpcode::I32TruncF32U => {
                     #[rustfmt::skip]
                     UNARY2!(F32, I32, I32TruncF32U, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I32TruncF64S => {
+                WasmOpcode::I32TruncF64S => {
                     #[rustfmt::skip]
                     UNARY2!(F64, I32, I32TruncF64S, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I32TruncF64U => {
+                WasmOpcode::I32TruncF64U => {
                     #[rustfmt::skip]
                     UNARY2!(F64, I32, I32TruncF64U, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64TruncF32S => {
+                WasmOpcode::I64TruncF32S => {
                     #[rustfmt::skip]
                     UNARY2!(F32, I64, I64TruncF32S, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64TruncF32U => {
+                WasmOpcode::I64TruncF32U => {
                     #[rustfmt::skip]
                     UNARY2!(F32, I64, I64TruncF32U, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64TruncF64S => {
+                WasmOpcode::I64TruncF64S => {
                     #[rustfmt::skip]
                     UNARY2!(F64, I64, I64TruncF64S, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64TruncF64U => {
+                WasmOpcode::I64TruncF64U => {
                     #[rustfmt::skip]
                     UNARY2!(F64, I64, I64TruncF64U, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F32ConvertI32S => {
+                WasmOpcode::F32ConvertI32S => {
                     #[rustfmt::skip]
                     UNARY2!(I32, F32, F32ConvertI32S, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F32ConvertI32U => {
+                WasmOpcode::F32ConvertI32U => {
                     #[rustfmt::skip]
                     UNARY2!(I32, F32, F32ConvertI32U, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F32ConvertI64S => {
+                WasmOpcode::F32ConvertI64S => {
                     #[rustfmt::skip]
                     UNARY2!(I64, F32, F32ConvertI64S, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F32ConvertI64U => {
+                WasmOpcode::F32ConvertI64U => {
                     #[rustfmt::skip]
                     UNARY2!(I64, F32, F32ConvertI64U, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F32DemoteF64 => {
+                WasmOpcode::F32DemoteF64 => {
                     #[rustfmt::skip]
                     UNARY2!(F64, F32, F32DemoteF64, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F64ConvertI32S => {
+                WasmOpcode::F64ConvertI32S => {
                     #[rustfmt::skip]
                     UNARY2!(I32, F64, F64ConvertI32S, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F64ConvertI32U => {
+                WasmOpcode::F64ConvertI32U => {
                     #[rustfmt::skip]
                     UNARY2!(I32, F64, F64ConvertI32U, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F64ConvertI64S => {
+                WasmOpcode::F64ConvertI64S => {
                     #[rustfmt::skip]
                     UNARY2!(I64, F64, F64ConvertI64S, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F64ConvertI64U => {
+                WasmOpcode::F64ConvertI64U => {
                     #[rustfmt::skip]
                     UNARY2!(I64, F64, F64ConvertI64U, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F64PromoteF32 => {
+                WasmOpcode::F64PromoteF32 => {
                     #[rustfmt::skip]
                     UNARY2!(F32, F64, F64PromoteF32, bytecode, position, int_codes, value_stack,);
                 }
 
-                WasmBytecode::I32ReinterpretF32 => {
+                WasmOpcode::I32ReinterpretF32 => {
                     #[rustfmt::skip]
                     UNARY2!(F32, I32, I32ReinterpretF32, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64ReinterpretF64 => {
+                WasmOpcode::I64ReinterpretF64 => {
                     #[rustfmt::skip]
                     UNARY2!(F64, I64, I64ReinterpretF64, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F32ReinterpretI32 => {
+                WasmOpcode::F32ReinterpretI32 => {
                     #[rustfmt::skip]
                     UNARY2!(I32, F32, F32ReinterpretI32, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::F64ReinterpretI64 => {
+                WasmOpcode::F64ReinterpretI64 => {
                     #[rustfmt::skip]
                     UNARY2!(I64, F64, F64ReinterpretI64, bytecode, position, int_codes, value_stack,);
                 }
 
-                WasmBytecode::I32TruncSatF32S => {
+                WasmOpcode::I32TruncSatF32S => {
                     #[rustfmt::skip]
                     UNARY2!(F32, I32, I32TruncSatF32S, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I32TruncSatF32U => {
+                WasmOpcode::I32TruncSatF32U => {
                     #[rustfmt::skip]
                     UNARY2!(F32, I32, I32TruncSatF32U, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I32TruncSatF64S => {
+                WasmOpcode::I32TruncSatF64S => {
                     #[rustfmt::skip]
                     UNARY2!(F64, I32, I32TruncSatF64S, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I32TruncSatF64U => {
+                WasmOpcode::I32TruncSatF64U => {
                     #[rustfmt::skip]
                     UNARY2!(F64, I32, I32TruncSatF64U, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64TruncSatF32S => {
+                WasmOpcode::I64TruncSatF32S => {
                     #[rustfmt::skip]
                     UNARY2!(F32, I64, I64TruncSatF32S, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64TruncSatF32U => {
+                WasmOpcode::I64TruncSatF32U => {
                     #[rustfmt::skip]
                     UNARY2!(F32, I64, I64TruncSatF32U, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64TruncSatF64S => {
+                WasmOpcode::I64TruncSatF64S => {
                     #[rustfmt::skip]
                     UNARY2!(F64, I64, I64TruncSatF64S, bytecode, position, int_codes, value_stack,);
                 }
-                WasmBytecode::I64TruncSatF64U => {
+                WasmOpcode::I64TruncSatF64U => {
                     #[rustfmt::skip]
                     UNARY2!(F64, I64, I64TruncSatF64U, bytecode, position, int_codes, value_stack,);
                 }
 
-                WasmBytecode::MemoryCopy => {
+                WasmOpcode::MemoryCopy => {
                     if !module.has_memory() {
                         return Err(CompileErrorKind::OutOfMemory.into());
                     }
@@ -1343,20 +1324,20 @@ impl WasmCodeBlock {
                         return Err(CompileErrorKind::OutOfMemory.into());
                     }
 
-                    let a = value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
-                    let b = value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
-                    let c = value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
+                    let a = value_stack.pop()?;
+                    let b = value_stack.pop()?;
+                    let c = value_stack.pop()?;
                     if a != WasmValType::I32 || b != WasmValType::I32 || c != WasmValType::I32 {
                         return Err(CompileErrorKind::TypeMismatch.into());
                     }
 
                     int_codes.push(WasmImc::new(
                         WasmImInstruction::MemoryCopy(*position),
-                        StackLevel::new(value_stack.len()),
+                        value_stack.stack_level(),
                     ));
                 }
 
-                WasmBytecode::MemoryFill => {
+                WasmOpcode::MemoryFill => {
                     if !module.has_memory() {
                         return Err(CompileErrorKind::OutOfMemory.into());
                     }
@@ -1365,34 +1346,34 @@ impl WasmCodeBlock {
                         return Err(CompileErrorKind::OutOfMemory.into());
                     }
 
-                    let a = value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
-                    let b = value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
-                    let c = value_stack.pop().ok_or(CompileErrorKind::OutOfStack)?;
+                    let a = value_stack.pop()?;
+                    let b = value_stack.pop()?;
+                    let c = value_stack.pop()?;
                     if a != WasmValType::I32 || b != WasmValType::I32 || c != WasmValType::I32 {
                         return Err(CompileErrorKind::TypeMismatch.into());
                     }
 
                     int_codes.push(WasmImc::new(
                         WasmImInstruction::MemoryFill(*position),
-                        StackLevel::new(value_stack.len()),
+                        value_stack.stack_level(),
                     ));
                 }
 
                 _ => return Err(CompileErrorKind::UnsupportedBytecode(bytecode.into()).into()),
             }
 
-            if base_stack_level.as_usize() > value_stack.len() {
-                return Err(CompileErrorKind::OutOfStack.into());
+            if base_stack_level > value_stack.stack_level() {
+                return Err(CompileErrorKind::InvalidStackLevel.into());
             }
         }
 
         int_codes.push(WasmImc::new(
             WasmImInstruction::Unreachable(ExceptionPosition::new(reader.position())),
-            StackLevel::new(value_stack.len()),
+            value_stack.stack_level(),
         ));
 
         if result_types.len() == 0 {
-            if value_stack.len() > 0 {
+            if value_stack.stack_level().as_usize() > 0 {
                 return Err(CompileErrorKind::InvalidStackLevel.into());
             }
         }
@@ -1581,7 +1562,7 @@ impl WasmCodeBlock {
             func_index,
             file_position,
             local_types,
-            max_stack,
+            max_stack_level: value_stack.max_stack_level(),
             flags,
             int_codes: int_codes.into_boxed_slice(),
         })
@@ -1594,7 +1575,7 @@ impl fmt::Debug for WasmCodeBlock {
             .field("func_index", &self.func_index)
             .field("file_position", &self.file_position)
             .field("local_types", &self.local_types)
-            .field("max_stack", &self.max_stack)
+            .field("max_stack_level", &self.max_stack_level)
             .field("flags", &self.flags)
             .finish()
     }
@@ -1666,7 +1647,7 @@ impl BlockContext {
 }
 
 #[repr(transparent)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct StackLevel(u32);
 
 impl StackLevel {
@@ -1709,5 +1690,66 @@ impl StackOffset {
     #[inline]
     pub const fn new(value: usize) -> Self {
         Self(value as u32)
+    }
+}
+
+pub struct ValueStackVerifier {
+    inner: Vec<WasmValType>,
+    max_stack_level: usize,
+}
+
+impl ValueStackVerifier {
+    #[inline]
+    pub fn new() -> Self {
+        Self {
+            inner: Vec::new(),
+            max_stack_level: 0,
+        }
+    }
+
+    #[inline]
+    pub fn push(&mut self, value: WasmValType) {
+        self.inner.push(value);
+        self.max_stack_level = self.max_stack_level.max(self.inner.len())
+    }
+
+    #[inline]
+    pub fn pop(&mut self) -> Result<WasmValType, CompileErrorKind> {
+        self.inner.pop().ok_or(CompileErrorKind::OutOfStack)
+    }
+
+    #[inline]
+    pub fn last(&self) -> Result<&WasmValType, CompileErrorKind> {
+        self.inner.last().ok_or(CompileErrorKind::OutOfStack)
+    }
+
+    #[inline]
+    pub fn max_stack_level(&self) -> StackLevel {
+        StackLevel::new(self.max_stack_level)
+    }
+
+    #[inline]
+    pub fn stack_level(&self) -> StackLevel {
+        StackLevel::new(self.inner.len())
+    }
+
+    pub fn stack_level_m1(&self) -> Result<StackLevel, CompileErrorKind> {
+        let len = self.inner.len();
+        if len > 0 {
+            Ok(StackLevel::new(len - 1))
+        } else {
+            Err(CompileErrorKind::OutOfStack)
+        }
+    }
+
+    fn unwind(&mut self, new_level: StackLevel) -> Result<(), CompileErrorKind> {
+        let new_level = new_level.as_usize();
+        if self.inner.len() < new_level {
+            return Err(CompileErrorKind::InvalidStackLevel);
+        }
+        for _ in 0..(self.inner.len() - new_level) {
+            self.pop()?;
+        }
+        Ok(())
     }
 }

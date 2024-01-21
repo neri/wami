@@ -9,17 +9,17 @@ use std::{
 fn main() {
     {
         let mut lines = Vec::new();
-        for line in read_to_string("./misc/bytecode.csv").unwrap().lines() {
+        for line in read_to_string("./misc/opcode.csv").unwrap().lines() {
             if !line.is_empty() && !line.starts_with("#") {
                 lines.push(line.to_string());
             }
         }
 
-        let mut os = File::create("./src/_generated/bytecode.rs").unwrap();
+        let mut os = File::create("./src/_generated/opcode.rs").unwrap();
 
         make_opcode(&mut os, lines.as_slice());
 
-        println!("cargo:rerun-if-changed=./misc/bytecode.csv");
+        println!("cargo:rerun-if-changed=./misc/opcode.csv");
     }
 }
 
@@ -181,9 +181,10 @@ fn make_opcode(os: &mut File, lines: &[String]) {
 use crate::{{leb128::*, CompileErrorKind, WasmMemArg, WasmBlockType, BrTableVec}};
 use core::fmt;
 
-/// WebAssembly Bytecode
+/// WebAssembly Opcode
 #[non_exhaustive]
-pub enum WasmBytecode {{
+#[derive(Clone)]
+pub enum WasmOpcode {{
 "
     )
     .unwrap();
@@ -198,7 +199,7 @@ pub enum WasmBytecode {{
         os,
         "}}
 
-impl WasmBytecode {{
+impl WasmOpcode {{
     pub fn fetch(reader: &mut Leb128Reader) -> Result<Self, CompileErrorKind> {{
         let leading = reader.read_byte()?;
         match leading {{
@@ -351,7 +352,7 @@ impl WasmBytecode {{
 
 }}
 
-impl fmt::Display for WasmBytecode {{
+impl fmt::Display for WasmOpcode {{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {{
         match self {{
             _ => f.write_str(self.as_str())
@@ -359,7 +360,7 @@ impl fmt::Display for WasmBytecode {{
     }}
 }}
 
-impl fmt::Debug for WasmBytecode {{
+impl fmt::Debug for WasmOpcode {{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {{
         match self {{
             _ => f.write_str(self.as_str())
@@ -446,9 +447,9 @@ impl fmt::Debug for WasmMnemonic {{
     }}
 }}
 
-impl From<WasmBytecode> for WasmMnemonic {{
+impl From<WasmOpcode> for WasmMnemonic {{
     #[inline]
-    fn from(val: WasmBytecode) -> WasmMnemonic {{
+    fn from(val: WasmOpcode) -> WasmMnemonic {{
         val.mnemonic()
     }}
 }}

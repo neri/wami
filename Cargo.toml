@@ -19,6 +19,5 @@ smallvec = "1.10.0"
 
 [workspace]
 members = [
-    # ".",
     "cli",
 ]

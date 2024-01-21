@@ -1,16 +1,17 @@
 use super::{GlobalVarIndex, LocalVarIndex, StackLevel};
-use crate::{bytecode::WasmMnemonic, BrTableVec, ExceptionPosition, WasmTypeIndex};
+use crate::{opcode::WasmMnemonic, BrTableVec, ExceptionPosition, WasmTypeIndex};
 
 /// Intermediate instruction for Webassembly interpreter
 #[non_exhaustive]
 #[derive(Debug)]
 pub enum WasmImInstruction {
-    /// Intermediate code that could not be converted
+    /// Intermediate code that could not be converted (trap)
     NotSupported(WasmMnemonic, ExceptionPosition),
 
-    /// Marker, this code will be removed during the compaction phase.
+    /// Marker, this code will be removed during the compaction phase. (trap)
     Marker(MarkerKind, u32),
 
+    /// (trap)
     Unreachable(ExceptionPosition),
 
     If(u32),
@@ -94,7 +95,6 @@ pub enum WasmImInstruction {
     I32Clz,
     I32Ctz,
     I32Popcnt,
-
     I32Add,
     I32Sub,
     I32Mul,
@@ -125,7 +125,6 @@ pub enum WasmImInstruction {
     I64Clz,
     I64Ctz,
     I64Popcnt,
-
     I64Add,
     I64Sub,
     I64Mul,
@@ -148,7 +147,6 @@ pub enum WasmImInstruction {
     F32Gt,
     F32Le,
     F32Ge,
-
     F32Abs,
     F32Neg,
     F32Ceil,
@@ -170,7 +168,6 @@ pub enum WasmImInstruction {
     F64Gt,
     F64Le,
     F64Ge,
-
     F64Abs,
     F64Neg,
     F64Ceil,
@@ -194,7 +191,6 @@ pub enum WasmImInstruction {
     I32WrapI64,
     I32Extend8S,
     I32Extend16S,
-
     I32TruncF32S,
     I32TruncF32U,
     I32TruncF64S,
@@ -217,7 +213,6 @@ pub enum WasmImInstruction {
     I64ReinterpretF64,
     F32ReinterpretI32,
     F64ReinterpretI64,
-
     I32TruncSatF32S,
     I32TruncSatF32U,
     I32TruncSatF64S,

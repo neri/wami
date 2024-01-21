@@ -22,8 +22,8 @@ pub mod memory;
 pub mod stack;
 pub mod sync;
 
-#[path = "_generated/bytecode.rs"]
-pub mod bytecode;
+#[path = "_generated/opcode.rs"]
+pub mod opcode;
 
 #[cfg(test)]
 mod tests;

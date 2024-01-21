@@ -4,9 +4,10 @@
 use crate::{leb128::*, CompileErrorKind, WasmMemArg, WasmBlockType, BrTableVec};
 use core::fmt;
 
-/// WebAssembly Bytecode
+/// WebAssembly Opcode
 #[non_exhaustive]
-pub enum WasmBytecode {
+#[derive(Clone)]
+pub enum WasmOpcode {
     /// 0x00 `unreachable` (MVP)
     Unreachable,
     /// 0x01 `nop` (MVP)
@@ -1137,7 +1138,7 @@ pub enum WasmBytecode {
     I64AtomicRmw32CmpxchgU,
 }
 
-impl WasmBytecode {
+impl WasmOpcode {
     pub fn fetch(reader: &mut Leb128Reader) -> Result<Self, CompileErrorKind> {
         let leading = reader.read_byte()?;
         match leading {
@@ -4099,7 +4100,7 @@ impl WasmBytecode {
 
 }
 
-impl fmt::Display for WasmBytecode {
+impl fmt::Display for WasmOpcode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             _ => f.write_str(self.as_str())
@@ -4107,7 +4108,7 @@ impl fmt::Display for WasmBytecode {
     }
 }
 
-impl fmt::Debug for WasmBytecode {
+impl fmt::Debug for WasmOpcode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             _ => f.write_str(self.as_str())
@@ -6231,9 +6232,9 @@ impl fmt::Debug for WasmMnemonic {
     }
 }
 
-impl From<WasmBytecode> for WasmMnemonic {
+impl From<WasmOpcode> for WasmMnemonic {
     #[inline]
-    fn from(val: WasmBytecode) -> WasmMnemonic {
+    fn from(val: WasmOpcode) -> WasmMnemonic {
         val.mnemonic()
     }
 }

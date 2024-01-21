@@ -1,10 +1,10 @@
 use crate::{
-    bytecode::WasmMnemonic,
     cg::{
         intr::{WasmInterpreter, WasmInvocation},
         WasmCodeBlock,
     },
     leb128::*,
+    opcode::WasmMnemonic,
     WasmValType, *,
 };
 use alloc::borrow::ToOwned;
@@ -12,43 +12,65 @@ use core::f64::consts::PI;
 use num_traits::Zero;
 use std::assert_matches::assert_matches;
 
+fn imports_resolver(mod_name: &str, name: &str, type_: &WasmType) -> ImportResult<WasmDynFunc> {
+    fn env_add(
+        _module: &WasmModule,
+        args: &[WasmUnionValue],
+    ) -> Result<WasmValue, WasmRuntimeErrorKind> {
+        unsafe { Ok(args[0].get_i32().wrapping_add(args[1].get_i32()).into()) }
+    }
+
+    fn env_sub(
+        _module: &WasmModule,
+        args: &[WasmUnionValue],
+    ) -> Result<WasmValue, WasmRuntimeErrorKind> {
+        unsafe { Ok(args[0].get_i32().wrapping_sub(args[1].get_i32()).into()) }
+    }
+
+    match mod_name {
+        "env" => match (name, type_.signature().as_str()) {
+            ("add", "iii") => ImportResult::Ok(env_add),
+            ("sub", "iii") => ImportResult::Ok(env_sub),
+            _ => ImportResult::NoMethod,
+        },
+        _ => ImportResult::NoModule,
+    }
+}
+
 #[test]
 fn instantiate() {
     let data = [0, 97, 115, 109, 1, 0, 0, 0];
-    WebAssembly::instantiate(&data, |_, _, _| unreachable!()).unwrap();
+    WebAssembly::instantiate(&data, imports_resolver).unwrap();
 
     let data = [0, 97, 115, 109, 1, 0, 0];
     assert_matches!(
-        WebAssembly::instantiate(&data, |_, _, _| unreachable!())
-            .unwrap_err()
-            .downcast_ref::<CompileErrorKind>()
-            .unwrap(),
+        CompileErrorKind::downcast_ref(
+            &WebAssembly::instantiate(&data, imports_resolver).unwrap_err()
+        )
+        .unwrap(),
         CompileErrorKind::BadExecutable
     );
 
     let data = [0, 97, 115, 109, 2, 0, 0, 0];
     assert_matches!(
-        WebAssembly::instantiate(&data, |_, _, _| unreachable!())
-            .unwrap_err()
-            .downcast_ref::<CompileErrorKind>()
-            .unwrap(),
+        CompileErrorKind::downcast_ref(
+            &WebAssembly::instantiate(&data, imports_resolver).unwrap_err()
+        )
+        .unwrap(),
         CompileErrorKind::BadExecutable
     );
 
     let data = [0, 97, 115, 109, 1, 0, 0, 0, 1];
     assert_matches!(
-        WebAssembly::instantiate(&data, |_, _, _| unreachable!())
-            .unwrap_err()
-            .downcast_ref::<CompileErrorKind>()
-            .unwrap(),
+        CompileErrorKind::downcast_ref(
+            &WebAssembly::instantiate(&data, imports_resolver).unwrap_err()
+        )
+        .unwrap(),
         CompileErrorKind::UnexpectedEof
     );
 
-    let module = WebAssembly::instantiate(
-        include_bytes!("../test/tester.wasm"),
-        |_, _, _| unreachable!(),
-    )
-    .unwrap();
+    let module =
+        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
     let _ = module.func_by_index(0).unwrap();
 }
 
@@ -57,16 +79,16 @@ fn section_order() {
     let data = [
         0, 97, 115, 109, 1, 0, 0, 0, 1, 1, 0, 2, 1, 0, 2, 1, 0, 3, 1, 0, 4, 1, 0, 5, 1, 0,
     ];
-    WebAssembly::instantiate(&data, |_, _, _| unreachable!()).unwrap();
+    WebAssembly::instantiate(&data, imports_resolver).unwrap();
 
     let data = [
         0, 97, 115, 109, 1, 0, 0, 0, 1, 1, 0, 2, 1, 0, 2, 1, 0, 3, 1, 0, 4, 1, 0, 3, 1, 0,
     ];
     assert_matches!(
-        WebAssembly::instantiate(&data, |_, _, _| unreachable!())
-            .unwrap_err()
-            .downcast_ref::<CompileErrorKind>()
-            .unwrap(),
+        CompileErrorKind::downcast_ref(
+            &WebAssembly::instantiate(&data, imports_resolver).unwrap_err()
+        )
+        .unwrap(),
         CompileErrorKind::InvalidSectionOrder(WasmSectionId::Function)
     );
 }
@@ -715,11 +737,8 @@ fn br_table() {
 
 #[test]
 fn app_fact() {
-    let module = WebAssembly::instantiate(
-        include_bytes!("../test/tester.wasm"),
-        |_, _, _| unreachable!(),
-    )
-    .unwrap();
+    let module =
+        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
     let runnable = module.func("fact").unwrap();
 
     let result = runnable
@@ -741,11 +760,8 @@ fn app_fact() {
 
 #[test]
 fn app_fib() {
-    let module = WebAssembly::instantiate(
-        include_bytes!("../test/tester.wasm"),
-        |_, _, _| unreachable!(),
-    )
-    .unwrap();
+    let module =
+        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
     let runnable = module.func("fib").unwrap();
 
     let result = runnable
@@ -775,11 +791,8 @@ fn app_fib() {
 
 #[test]
 fn opr_test_i32() {
-    let module = WebAssembly::instantiate(
-        include_bytes!("../test/tester.wasm"),
-        |_, _, _| unreachable!(),
-    )
-    .unwrap();
+    let module =
+        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
 
     let memory = module.memories()[0].try_borrow().unwrap();
 
@@ -882,11 +895,8 @@ fn opr_test_i32() {
 
 #[test]
 fn opr_test_i64() {
-    let module = WebAssembly::instantiate(
-        include_bytes!("../test/tester.wasm"),
-        |_, _, _| unreachable!(),
-    )
-    .unwrap();
+    let module =
+        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
 
     let memory = module.memories()[0].try_borrow().unwrap();
 
@@ -993,11 +1003,8 @@ fn opr_test_i64() {
 
 #[test]
 fn call_test() {
-    let module = WebAssembly::instantiate(
-        include_bytes!("../test/tester.wasm"),
-        |_, _, _| unreachable!(),
-    )
-    .unwrap();
+    let module =
+        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
 
     let memory = module.memories()[0].try_borrow().unwrap();
 
@@ -1098,11 +1105,8 @@ fn call_test() {
 
 #[test]
 fn mem_load_store() {
-    let module = WebAssembly::instantiate(
-        include_bytes!("../test/tester.wasm"),
-        |_, _, _| unreachable!(),
-    )
-    .unwrap();
+    let module =
+        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
 
     let mut src = Vec::new();
     for i in 0..256 {
@@ -1374,11 +1378,8 @@ fn mem_load_store() {
 
 #[test]
 fn memory() {
-    let module = WebAssembly::instantiate(
-        include_bytes!("../test/tester.wasm"),
-        |_, _, _| unreachable!(),
-    )
-    .unwrap();
+    let module =
+        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
 
     let mut src = Vec::new();
     for i in 0..256 {
@@ -1542,11 +1543,8 @@ fn memory() {
 
 #[test]
 fn global() {
-    let module = WebAssembly::instantiate(
-        include_bytes!("../test/tester.wasm"),
-        |_, _, _| unreachable!(),
-    )
-    .unwrap();
+    let module =
+        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
     let runnable = module.func("global_add").unwrap();
 
     assert_eq!(module.global("global1").unwrap().value().get_i32(), Ok(123));
@@ -1582,7 +1580,7 @@ fn name() {
         0x61, 0x6D, 0x65, 0x00, 0x06, 0x05, 0x48, 0x65, 0x6C, 0x6C, 0x6F, 0x01, 0x0E, 0x02, 0x01,
         0x04, 0x77, 0x61, 0x73, 0x6D, 0xB4, 0x24, 0x04, 0x74, 0x65, 0x73, 0x74, 0x7F, 0x00,
     ];
-    let module = WebAssembly::instantiate(&slice, |_, _, _| unreachable!()).unwrap();
+    let module = WebAssembly::instantiate(&slice, imports_resolver).unwrap();
     let names = module.names().unwrap();
 
     assert_eq!(names.module().unwrap(), "Hello");
@@ -1663,11 +1661,8 @@ fn float32() {
 
 #[test]
 fn float32_opr() {
-    let module = WebAssembly::instantiate(
-        include_bytes!("../test/tester.wasm"),
-        |_, _, _| unreachable!(),
-    )
-    .unwrap();
+    let module =
+        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
 
     let memory = module.memories()[0].try_borrow().unwrap();
 
@@ -2343,11 +2338,8 @@ fn float64() {
 
 #[test]
 fn float64_opr() {
-    let module = WebAssembly::instantiate(
-        include_bytes!("../test/tester.wasm"),
-        |_, _, _| unreachable!(),
-    )
-    .unwrap();
+    let module =
+        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
 
     let memory = module.memories()[0].try_borrow().unwrap();
 
@@ -3077,11 +3069,8 @@ fn block_nest() {
 
 #[test]
 fn block_test() {
-    let module = WebAssembly::instantiate(
-        include_bytes!("../test/tester.wasm"),
-        |_, _, _| unreachable!(),
-    )
-    .unwrap();
+    let module =
+        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
     let runnable = module.func("block_test").unwrap();
 
     let result = runnable
@@ -3136,11 +3125,8 @@ fn loop_nest() {
 
 #[test]
 fn loop_test() {
-    let module = WebAssembly::instantiate(
-        include_bytes!("../test/tester.wasm"),
-        |_, _, _| unreachable!(),
-    )
-    .unwrap();
+    let module =
+        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
     let runnable = module.func("loop_test").unwrap();
 
     let result = runnable
@@ -3202,11 +3188,8 @@ fn if_nest() {
 
 #[test]
 fn if_test() {
-    let module = WebAssembly::instantiate(
-        include_bytes!("../test/tester.wasm"),
-        |_, _, _| unreachable!(),
-    )
-    .unwrap();
+    let module =
+        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
     let runnable = module.func("if_test1").unwrap();
 
     let result = runnable
@@ -3258,4 +3241,29 @@ fn if_test() {
         .get_i32()
         .unwrap();
     assert_eq!(result, 456);
+}
+
+#[test]
+fn import_test() {
+    let module =
+        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
+    let runnable = module.func("import_test1").unwrap();
+
+    let result = runnable
+        .invoke(&[123.into(), 456.into()])
+        .unwrap()
+        .unwrap()
+        .get_i32()
+        .unwrap();
+    assert_eq!(result, 123 + 456);
+
+    let runnable = module.func("import_test2").unwrap();
+
+    let result = runnable
+        .invoke(&[987.into(), 654.into()])
+        .unwrap()
+        .unwrap()
+        .get_i32()
+        .unwrap();
+    assert_eq!(result, 987 - 654);
 }

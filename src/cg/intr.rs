@@ -107,7 +107,8 @@ impl WasmInterpreter<'_> {
                 WasmRuntimeErrorKind::InternalInconsistency,
             ))?;
 
-        let mut value_stack = StackFrame::new(heap.alloc_slice(code_block.max_value_stack()));
+        let mut value_stack =
+            StackFrame::new(heap.alloc_slice(code_block.max_value_stack().as_usize()));
 
         let mut result_stack_level = StackLevel::zero();
 

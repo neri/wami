@@ -1,8 +1,8 @@
 use crate::{
-    bytecode::{WasmBytecode, WasmMnemonic},
     cg::WasmCodeBlock,
     leb128::{self, *},
     memory::WasmMemory,
+    opcode::{WasmMnemonic, WasmOpcode},
 };
 use alloc::{borrow::ToOwned, boxed::Box, collections::BTreeMap, format, string::*, vec::Vec};
 use core::{
@@ -83,7 +83,6 @@ pub struct WasmModule {
     data_count: Option<usize>,
     custom_sections: BTreeMap<String, Box<[u8]>>,
     names: Option<WasmName>,
-    n_ext_func: usize,
 }
 
 impl fmt::Debug for WasmModule {
@@ -107,7 +106,6 @@ impl WasmModule {
             data_count: None,
             custom_sections: BTreeMap::new(),
             names: None,
-            n_ext_func: 0,
         }
     }
 
@@ -240,16 +238,16 @@ impl WasmModule {
             let import = WasmImport::from_reader(&mut section.reader)?;
             match import.desc {
                 WasmImportDescriptor::Function(type_index) => {
+                    let index = self.functions.len();
                     let func_type = self
                         .types
                         .get(type_index.as_usize())
                         .ok_or(CompileErrorKind::InvalidType(type_index))?;
                     self.functions.push(WasmFunction::from_import(
-                        self.n_ext_func,
+                        index,
                         type_index,
                         func_type.clone(),
                     ));
-                    self.n_ext_func += 1;
                 }
                 WasmImportDescriptor::Memory(memtype) => {
                     // TODO: import memory
@@ -311,11 +309,11 @@ impl WasmModule {
     }
 
     /// Parse "elem" section
-    fn parse_sec_elem(&mut self, mut section: WasmSection) -> Result<(), CompileErrorKind> {
+    fn parse_sec_elem(&mut self, mut section: WasmSection) -> Result<(), CompileError> {
         let n_items: usize = section.reader.read()?;
         for _ in 0..n_items {
             let tabidx: usize = section.reader.read()?;
-            let offset = self.eval_offset(&mut section.reader)? as usize;
+            let offset = self.eval_offset(&mut section)?;
             let n_elements: usize = section.reader.read()?;
             let table = self
                 .tables
@@ -331,9 +329,17 @@ impl WasmModule {
 
     /// Parse "code" section
     fn parse_sec_code(&mut self, mut section: WasmSection) -> Result<(), CompileError> {
+        let base = self
+            .functions
+            .iter()
+            .enumerate()
+            .find(|(_, v)| !v.is_external && matches!(v.content(), WasmFunctionContent::Unresolved))
+            .map(|(i, _)| i)
+            .ok_or(CompileErrorKind::OutOfFunction)?;
+
         let n_items: usize = section.reader.read()?;
         for i in 0..n_items {
-            let index = i + self.n_ext_func;
+            let index = base + i;
 
             let func_def = self
                 .functions
@@ -360,11 +366,11 @@ impl WasmModule {
     }
 
     /// Parse "data" section
-    fn parse_sec_data(&mut self, mut section: WasmSection) -> Result<(), CompileErrorKind> {
+    fn parse_sec_data(&mut self, mut section: WasmSection) -> Result<(), CompileError> {
         let n_items: usize = section.reader.read()?;
         for _ in 0..n_items {
             let memidx: usize = section.reader.read()?;
-            let offset = self.eval_offset(&mut section.reader)?;
+            let offset = self.eval_offset(&mut section)?;
             let src = section.reader.read_blob()?;
             let memory = self
                 .memories
@@ -383,7 +389,7 @@ impl WasmModule {
     }
 
     /// Parse "global" section
-    fn parse_sec_global(&mut self, mut section: WasmSection) -> Result<(), CompileErrorKind> {
+    fn parse_sec_global(&mut self, mut section: WasmSection) -> Result<(), CompileError> {
         let n_items: usize = section.reader.read()?;
         for _ in 0..n_items {
             let val_type = section
@@ -392,10 +398,10 @@ impl WasmModule {
                 .map_err(|v| v.into())
                 .and_then(|v| WasmValType::from_u8(v))?;
             let is_mutable = section.reader.read_byte()? == 1;
-            let value = self.eval_expr(&mut section.reader)?;
+            let value = self.eval_const_expr(&mut section)?;
 
             if !value.is_valid_type(val_type) {
-                return Err(CompileErrorKind::InvalidGlobal);
+                return Err(CompileErrorKind::InvalidGlobal.into());
             }
 
             WasmGlobal::new(value, is_mutable).map(|v| self.globals.push(v))?;
@@ -410,23 +416,44 @@ impl WasmModule {
         Ok(())
     }
 
-    fn eval_offset(&self, mut reader: &mut Leb128Reader) -> Result<usize, CompileErrorKind> {
-        self.eval_expr(&mut reader)
-            .and_then(|v| v.get_i32().map_err(|_| CompileErrorKind::InvalidData))
+    fn eval_offset(&self, section: &mut WasmSection) -> Result<usize, CompileError> {
+        self.eval_const_expr(section)
+            .and_then(|v| {
+                v.get_i32()
+                    .map_err(|_| CompileErrorKind::InvalidData.into())
+            })
             .map(|v| v as usize)
     }
 
-    /// Evaluate constant expression
-    fn eval_expr(&self, reader: &mut Leb128Reader) -> Result<WasmValue, CompileErrorKind> {
+    fn eval_const_expr(&self, section: &mut WasmSection) -> Result<WasmValue, CompileError> {
+        let base_position = section.file_position();
+        let mut ex_position = ExceptionPosition::UNKNOWN;
+        let reader = &mut section.reader;
+        self._eval_const_expr(reader, &mut ex_position)
+            .map_err(|kind| {
+                CompileError::new(
+                    kind,
+                    ExceptionPosition::new(base_position + ex_position.position()),
+                    CompileErrorSource::ConstantExpression(ex_position),
+                )
+            })
+    }
+
+    fn _eval_const_expr(
+        &self,
+        reader: &mut Leb128Reader,
+        ex_position: &mut ExceptionPosition,
+    ) -> Result<WasmValue, CompileErrorKind> {
         let mut vs = Vec::new();
         loop {
-            let bc = WasmBytecode::fetch(reader)?;
+            *ex_position = ExceptionPosition::new(reader.position());
+            let bc = WasmOpcode::fetch(reader)?;
             match bc {
-                WasmBytecode::I32Const(v) => vs.push(WasmValue::from(v)),
-                WasmBytecode::I64Const(v) => vs.push(WasmValue::from(v)),
-                WasmBytecode::F32Const(v) => vs.push(WasmValue::from(v)),
-                WasmBytecode::F64Const(v) => vs.push(WasmValue::from(v)),
-                WasmBytecode::End => match vs.last() {
+                WasmOpcode::I32Const(v) => vs.push(WasmValue::from(v)),
+                WasmOpcode::I64Const(v) => vs.push(WasmValue::from(v)),
+                WasmOpcode::F32Const(v) => vs.push(WasmValue::from(v)),
+                WasmOpcode::F64Const(v) => vs.push(WasmValue::from(v)),
+                WasmOpcode::End => match vs.last() {
                     Some(v) => return Ok(*v),
                     None => {
                         return Err(CompileErrorKind::InvalidData);
@@ -1209,6 +1236,10 @@ impl WasmType {
         &self.result_types
     }
 
+    /// Get the function signature
+    ///
+    /// For example:
+    ///     `fn(int, long, float, double) -> void` -> `"vilfd"`
     #[inline]
     pub fn signature(&self) -> String {
         let result_types = if self.result_types.is_empty() {
@@ -1343,21 +1374,18 @@ impl WasmExportDesc {
     }
 }
 
+#[derive(Clone)]
 pub struct CompileError {
     kind: CompileErrorKind,
     file_position: ExceptionPosition,
     source: CompileErrorSource,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum CompileErrorSource {
     Unknown,
-    Function(
-        usize,
-        Option<String>,
-        ExceptionPosition,
-        Option<WasmBytecode>,
-    ),
+    ConstantExpression(ExceptionPosition),
+    Function(usize, Option<String>, ExceptionPosition, Option<WasmOpcode>),
 }
 
 impl CompileError {
@@ -1388,6 +1416,20 @@ impl CompileError {
     pub fn source(&self) -> &CompileErrorSource {
         &self.source
     }
+
+    pub fn downcast_clone(err: &Box<dyn Error>) -> Option<Self> {
+        if let Some(err) = err.downcast_ref::<CompileError>() {
+            Some(err.clone())
+        } else if let Some(err) = err.downcast_ref::<CompileErrorKind>() {
+            Some(CompileError::new(
+                err.clone(),
+                ExceptionPosition::UNKNOWN,
+                CompileErrorSource::Unknown,
+            ))
+        } else {
+            None
+        }
+    }
 }
 
 impl fmt::Debug for CompileError {
@@ -1400,11 +1442,24 @@ impl fmt::Display for CompileError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.source() {
             CompileErrorSource::Unknown => {
+                if self.file_position().is_valid() {
+                    write!(
+                        f,
+                        "CompileError: {:?} at {:x}",
+                        self.kind,
+                        self.file_position.position(),
+                    )
+                } else {
+                    write!(f, "CompileError: {:?}", self.kind,)
+                }
+            }
+            CompileErrorSource::ConstantExpression(position) => {
                 write!(
                     f,
-                    "CompileError: {:?} at {:x}",
+                    "CompileError: {:?} at expression 0x{:x}(0x{:x})",
                     self.kind,
                     self.file_position.position(),
+                    position.position(),
                 )
             }
             CompileErrorSource::Function(func_idx, name, position, bytecode) => {
@@ -1512,6 +1567,18 @@ pub enum CompileErrorKind {
     InternalInconsistency,
     /// For debugging purposes
     ForDebug(usize),
+}
+
+impl CompileErrorKind {
+    pub fn downcast_ref(err: &Box<dyn Error>) -> Option<&Self> {
+        if let Some(err) = err.downcast_ref::<CompileErrorKind>() {
+            Some(err)
+        } else if let Some(err) = err.downcast_ref::<CompileError>() {
+            Some(err.kind())
+        } else {
+            None
+        }
+    }
 }
 
 impl fmt::Display for CompileErrorKind {

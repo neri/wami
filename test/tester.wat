@@ -1,8 +1,11 @@
 (module
   ;; test cases
+  (import "env" "add" (func $env_add (param i32) (param i32) (result i32)))
+  (import "env" "sub" (func $env_sub (param i32) (param i32) (result i32)))
   (memory 1)
   (global $stack_pointer (export "__stack_pointer") (mut i32) (i32.const 123))
   (global $global1 (export "global1") (mut i32) (i32.const 123))
+
 
   ;; fn local_test() -> i32
   (func $local_test (export "local_test") (result i32)
@@ -1473,6 +1476,20 @@
     else
       local.get $rhs
     end
+  )
+
+  ;; fn import_test1(a0: i32, a1: i32) -> i32
+  (func $import_test1 (export "import_test1") (param $a0 i32) (param $a1 i32) (result i32)
+    local.get $a0
+    local.get $a1
+    call $env_add
+  )
+
+  ;; fn import_test2(a0: i32, a1: i32) -> i32
+  (func $import_test2 (export "import_test2") (param $a0 i32) (param $a1 i32) (result i32)
+    local.get $a0
+    local.get $a1
+    call $env_sub
   )
 
 )
