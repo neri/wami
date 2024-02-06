@@ -1394,6 +1394,26 @@ impl WasmCodeBlock {
                 let this_op = int_codes[i].instruction();
                 let next_op = int_codes[i + 1].instruction();
                 match (this_op, next_op) {
+                    (LocalGetI(index1), I32Const(val)) => {
+                        if i + 4 > int_codes.len() {
+                            continue;
+                        }
+                        let next2_op = int_codes[i + 2].instruction();
+                        let next3_op = int_codes[i + 3].instruction();
+                        match (next2_op, next3_op) {
+                            (WasmImInstruction::I32Add, WasmImInstruction::LocalSetI(index2)) => {
+                                if *index1 == *index2 {
+                                    int_codes[i].instruction =
+                                        WasmImInstruction::FusedI32AddConst(*index1, *val);
+                                    int_codes[i + 1].instruction = WasmImInstruction::NOP;
+                                    int_codes[i + 2].instruction = WasmImInstruction::NOP;
+                                    int_codes[i + 3].instruction = WasmImInstruction::NOP;
+                                }
+                            }
+                            _ => (),
+                        }
+                    }
+
                     (I32Const(val), LocalSetI(local_index)) => {
                         fused2!(int_codes, i, FusedI32SetConst(*local_index, *val));
                     }
@@ -1493,6 +1513,7 @@ impl WasmCodeBlock {
                     (I64Ne, BrIf(target)) => {
                         fused2!(int_codes, i, FusedI64BrNe(*target));
                     }
+
                     _ => (),
                 }
             }
@@ -1576,7 +1597,7 @@ impl fmt::Debug for WasmCodeBlock {
             .field("file_position", &self.file_position)
             .field("local_types", &self.local_types)
             .field("max_stack_level", &self.max_stack_level)
-            .field("flags", &self.flags)
+            // .field("flags", &self.flags)
             .finish()
     }
 }

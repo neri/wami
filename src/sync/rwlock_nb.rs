@@ -1,11 +1,9 @@
 //! A reader-writer lock like std::sync::RwLock
 
 use super::*;
-use core::{
-    cell::UnsafeCell,
-    ops::{Deref, DerefMut},
-    sync::atomic::{AtomicUsize, Ordering},
-};
+use core::cell::UnsafeCell;
+use core::ops::{Deref, DerefMut};
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 /// A reader-writer lock like std::sync::RwLock
 pub struct RwLockNb<T: ?Sized> {

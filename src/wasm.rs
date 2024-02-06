@@ -1,24 +1,27 @@
-use crate::{
-    cg::WasmCodeBlock,
-    leb128::{self, *},
-    memory::WasmMemory,
-    opcode::{WasmMnemonic, WasmOpcode},
-};
-use alloc::{borrow::ToOwned, boxed::Box, collections::BTreeMap, format, string::*, vec::Vec};
-use core::{
-    error::Error,
-    fmt,
-    mem::{size_of, transmute, ManuallyDrop},
-    num::NonZeroU32,
-    ops::*,
-    ptr::slice_from_raw_parts_mut,
-    slice, str,
-    sync::atomic::{AtomicU64, Ordering},
-};
+//! WebAssembly Interpreter
+use crate::cg::WasmCodeBlock;
+use crate::leb128::{self, *};
+use crate::memory::WasmMemory;
+use crate::opcode::{WasmMnemonic, WasmOpcode};
+use alloc::borrow::ToOwned;
+use alloc::boxed::Box;
+use alloc::collections::BTreeMap;
+use alloc::format;
+use alloc::string::*;
+use alloc::vec::Vec;
+use core::error::Error;
+use core::fmt;
+use core::mem::{size_of, transmute, ManuallyDrop};
+use core::num::NonZeroU32;
+use core::ops::*;
+use core::ptr::slice_from_raw_parts_mut;
+use core::slice;
+use core::str;
+use core::sync::atomic::{AtomicU64, Ordering};
 use smallvec::SmallVec;
 
 pub type WasmDynFunc =
-    fn(&WasmModule, &[WasmUnionValue]) -> Result<WasmValue, WasmRuntimeErrorKind>;
+    fn(&WasmInstance, &[WasmUnionValue]) -> Result<WasmValue, WasmRuntimeErrorKind>;
 
 pub enum ImportResult<T> {
     Ok(T),
@@ -49,7 +52,7 @@ impl WebAssembly {
     }
 
     /// Instantiate wasm module
-    pub fn instantiate<F>(bytes: &[u8], imports_resolver: F) -> Result<WasmModule, Box<dyn Error>>
+    pub fn instantiate<F>(bytes: &[u8], imports_resolver: F) -> Result<WasmInstance, Box<dyn Error>>
     where
         F: FnMut(&str, &str, &WasmType) -> ImportResult<WasmDynFunc> + Copy,
     {
@@ -93,7 +96,7 @@ impl fmt::Debug for WasmModule {
 
 impl WasmModule {
     #[cfg(test)]
-    pub fn empty() -> Self {
+    fn empty() -> Self {
         Self {
             types: Vec::new(),
             imports: Vec::new(),
@@ -188,7 +191,7 @@ impl WasmModule {
         Ok(module)
     }
 
-    pub fn instantiate<F>(mut self, mut imports_resolver: F) -> Result<WasmModule, Box<dyn Error>>
+    pub fn instantiate<F>(mut self, mut imports_resolver: F) -> Result<WasmInstance, Box<dyn Error>>
     where
         F: FnMut(&str, &str, &WasmType) -> ImportResult<WasmDynFunc> + Copy,
     {
@@ -218,7 +221,7 @@ impl WasmModule {
                 }
             }
         }
-        Ok(self)
+        Ok(WasmInstance::new(self))
     }
 
     /// Parse "type" section
@@ -519,27 +522,6 @@ impl WasmModule {
     }
 
     #[inline]
-    pub(crate) fn func_by_index(&self, index: usize) -> Result<WasmRunnable, WasmRuntimeErrorKind> {
-        self.functions
-            .get(index)
-            .map(|v| WasmRunnable::from_function(v, self))
-            .ok_or(WasmRuntimeErrorKind::NoMethod)
-    }
-
-    #[inline]
-    #[allow(dead_code)]
-    pub(crate) fn func(&self, name: &str) -> Result<WasmRunnable, WasmRuntimeErrorKind> {
-        for export in &self.exports {
-            if let WasmExportDesc::Function(index) = export.desc {
-                if export.name == name {
-                    return self.func_by_index(index);
-                }
-            }
-        }
-        Err(WasmRuntimeErrorKind::NoMethod)
-    }
-
-    #[inline]
     pub(crate) fn func_position(&self, index: usize) -> Option<usize> {
         self.functions.get(index).and_then(|v| match v.content() {
             WasmFunctionContent::CodeBlock(v) => Some(v.file_position()),
@@ -620,11 +602,24 @@ impl ImportExportKind {
     }
 }
 
+#[derive(Debug)]
 pub struct WasmInstance {
     module: WasmModule,
 }
 
 impl WasmInstance {
+    #[inline]
+    fn new(module: WasmModule) -> Self {
+        Self { module }
+    }
+
+    #[cfg(test)]
+    pub fn empty() -> Self {
+        Self {
+            module: WasmModule::empty(),
+        }
+    }
+
     #[inline]
     pub fn module(&self) -> &WasmModule {
         &self.module
@@ -633,6 +628,34 @@ impl WasmInstance {
     #[inline]
     pub fn exports(&self) -> impl Iterator<Item = ModuleExport<'_>> {
         self.module.exports()
+    }
+
+    #[inline]
+    #[allow(dead_code)]
+    pub fn function(&self, name: &str) -> Result<WasmRunnable, WasmRuntimeErrorKind> {
+        for export in &self.module.exports {
+            if let WasmExportDesc::Function(index) = export.desc {
+                if export.name == name {
+                    return self
+                        .module
+                        .functions
+                        .get(index)
+                        .map(|v| WasmRunnable::from_function(v, self))
+                        .ok_or(WasmRuntimeErrorKind::NoMethod);
+                }
+            }
+        }
+        Err(WasmRuntimeErrorKind::NoMethod)
+    }
+
+    #[inline]
+    pub fn memory(&self, index: usize) -> Option<&WasmMemory> {
+        self.module.memories().get(index)
+    }
+
+    #[inline]
+    pub fn global(&self, name: &str) -> Result<&WasmGlobal, WasmRuntimeErrorKind> {
+        self.module.global(name)
     }
 }
 
@@ -1636,7 +1659,7 @@ pub enum WasmRuntimeErrorKind {
     /// (unrecoverable) Argument type mismatch (e.g., call instruction).
     InvalidParameter,
     /// (unrecoverable) Intermediate code that could not be converted
-    NotSupprted,
+    NotSupported,
     /// (unrecoverable) The Unreachable instruction was executed.
     Unreachable,
     /// (unrecoverable) Memory Boundary Errors
@@ -2332,13 +2355,13 @@ impl WasmNameSubsectionType {
 #[derive(Copy, Clone)]
 pub struct WasmRunnable<'a> {
     function: &'a WasmFunction,
-    module: &'a WasmModule,
+    instance: &'a WasmInstance,
 }
 
 impl<'a> WasmRunnable<'a> {
     #[inline]
-    const fn from_function(function: &'a WasmFunction, module: &'a WasmModule) -> Self {
-        Self { function, module }
+    const fn from_function(function: &'a WasmFunction, instance: &'a WasmInstance) -> Self {
+        Self { function, instance }
     }
 }
 
@@ -2349,8 +2372,8 @@ impl WasmRunnable<'_> {
     }
 
     #[inline]
-    pub const fn module(&self) -> &WasmModule {
-        &self.module
+    pub const fn instance(&self) -> &WasmInstance {
+        &self.instance
     }
 }
 

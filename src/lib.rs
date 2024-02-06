@@ -12,6 +12,7 @@
 #![feature(assert_matches)]
 
 extern crate alloc;
+extern crate libm;
 
 mod wasm;
 pub use crate::wasm::*;

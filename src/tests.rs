@@ -1,12 +1,11 @@
-use crate::{
-    cg::{
-        intr::{WasmInterpreter, WasmInvocation},
-        WasmCodeBlock,
-    },
-    leb128::*,
-    opcode::WasmMnemonic,
-    WasmValType, *,
+use crate::cg::{
+    intr::{WasmInterpreter, WasmInvocation},
+    WasmCodeBlock,
 };
+use crate::leb128::*;
+use crate::opcode::WasmMnemonic;
+use crate::WasmValType;
+use crate::*;
 use alloc::borrow::ToOwned;
 use core::f64::consts::PI;
 use num_traits::Zero;
@@ -14,14 +13,14 @@ use std::assert_matches::assert_matches;
 
 fn imports_resolver(mod_name: &str, name: &str, type_: &WasmType) -> ImportResult<WasmDynFunc> {
     fn env_add(
-        _module: &WasmModule,
+        _instance: &WasmInstance,
         args: &[WasmUnionValue],
     ) -> Result<WasmValue, WasmRuntimeErrorKind> {
         unsafe { Ok(args[0].get_i32().wrapping_add(args[1].get_i32()).into()) }
     }
 
     fn env_sub(
-        _module: &WasmModule,
+        _instance: &WasmInstance,
         args: &[WasmUnionValue],
     ) -> Result<WasmValue, WasmRuntimeErrorKind> {
         unsafe { Ok(args[0].get_i32().wrapping_sub(args[1].get_i32()).into()) }
@@ -69,9 +68,9 @@ fn instantiate() {
         CompileErrorKind::UnexpectedEof
     );
 
-    let module =
+    let instance =
         WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
-    let _ = module.func_by_index(0).unwrap();
+    let _ = instance.function("fib").unwrap();
 }
 
 #[test]
@@ -98,9 +97,10 @@ fn i32_const() {
     let slice = [0, 0x41, 0xf8, 0xac, 0xd1, 0x91, 0x01, 0x0B];
     let result_types = [WasmValType::I32];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
-    let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
-    let mut interp = WasmInterpreter::new(&module);
+    let instance = WasmInstance::empty();
+    let info =
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, instance.module()).unwrap();
+    let mut interp = WasmInterpreter::new(&instance);
 
     let result = interp
         .invoke(0, &info, &mut [], &result_types)
@@ -116,9 +116,9 @@ fn i32_const_type_mismatch() {
     let slice = [0, 0x41, 0x00, 0x01, 0x0B];
     let result_types = [WasmValType::I64];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
+    let instance = WasmInstance::empty();
     assert_matches!(
-        WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module)
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, instance.module())
             .unwrap_err()
             .kind(),
         CompileErrorKind::TypeMismatch
@@ -127,9 +127,10 @@ fn i32_const_type_mismatch() {
     let slice = [0, 0x41, 0x00, 0x01, 0x0B];
     let result_types = [WasmValType::I32];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
-    let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
-    let mut interp = WasmInterpreter::new(&module);
+    let instance = WasmInstance::empty();
+    let info =
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, instance.module()).unwrap();
+    let mut interp = WasmInterpreter::new(&instance);
 
     let result = interp
         .invoke(0, &info, &mut [], &result_types)
@@ -154,9 +155,10 @@ fn i64_const() {
     ];
     let result_types = [WasmValType::I64];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
-    let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
-    let mut interp = WasmInterpreter::new(&module);
+    let instance = WasmInstance::empty();
+    let info =
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, instance.module()).unwrap();
+    let mut interp = WasmInterpreter::new(&instance);
 
     let result = interp
         .invoke(0, &info, &mut [], &result_types)
@@ -172,9 +174,9 @@ fn i64_const_type_mismatch() {
     let slice = [0, 0x42, 0x00, 0x01, 0x0B];
     let result_types = [WasmValType::I32];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
+    let instance = WasmInstance::empty();
     assert_matches!(
-        WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module)
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, instance.module())
             .unwrap_err()
             .kind(),
         CompileErrorKind::TypeMismatch
@@ -186,9 +188,10 @@ fn float_const() {
     let slice = [0, 0x43, 0, 0, 0, 0, 0x0B];
     let result_types = [WasmValType::F32];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
-    let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
-    let mut interp = WasmInterpreter::new(&module);
+    let instance = WasmInstance::empty();
+    let info =
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, instance.module()).unwrap();
+    let mut interp = WasmInterpreter::new(&instance);
 
     let result = interp
         .invoke(0, &info, &mut [], &result_types)
@@ -201,9 +204,10 @@ fn float_const() {
     let slice = [0, 0x43, 0, 0, 0xc0, 0x7f, 0x0B];
     let result_types = [WasmValType::F32];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
-    let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
-    let mut interp = WasmInterpreter::new(&module);
+    let instance = WasmInstance::empty();
+    let info =
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, instance.module()).unwrap();
+    let mut interp = WasmInterpreter::new(&instance);
 
     let result = interp
         .invoke(0, &info, &mut [], &result_types)
@@ -216,9 +220,10 @@ fn float_const() {
     let slice = [0, 0x43, 0, 0, 0x80, 0x7f, 0x0B];
     let result_types = [WasmValType::F32];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
-    let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
-    let mut interp = WasmInterpreter::new(&module);
+    let instance = WasmInstance::empty();
+    let info =
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, instance.module()).unwrap();
+    let mut interp = WasmInterpreter::new(&instance);
 
     let result = interp
         .invoke(0, &info, &mut [], &result_types)
@@ -231,9 +236,10 @@ fn float_const() {
     let slice = [0, 0x43, 0xdb, 0x0f, 0x49, 0x40, 0x0B];
     let result_types = [WasmValType::F32];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
-    let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
-    let mut interp = WasmInterpreter::new(&module);
+    let instance = WasmInstance::empty();
+    let info =
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, instance.module()).unwrap();
+    let mut interp = WasmInterpreter::new(&instance);
 
     let result = interp
         .invoke(0, &info, &mut [], &result_types)
@@ -249,9 +255,10 @@ fn float64_const() {
     let slice = [0, 0x44, 0, 0, 0, 0, 0, 0, 0, 0, 0x0B];
     let result_types = [WasmValType::F64];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
-    let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
-    let mut interp = WasmInterpreter::new(&module);
+    let instance = WasmInstance::empty();
+    let info =
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, instance.module()).unwrap();
+    let mut interp = WasmInterpreter::new(&instance);
 
     let result = interp
         .invoke(0, &info, &mut [], &result_types)
@@ -264,9 +271,10 @@ fn float64_const() {
     let slice = [0, 0x44, 0, 0, 0, 0, 0, 0, 0xf8, 0x7f, 0x0B];
     let result_types = [WasmValType::F64];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
-    let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
-    let mut interp = WasmInterpreter::new(&module);
+    let instance = WasmInstance::empty();
+    let info =
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, instance.module()).unwrap();
+    let mut interp = WasmInterpreter::new(&instance);
 
     let result = interp
         .invoke(0, &info, &mut [], &result_types)
@@ -279,9 +287,10 @@ fn float64_const() {
     let slice = [0, 0x44, 0, 0, 0, 0, 0, 0, 0xf0, 0x7f, 0x0B];
     let result_types = [WasmValType::F64];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
-    let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
-    let mut interp = WasmInterpreter::new(&module);
+    let instance = WasmInstance::empty();
+    let info =
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, instance.module()).unwrap();
+    let mut interp = WasmInterpreter::new(&instance);
 
     let result = interp
         .invoke(0, &info, &mut [], &result_types)
@@ -296,9 +305,10 @@ fn float64_const() {
     ];
     let result_types = [WasmValType::F64];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
-    let info = WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, &module).unwrap();
-    let mut interp = WasmInterpreter::new(&module);
+    let instance = WasmInstance::empty();
+    let info =
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, instance.module()).unwrap();
+    let mut interp = WasmInterpreter::new(&instance);
 
     let result = interp
         .invoke(0, &info, &mut [], &result_types)
@@ -317,10 +327,17 @@ fn const_local() {
     let param_types = [];
     let result_types = [WasmValType::I32];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
-    let info =
-        WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
-    let mut interp = WasmInterpreter::new(&module);
+    let instance = WasmInstance::empty();
+    let info = WasmCodeBlock::generate(
+        0,
+        0,
+        &mut stream,
+        &param_types,
+        &result_types,
+        instance.module(),
+    )
+    .unwrap();
+    let mut interp = WasmInterpreter::new(&instance);
 
     let result = interp
         .invoke(0, &info, &[0.into()], &result_types)
@@ -337,10 +354,17 @@ fn div32_s() {
     let param_types = [WasmValType::I32, WasmValType::I32];
     let result_types = [WasmValType::I32];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
-    let info =
-        WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
-    let mut interp = WasmInterpreter::new(&module);
+    let instance = WasmInstance::empty();
+    let info = WasmCodeBlock::generate(
+        0,
+        0,
+        &mut stream,
+        &param_types,
+        &result_types,
+        instance.module(),
+    )
+    .unwrap();
+    let mut interp = WasmInterpreter::new(&instance);
 
     let mut locals = [7006652.into(), 5678.into()];
     let result = interp
@@ -393,10 +417,17 @@ fn div32_u() {
     let param_types = [WasmValType::I32, WasmValType::I32];
     let result_types = [WasmValType::I32];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
-    let info =
-        WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
-    let mut interp = WasmInterpreter::new(&module);
+    let instance = WasmInstance::empty();
+    let info = WasmCodeBlock::generate(
+        0,
+        0,
+        &mut stream,
+        &param_types,
+        &result_types,
+        instance.module(),
+    )
+    .unwrap();
+    let mut interp = WasmInterpreter::new(&instance);
 
     let mut locals = [7006652.into(), 5678.into()];
     let result = interp
@@ -440,10 +471,17 @@ fn div64_s() {
     let param_types = [WasmValType::I64, WasmValType::I64];
     let result_types = [WasmValType::I64];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
-    let info =
-        WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
-    let mut interp = WasmInterpreter::new(&module);
+    let instance = WasmInstance::empty();
+    let info = WasmCodeBlock::generate(
+        0,
+        0,
+        &mut stream,
+        &param_types,
+        &result_types,
+        instance.module(),
+    )
+    .unwrap();
+    let mut interp = WasmInterpreter::new(&instance);
 
     let mut locals = [7006652i64.into(), 5678i64.into()];
     let result = interp
@@ -496,10 +534,17 @@ fn div64_u() {
     let param_types = [WasmValType::I64, WasmValType::I64];
     let result_types = [WasmValType::I64];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
-    let info =
-        WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
-    let mut interp = WasmInterpreter::new(&module);
+    let instance = WasmInstance::empty();
+    let info = WasmCodeBlock::generate(
+        0,
+        0,
+        &mut stream,
+        &param_types,
+        &result_types,
+        instance.module(),
+    )
+    .unwrap();
+    let mut interp = WasmInterpreter::new(&instance);
 
     let mut locals = [7006652i64.into(), 5678i64.into()];
     let result = interp
@@ -543,10 +588,17 @@ fn select_int() {
     let param_types = [WasmValType::I32, WasmValType::I32, WasmValType::I32];
     let result_types = [WasmValType::I32];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
-    let info =
-        WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
-    let mut interp = WasmInterpreter::new(&module);
+    let instance = WasmInstance::empty();
+    let info = WasmCodeBlock::generate(
+        0,
+        0,
+        &mut stream,
+        &param_types,
+        &result_types,
+        instance.module(),
+    )
+    .unwrap();
+    let mut interp = WasmInterpreter::new(&instance);
 
     let mut locals = [123.into(), 456.into(), 789.into()];
     let result = interp
@@ -573,10 +625,17 @@ fn select_float() {
     let param_types = [WasmValType::F64, WasmValType::F64, WasmValType::I32];
     let result_types = [WasmValType::F64];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
-    let info =
-        WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
-    let mut interp = WasmInterpreter::new(&module);
+    let instance = WasmInstance::empty();
+    let info = WasmCodeBlock::generate(
+        0,
+        0,
+        &mut stream,
+        &param_types,
+        &result_types,
+        instance.module(),
+    )
+    .unwrap();
+    let mut interp = WasmInterpreter::new(&instance);
 
     let mut locals = [0.0.into(), PI.into(), 789.into()];
     let result = interp
@@ -605,10 +664,17 @@ fn br_if() {
     let param_types = [WasmValType::I32, WasmValType::I32];
     let result_types = [WasmValType::I32];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
-    let info =
-        WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
-    let mut interp = WasmInterpreter::new(&module);
+    let instance = WasmInstance::empty();
+    let info = WasmCodeBlock::generate(
+        0,
+        0,
+        &mut stream,
+        &param_types,
+        &result_types,
+        instance.module(),
+    )
+    .unwrap();
+    let mut interp = WasmInterpreter::new(&instance);
 
     let mut locals = [123.into(), 456.into()];
     let result = interp
@@ -666,10 +732,17 @@ fn br_table() {
     let param_types = [WasmValType::I32];
     let result_types = [WasmValType::I32];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
-    let info =
-        WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
-    let mut interp = WasmInterpreter::new(&module);
+    let instance = WasmInstance::empty();
+    let info = WasmCodeBlock::generate(
+        0,
+        0,
+        &mut stream,
+        &param_types,
+        &result_types,
+        instance.module(),
+    )
+    .unwrap();
+    let mut interp = WasmInterpreter::new(&instance);
 
     let mut locals = [0.into()];
     let result = interp
@@ -737,9 +810,9 @@ fn br_table() {
 
 #[test]
 fn app_fact() {
-    let module =
+    let instance =
         WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
-    let runnable = module.func("fact").unwrap();
+    let runnable = instance.function("fact").unwrap();
 
     let result = runnable
         .invoke(&[7.into()])
@@ -760,9 +833,9 @@ fn app_fact() {
 
 #[test]
 fn app_fib() {
-    let module =
+    let instance =
         WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
-    let runnable = module.func("fib").unwrap();
+    let runnable = instance.function("fib").unwrap();
 
     let result = runnable
         .invoke(&[5.into()])
@@ -791,10 +864,10 @@ fn app_fib() {
 
 #[test]
 fn opr_test_i32() {
-    let module =
+    let instance =
         WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
 
-    let memory = module.memories()[0].try_borrow().unwrap();
+    let memory = instance.memory(0).unwrap().try_borrow().unwrap();
 
     for val in [
         0i32,
@@ -807,8 +880,8 @@ fn opr_test_i32() {
         0xFFFF_0000u32 as i32,
     ] {
         memory.fill(0xCC);
-        let result = module
-            .func("test_unary_i32")
+        let result = instance
+            .function("test_unary_i32")
             .unwrap()
             .invoke(&[val.into()])
             .unwrap()
@@ -846,8 +919,8 @@ fn opr_test_i32() {
         (0x5555_5555, 0xAAAA_AAAAu32 as i32),
     ] {
         memory.fill(0xCC);
-        let result = module
-            .func("test_bin_i32")
+        let result = instance
+            .function("test_bin_i32")
             .unwrap()
             .invoke(&[lhs.into(), rhs.into()])
             .unwrap()
@@ -895,10 +968,10 @@ fn opr_test_i32() {
 
 #[test]
 fn opr_test_i64() {
-    let module =
+    let instance =
         WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
 
-    let memory = module.memories()[0].try_borrow().unwrap();
+    let memory = instance.memory(0).unwrap().try_borrow().unwrap();
 
     for val in [
         0i64,
@@ -911,8 +984,8 @@ fn opr_test_i64() {
         0xFFFF_FFFF_0000_0000u64 as i64,
     ] {
         memory.fill(0xCC);
-        let result = module
-            .func("test_unary_i64")
+        let result = instance
+            .function("test_unary_i64")
             .unwrap()
             .invoke(&[val.into()])
             .unwrap()
@@ -955,8 +1028,8 @@ fn opr_test_i64() {
         (0x5555_5555_5555_5555, 0xAAAA_AAAA_AAAA_AAAAu64 as i64),
     ] {
         memory.fill(0xCC);
-        let result = module
-            .func("test_bin_i64")
+        let result = instance
+            .function("test_bin_i64")
             .unwrap()
             .invoke(&[lhs.into(), rhs.into()])
             .unwrap()
@@ -1003,10 +1076,10 @@ fn opr_test_i64() {
 
 #[test]
 fn call_test() {
-    let module =
+    let instance =
         WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
 
-    let memory = module.memories()[0].try_borrow().unwrap();
+    let memory = instance.memory(0).unwrap().try_borrow().unwrap();
 
     for (a1, a2, a3, a4) in [
         (1u32, 2u32, 3u64, 4u64),
@@ -1018,8 +1091,8 @@ fn call_test() {
         ),
     ] {
         memory.fill(0xCC);
-        let result = module
-            .func("call_test1")
+        let result = instance
+            .function("call_test1")
             .unwrap()
             .invoke(&[a1.into(), a2.into(), a3.into(), a4.into()])
             .unwrap()
@@ -1039,8 +1112,8 @@ fn call_test() {
         assert_eq!(memory.read_u64(0x28), 0xCCCC_CCCC_CCCC_CCCC);
 
         memory.fill(0xCC);
-        let result = module
-            .func("call_test2")
+        let result = instance
+            .function("call_test2")
             .unwrap()
             .invoke(&[a1.into(), a2.into(), a3.into(), a4.into()])
             .unwrap()
@@ -1060,8 +1133,8 @@ fn call_test() {
         assert_eq!(memory.read_u64(0x28), 0xCCCC_CCCC_CCCC_CCCC);
 
         memory.fill(0xCC);
-        let result = module
-            .func("call_test3")
+        let result = instance
+            .function("call_test3")
             .unwrap()
             .invoke(&[a1.into(), a2.into(), a3.into(), a4.into()])
             .unwrap()
@@ -1081,8 +1154,8 @@ fn call_test() {
         assert_eq!(memory.read_u64(0x28), 0xCCCC_CCCC_CCCC_CCCC);
 
         memory.fill(0xCC);
-        let result = module
-            .func("call_test4")
+        let result = instance
+            .function("call_test4")
             .unwrap()
             .invoke(&[a1.into(), a2.into(), a3.into(), a4.into()])
             .unwrap()
@@ -1104,8 +1177,45 @@ fn call_test() {
 }
 
 #[test]
+fn call_indirect_test() {
+    let instance =
+        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
+
+    // let memory = instance.memory(0).unwrap().try_borrow().unwrap();
+
+    for a1 in [0u32, 0x12345678, 0x55555555, 0xAAAAAAAA] {
+        for i in 1..=3 {
+            let base = [0, 123, 456, 789][i as usize];
+            let result = instance
+                .function("call_indirect_test")
+                .unwrap()
+                .invoke(&[i.into(), a1.into()])
+                .unwrap()
+                .unwrap()
+                .get_u32()
+                .unwrap();
+            assert_eq!(result, a1.wrapping_add(base));
+        }
+
+        let e = instance
+            .function("call_indirect_test")
+            .unwrap()
+            .invoke(&[0.into(), a1.into()])
+            .unwrap_err();
+        assert_matches!(e.kind(), WasmRuntimeErrorKind::TypeMismatch);
+
+        let e = instance
+            .function("call_indirect_test")
+            .unwrap()
+            .invoke(&[100.into(), a1.into()])
+            .unwrap_err();
+        assert_matches!(e.kind(), WasmRuntimeErrorKind::NoMethod);
+    }
+}
+
+#[test]
 fn mem_load_store() {
-    let module =
+    let instance =
         WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
 
     let mut src = Vec::new();
@@ -1116,8 +1226,10 @@ fn mem_load_store() {
 
     #[inline]
     #[track_caller]
-    fn reset_memory(module: &WasmModule, src: &[u8]) {
-        module.memories()[0]
+    fn reset_memory(instance: &WasmInstance, src: &[u8]) {
+        instance
+            .memory(0)
+            .unwrap()
             .borrowing(|memory| {
                 memory[0..256].copy_from_slice(src);
             })
@@ -1125,8 +1237,10 @@ fn mem_load_store() {
     }
 
     macro_rules! test_memory {
-        ($module:ident, $expected:expr) => {
-            $module.memories()[0]
+        ($instance:ident, $expected:expr) => {
+            $instance
+                .memory(0)
+                .unwrap()
                 .borrowing(|memory| {
                     let mut vec = Vec::new();
                     for index in 0..256 {
@@ -1146,10 +1260,10 @@ fn mem_load_store() {
 
     for (a1, a2) in [(0x12u32, 0x34u32), (0x78, 0x90), (0xCD, 0xAB), (0xEF, 0x56)] {
         // u32u8
-        reset_memory(&module, src);
+        reset_memory(&instance, src);
         let expected = 0xFF ^ a1;
-        let result = module
-            .func("mem_test_u32u8")
+        let result = instance
+            .function("mem_test_u32u8")
             .unwrap()
             .invoke(&[a1.into(), a2.into()])
             .unwrap()
@@ -1161,13 +1275,13 @@ fn mem_load_store() {
         let mut expected = Vec::new();
         expected.extend_from_slice(src);
         expected[a2 as usize] = expected[a1 as usize];
-        test_memory!(module, &expected);
+        test_memory!(instance, &expected);
 
         // i32i8
-        reset_memory(&module, src);
+        reset_memory(&instance, src);
         let expected = (-1 ^ a1 as i8) as i32;
-        let result = module
-            .func("mem_test_i32i8")
+        let result = instance
+            .function("mem_test_i32i8")
             .unwrap()
             .invoke(&[a1.into(), a2.into()])
             .unwrap()
@@ -1179,13 +1293,13 @@ fn mem_load_store() {
         let mut expected = Vec::new();
         expected.extend_from_slice(src);
         expected[a2 as usize] = expected[a1 as usize];
-        test_memory!(module, &expected);
+        test_memory!(instance, &expected);
 
         // u32u16
-        reset_memory(&module, src);
+        reset_memory(&instance, src);
         let expected = 0xFFFF ^ (a1 + (a1 + 1) * 0x100);
-        let result = module
-            .func("mem_test_u32u16")
+        let result = instance
+            .function("mem_test_u32u16")
             .unwrap()
             .invoke(&[a1.into(), a2.into()])
             .unwrap()
@@ -1198,13 +1312,13 @@ fn mem_load_store() {
         expected.extend_from_slice(src);
         expected[a2 as usize] = expected[a1 as usize];
         expected[a2 as usize + 1] = expected[a1 as usize + 1];
-        test_memory!(module, &expected);
+        test_memory!(instance, &expected);
 
         // i32i16
-        reset_memory(&module, src);
+        reset_memory(&instance, src);
         let expected = -1 ^ ((a1 + (a1 + 1) * 0x100) as i16) as i32;
-        let result = module
-            .func("mem_test_i32i16")
+        let result = instance
+            .function("mem_test_i32i16")
             .unwrap()
             .invoke(&[a1.into(), a2.into()])
             .unwrap()
@@ -1217,13 +1331,13 @@ fn mem_load_store() {
         expected.extend_from_slice(src);
         expected[a2 as usize] = expected[a1 as usize];
         expected[a2 as usize + 1] = expected[a1 as usize + 1];
-        test_memory!(module, &expected);
+        test_memory!(instance, &expected);
 
         // u32
-        reset_memory(&module, src);
+        reset_memory(&instance, src);
         let expected = 0xFFFFFFFF ^ ((a1 * 0x1_01_01_01) + 0x03_02_01_00);
-        let result = module
-            .func("mem_test_u32")
+        let result = instance
+            .function("mem_test_u32")
             .unwrap()
             .invoke(&[a1.into(), a2.into()])
             .unwrap()
@@ -1237,13 +1351,13 @@ fn mem_load_store() {
         for i in 0..4 {
             expected[a2 as usize + i] = expected[a1 as usize + i];
         }
-        test_memory!(module, &expected);
+        test_memory!(instance, &expected);
 
         // u64u8
-        reset_memory(&module, src);
+        reset_memory(&instance, src);
         let expected = 0xFF ^ a1 as u64;
-        let result = module
-            .func("mem_test_u64u8")
+        let result = instance
+            .function("mem_test_u64u8")
             .unwrap()
             .invoke(&[a1.into(), a2.into()])
             .unwrap()
@@ -1255,13 +1369,13 @@ fn mem_load_store() {
         let mut expected = Vec::new();
         expected.extend_from_slice(src);
         expected[a2 as usize] = expected[a1 as usize];
-        test_memory!(module, &expected);
+        test_memory!(instance, &expected);
 
         // i64i8
-        reset_memory(&module, src);
+        reset_memory(&instance, src);
         let expected = (-1 ^ a1 as i8) as i64;
-        let result = module
-            .func("mem_test_i64i8")
+        let result = instance
+            .function("mem_test_i64i8")
             .unwrap()
             .invoke(&[a1.into(), a2.into()])
             .unwrap()
@@ -1273,13 +1387,13 @@ fn mem_load_store() {
         let mut expected = Vec::new();
         expected.extend_from_slice(src);
         expected[a2 as usize] = expected[a1 as usize];
-        test_memory!(module, &expected);
+        test_memory!(instance, &expected);
 
         // u64u16
-        reset_memory(&module, src);
+        reset_memory(&instance, src);
         let expected = 0xFFFF ^ (a1 as u64 + (a1 as u64 + 1) * 0x100);
-        let result = module
-            .func("mem_test_u64u16")
+        let result = instance
+            .function("mem_test_u64u16")
             .unwrap()
             .invoke(&[a1.into(), a2.into()])
             .unwrap()
@@ -1292,13 +1406,13 @@ fn mem_load_store() {
         expected.extend_from_slice(src);
         expected[a2 as usize] = expected[a1 as usize];
         expected[a2 as usize + 1] = expected[a1 as usize + 1];
-        test_memory!(module, &expected);
+        test_memory!(instance, &expected);
 
         // i64i16
-        reset_memory(&module, src);
+        reset_memory(&instance, src);
         let expected = -1 ^ ((a1 as u64 + (a1 as u64 + 1) * 0x100) as i16) as i64;
-        let result = module
-            .func("mem_test_i64i16")
+        let result = instance
+            .function("mem_test_i64i16")
             .unwrap()
             .invoke(&[a1.into(), a2.into()])
             .unwrap()
@@ -1311,13 +1425,13 @@ fn mem_load_store() {
         expected.extend_from_slice(src);
         expected[a2 as usize] = expected[a1 as usize];
         expected[a2 as usize + 1] = expected[a1 as usize + 1];
-        test_memory!(module, &expected);
+        test_memory!(instance, &expected);
 
         // u64u32
-        reset_memory(&module, src);
+        reset_memory(&instance, src);
         let expected = 0xFFFFFFFF ^ ((a1 * 0x1_01_01_01) + 0x03_02_01_00) as u64;
-        let result = module
-            .func("mem_test_u64u32")
+        let result = instance
+            .function("mem_test_u64u32")
             .unwrap()
             .invoke(&[a1.into(), a2.into()])
             .unwrap()
@@ -1331,13 +1445,13 @@ fn mem_load_store() {
         for i in 0..4 {
             expected[a2 as usize + i] = expected[a1 as usize + i];
         }
-        test_memory!(module, &expected);
+        test_memory!(instance, &expected);
 
         // i64i32
-        reset_memory(&module, src);
+        reset_memory(&instance, src);
         let expected = -1 ^ (((a1 * 0x1_01_01_01) + 0x03_02_01_00) as i32) as i64;
-        let result = module
-            .func("mem_test_i64i32")
+        let result = instance
+            .function("mem_test_i64i32")
             .unwrap()
             .invoke(&[a1.into(), a2.into()])
             .unwrap()
@@ -1351,14 +1465,14 @@ fn mem_load_store() {
         for i in 0..4 {
             expected[a2 as usize + i] = expected[a1 as usize + i];
         }
-        test_memory!(module, &expected);
+        test_memory!(instance, &expected);
 
         // u64
-        reset_memory(&module, src);
+        reset_memory(&instance, src);
         let expected = 0xFFFF_FFFF_FFFF_FFFF
             ^ ((a1 as u64 * 0x1_01_01_01_01_01_01_01) + 0x07_06_05_04_03_02_01_00);
-        let result = module
-            .func("mem_test_u64")
+        let result = instance
+            .function("mem_test_u64")
             .unwrap()
             .invoke(&[a1.into(), a2.into()])
             .unwrap()
@@ -1372,13 +1486,13 @@ fn mem_load_store() {
         for i in 0..8 {
             expected[a2 as usize + i] = expected[a1 as usize + i];
         }
-        test_memory!(module, &expected);
+        test_memory!(instance, &expected);
     }
 }
 
 #[test]
 fn memory() {
-    let module =
+    let instance =
         WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
 
     let mut src = Vec::new();
@@ -1389,8 +1503,10 @@ fn memory() {
 
     #[inline]
     #[track_caller]
-    fn reset_memory(module: &WasmModule, src: &[u8]) {
-        module.memories()[0]
+    fn reset_memory(instance: &WasmInstance, src: &[u8]) {
+        instance
+            .memory(0)
+            .unwrap()
             .borrowing(|memory| {
                 memory[0..256].copy_from_slice(src);
             })
@@ -1398,8 +1514,10 @@ fn memory() {
     }
 
     macro_rules! test_memory {
-        ($module:ident, $expected:expr) => {
-            $module.memories()[0]
+        ($instance:ident, $expected:expr) => {
+            $instance
+                .memory(0)
+                .unwrap()
                 .borrowing(|memory| {
                     let mut vec = Vec::new();
                     for index in 0..256 {
@@ -1439,8 +1557,8 @@ fn memory() {
         }
     }
 
-    let mem_size = module
-        .func("mem_test_size")
+    let mem_size = instance
+        .function("mem_test_size")
         .unwrap()
         .invoke(&[])
         .unwrap()
@@ -1449,8 +1567,8 @@ fn memory() {
         .unwrap();
     assert_eq!(mem_size, 1);
 
-    let mem_size = module
-        .func("mem_test_grow")
+    let mem_size = instance
+        .function("mem_test_grow")
         .unwrap()
         .invoke(&[0.into()])
         .unwrap()
@@ -1459,8 +1577,8 @@ fn memory() {
         .unwrap();
     assert_eq!(mem_size, 1);
 
-    let mem_size = module
-        .func("mem_test_size")
+    let mem_size = instance
+        .function("mem_test_size")
         .unwrap()
         .invoke(&[])
         .unwrap()
@@ -1469,8 +1587,8 @@ fn memory() {
         .unwrap();
     assert_eq!(mem_size, 1);
 
-    let mem_size = module
-        .func("mem_test_grow")
+    let mem_size = instance
+        .function("mem_test_grow")
         .unwrap()
         .invoke(&[10.into()])
         .unwrap()
@@ -1479,8 +1597,8 @@ fn memory() {
         .unwrap();
     assert_eq!(mem_size, 1);
 
-    let mem_size = module
-        .func("mem_test_size")
+    let mem_size = instance
+        .function("mem_test_size")
         .unwrap()
         .invoke(&[])
         .unwrap()
@@ -1489,8 +1607,8 @@ fn memory() {
         .unwrap();
     assert_eq!(mem_size, 11);
 
-    let mem_size = module
-        .func("mem_test_grow")
+    let mem_size = instance
+        .function("mem_test_grow")
         .unwrap()
         .invoke(&[0x1_0000.into()])
         .unwrap()
@@ -1499,8 +1617,8 @@ fn memory() {
         .unwrap();
     assert_eq!(mem_size, -1);
 
-    let mem_size = module
-        .func("mem_test_size")
+    let mem_size = instance
+        .function("mem_test_size")
         .unwrap()
         .invoke(&[])
         .unwrap()
@@ -1511,10 +1629,10 @@ fn memory() {
 
     // memmory fill
     let (p_dest, p_src, count) = (12, 34, 5);
-    reset_memory(&module, src);
+    reset_memory(&instance, src);
 
-    assert!(module
-        .func("mem_test_fill")
+    assert!(instance
+        .function("mem_test_fill")
         .unwrap()
         .invoke(&[p_dest.into(), p_src.into(), count.into()])
         .unwrap()
@@ -1523,13 +1641,13 @@ fn memory() {
     let mut expected = Vec::new();
     expected.extend_from_slice(src);
     memset(&mut expected, p_dest, p_src as u8, count);
-    test_memory!(module, &expected);
+    test_memory!(instance, &expected);
 
     // memmory copy
-    reset_memory(&module, src);
+    reset_memory(&instance, src);
 
-    assert!(module
-        .func("mem_test_copy")
+    assert!(instance
+        .function("mem_test_copy")
         .unwrap()
         .invoke(&[p_dest.into(), p_src.into(), count.into()])
         .unwrap()
@@ -1538,16 +1656,19 @@ fn memory() {
     let mut expected = Vec::new();
     expected.extend_from_slice(src);
     memcpy(&mut expected, p_dest, p_src, count);
-    test_memory!(module, &expected);
+    test_memory!(instance, &expected);
 }
 
 #[test]
 fn global() {
-    let module =
+    let instance =
         WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
-    let runnable = module.func("global_add").unwrap();
+    let runnable = instance.function("global_add").unwrap();
 
-    assert_eq!(module.global("global1").unwrap().value().get_i32(), Ok(123));
+    assert_eq!(
+        instance.global("global1").unwrap().value().get_i32(),
+        Ok(123)
+    );
 
     let result = runnable
         .invoke(&[456.into()])
@@ -1557,7 +1678,10 @@ fn global() {
         .unwrap();
     assert_eq!(result, 579);
 
-    assert_eq!(module.global("global1").unwrap().value().get_i32(), Ok(579));
+    assert_eq!(
+        instance.global("global1").unwrap().value().get_i32(),
+        Ok(579)
+    );
 
     let result = runnable
         .invoke(&[789.into()])
@@ -1568,7 +1692,7 @@ fn global() {
     assert_eq!(result, 1368);
 
     assert_eq!(
-        module.global("global1").unwrap().value().get_i32(),
+        instance.global("global1").unwrap().value().get_i32(),
         Ok(1368)
     );
 }
@@ -1580,8 +1704,8 @@ fn name() {
         0x61, 0x6D, 0x65, 0x00, 0x06, 0x05, 0x48, 0x65, 0x6C, 0x6C, 0x6F, 0x01, 0x0E, 0x02, 0x01,
         0x04, 0x77, 0x61, 0x73, 0x6D, 0xB4, 0x24, 0x04, 0x74, 0x65, 0x73, 0x74, 0x7F, 0x00,
     ];
-    let module = WebAssembly::instantiate(&slice, imports_resolver).unwrap();
-    let names = module.names().unwrap();
+    let instance = WebAssembly::instantiate(&slice, imports_resolver).unwrap();
+    let names = instance.module().names().unwrap();
 
     assert_eq!(names.module().unwrap(), "Hello");
 
@@ -1608,10 +1732,17 @@ fn float32() {
     let param_types = [];
     let result_types = [WasmValType::F32];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
-    let info =
-        WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
-    let mut interp = WasmInterpreter::new(&module);
+    let instance = WasmInstance::empty();
+    let info = WasmCodeBlock::generate(
+        0,
+        0,
+        &mut stream,
+        &param_types,
+        &result_types,
+        instance.module(),
+    )
+    .unwrap();
+    let mut interp = WasmInterpreter::new(&instance);
 
     let mut locals = [];
     let result = interp
@@ -1626,10 +1757,17 @@ fn float32() {
     let param_types = [WasmValType::I32];
     let result_types = [WasmValType::F32];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
-    let info =
-        WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
-    let mut interp = WasmInterpreter::new(&module);
+    let instance = WasmInstance::empty();
+    let info = WasmCodeBlock::generate(
+        0,
+        0,
+        &mut stream,
+        &param_types,
+        &result_types,
+        instance.module(),
+    )
+    .unwrap();
+    let mut interp = WasmInterpreter::new(&instance);
 
     let mut locals = [0x40490fdb.into()];
     let result = interp
@@ -1644,10 +1782,17 @@ fn float32() {
     let param_types = [WasmValType::F32];
     let result_types = [WasmValType::I32];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
-    let info =
-        WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
-    let mut interp = WasmInterpreter::new(&module);
+    let instance = WasmInstance::empty();
+    let info = WasmCodeBlock::generate(
+        0,
+        0,
+        &mut stream,
+        &param_types,
+        &result_types,
+        instance.module(),
+    )
+    .unwrap();
+    let mut interp = WasmInterpreter::new(&instance);
 
     let mut locals = [3.1415927f32.into()];
     let result = interp
@@ -1661,10 +1806,10 @@ fn float32() {
 
 #[test]
 fn float32_opr() {
-    let module =
+    let instance =
         WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
 
-    let memory = module.memories()[0].try_borrow().unwrap();
+    let memory = instance.memory(0).unwrap().try_borrow().unwrap();
 
     const SIGN_BITS: u32 = 0x8000_0000;
     const ZERO_BITS: u32 = 0;
@@ -1720,8 +1865,8 @@ fn float32_opr() {
         let u64val = fval as u64;
 
         memory.fill(0xCC);
-        let result = module
-            .func("test_unary_f32")
+        let result = instance
+            .function("test_unary_f32")
             .unwrap()
             .invoke(&[
                 fval.into(),
@@ -1975,8 +2120,8 @@ fn float32_opr() {
             let rhs = *rhs;
 
             memory.fill(0xCC);
-            let result = module
-                .func("test_bin_f32")
+            let result = instance
+                .function("test_bin_f32")
                 .unwrap()
                 .invoke(&[lhs.into(), rhs.into()])
                 .unwrap()
@@ -2285,10 +2430,17 @@ fn float64() {
     let param_types = [];
     let result_types = [WasmValType::F64];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
-    let info =
-        WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
-    let mut interp = WasmInterpreter::new(&module);
+    let instance = WasmInstance::empty();
+    let info = WasmCodeBlock::generate(
+        0,
+        0,
+        &mut stream,
+        &param_types,
+        &result_types,
+        instance.module(),
+    )
+    .unwrap();
+    let mut interp = WasmInterpreter::new(&instance);
 
     let mut locals = [];
     let result = interp
@@ -2303,10 +2455,17 @@ fn float64() {
     let param_types = [WasmValType::I64];
     let result_types = [WasmValType::F64];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
-    let info =
-        WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
-    let mut interp = WasmInterpreter::new(&module);
+    let instance = WasmInstance::empty();
+    let info = WasmCodeBlock::generate(
+        0,
+        0,
+        &mut stream,
+        &param_types,
+        &result_types,
+        instance.module(),
+    )
+    .unwrap();
+    let mut interp = WasmInterpreter::new(&instance);
 
     let mut locals = [0x400921fb54442d18u64.into()];
     let result = interp
@@ -2321,10 +2480,17 @@ fn float64() {
     let param_types = [WasmValType::F64];
     let result_types = [WasmValType::I64];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
-    let info =
-        WasmCodeBlock::generate(0, 0, &mut stream, &param_types, &result_types, &module).unwrap();
-    let mut interp = WasmInterpreter::new(&module);
+    let instance = WasmInstance::empty();
+    let info = WasmCodeBlock::generate(
+        0,
+        0,
+        &mut stream,
+        &param_types,
+        &result_types,
+        instance.module(),
+    )
+    .unwrap();
+    let mut interp = WasmInterpreter::new(&instance);
 
     let mut locals = [PI.into()];
     let result = interp
@@ -2338,10 +2504,10 @@ fn float64() {
 
 #[test]
 fn float64_opr() {
-    let module =
+    let instance =
         WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
 
-    let memory = module.memories()[0].try_borrow().unwrap();
+    let memory = instance.memory(0).unwrap().try_borrow().unwrap();
 
     const SIGN_BITS: u64 = 0x8000_0000_0000_0000;
     const ZERO_BITS: u64 = 0;
@@ -2397,8 +2563,8 @@ fn float64_opr() {
         let u64val = fval as u64;
 
         memory.fill(0xCC);
-        let result = module
-            .func("test_unary_f64")
+        let result = instance
+            .function("test_unary_f64")
             .unwrap()
             .invoke(&[
                 fval.into(),
@@ -2651,8 +2817,8 @@ fn float64_opr() {
             let rhs = *rhs;
 
             memory.fill(0xCC);
-            let result = module
-                .func("test_bin_f64")
+            let result = instance
+                .function("test_bin_f64")
                 .unwrap()
                 .invoke(&[lhs.into(), rhs.into()])
                 .unwrap()
@@ -2956,14 +3122,14 @@ fn float64_opr() {
 fn block_nest() {
     let slice = [0, 0x02, 0x40, 0x02, 0x40, 0x01, 0x0B, 0x0B, 0x0B];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
-    WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], &module).unwrap();
+    let instance = WasmInstance::empty();
+    WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], instance.module()).unwrap();
 
     let slice = [0, 0x02, 0x40, 0x02, 0x40, 0x01, 0x0B, 0x0B];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
+    let instance = WasmInstance::empty();
     assert_matches!(
-        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], &module)
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], instance.module())
             .unwrap_err()
             .kind(),
         CompileErrorKind::UnexpectedEof
@@ -2971,14 +3137,22 @@ fn block_nest() {
 
     let slice = [0, 0x02, 0x7F, 0x02, 0x7F, 0x41, 0x01, 0x0B, 0x0B, 0x0B];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
-    WasmCodeBlock::generate(0, 0, &mut stream, &[], &[WasmValType::I32], &module).unwrap();
+    let instance = WasmInstance::empty();
+    WasmCodeBlock::generate(
+        0,
+        0,
+        &mut stream,
+        &[],
+        &[WasmValType::I32],
+        instance.module(),
+    )
+    .unwrap();
 
     let slice = [0, 0x02, 0x7F, 0x02, 0x7F, 0x01, 0x0B, 0x0B, 0x0B];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
+    let instance = WasmInstance::empty();
     assert_matches!(
-        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], &module)
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], instance.module())
             .unwrap_err()
             .kind(),
         CompileErrorKind::OutOfStack
@@ -2986,9 +3160,9 @@ fn block_nest() {
 
     let slice = [0, 0x02, 0x7F, 0x02, 0x7F, 0x41, 0x01, 0x0B, 0x0B, 0x0B];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
+    let instance = WasmInstance::empty();
     assert_matches!(
-        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], &module)
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], instance.module())
             .unwrap_err()
             .kind(),
         CompileErrorKind::InvalidStackLevel
@@ -2996,51 +3170,86 @@ fn block_nest() {
 
     let slice = [0, 0x02, 0x7F, 0x02, 0x7F, 0x41, 0x01, 0x0B, 0x0B, 0x0B];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
+    let instance = WasmInstance::empty();
     assert_matches!(
-        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[WasmValType::I64], &module)
-            .unwrap_err()
-            .kind(),
+        WasmCodeBlock::generate(
+            0,
+            0,
+            &mut stream,
+            &[],
+            &[WasmValType::I64],
+            instance.module()
+        )
+        .unwrap_err()
+        .kind(),
         CompileErrorKind::TypeMismatch
     );
 
     let slice = [0, 0x02, 0x7F, 0x02, 0x7F, 0x42, 0x01, 0x0B, 0x0B, 0x0B];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
+    let instance = WasmInstance::empty();
     assert_matches!(
-        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[WasmValType::I32], &module)
-            .unwrap_err()
-            .kind(),
+        WasmCodeBlock::generate(
+            0,
+            0,
+            &mut stream,
+            &[],
+            &[WasmValType::I32],
+            instance.module()
+        )
+        .unwrap_err()
+        .kind(),
         CompileErrorKind::TypeMismatch
     );
 
     let slice = [0, 0x02, 0x7F, 0x02, 0x7E, 0x41, 0x01, 0x0B, 0x0B, 0x0B];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
+    let instance = WasmInstance::empty();
     assert_matches!(
-        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[WasmValType::I32], &module)
-            .unwrap_err()
-            .kind(),
+        WasmCodeBlock::generate(
+            0,
+            0,
+            &mut stream,
+            &[],
+            &[WasmValType::I32],
+            instance.module()
+        )
+        .unwrap_err()
+        .kind(),
         CompileErrorKind::TypeMismatch
     );
 
     let slice = [0, 0x02, 0x7E, 0x02, 0x7F, 0x41, 0x01, 0x0B, 0x0B, 0x0B];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
+    let instance = WasmInstance::empty();
     assert_matches!(
-        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[WasmValType::I32], &module)
-            .unwrap_err()
-            .kind(),
+        WasmCodeBlock::generate(
+            0,
+            0,
+            &mut stream,
+            &[],
+            &[WasmValType::I32],
+            instance.module()
+        )
+        .unwrap_err()
+        .kind(),
         CompileErrorKind::TypeMismatch
     );
 
     let slice = [0, 0x02, 0x7E, 0x02, 0x7F, 0x41, 0x01, 0x0B, 0x0B, 0x0B];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
+    let instance = WasmInstance::empty();
     assert_matches!(
-        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[WasmValType::I64], &module)
-            .unwrap_err()
-            .kind(),
+        WasmCodeBlock::generate(
+            0,
+            0,
+            &mut stream,
+            &[],
+            &[WasmValType::I64],
+            instance.module()
+        )
+        .unwrap_err()
+        .kind(),
         CompileErrorKind::TypeMismatch
     );
 
@@ -3053,10 +3262,10 @@ fn block_nest() {
         &mut stream,
         &[WasmValType::I32],
         &result_types,
-        &module,
+        instance.module(),
     )
     .unwrap();
-    let mut interp = WasmInterpreter::new(&module);
+    let mut interp = WasmInterpreter::new(&instance);
 
     let result = interp
         .invoke(0, &info, &mut [123.into()], &result_types)
@@ -3069,9 +3278,9 @@ fn block_nest() {
 
 #[test]
 fn block_test() {
-    let module =
+    let instance =
         WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
-    let runnable = module.func("block_test").unwrap();
+    let runnable = instance.function("block_test").unwrap();
 
     let result = runnable
         .invoke(&[1.into(), 123.into(), 456.into(), 789.into()])
@@ -3094,14 +3303,14 @@ fn block_test() {
 fn loop_nest() {
     let slice = [0, 0x02, 0x40, 0x03, 0x40, 0x01, 0x0B, 0x0B, 0x0B];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
-    WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], &module).unwrap();
+    let instance = WasmInstance::empty();
+    WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], instance.module()).unwrap();
 
     let slice = [0, 0x02, 0x40, 0x03, 0x40, 0x01, 0x0B, 0x0B];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
+    let instance = WasmInstance::empty();
     assert_matches!(
-        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], &module)
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], instance.module())
             .unwrap_err()
             .kind(),
         CompileErrorKind::UnexpectedEof
@@ -3109,14 +3318,22 @@ fn loop_nest() {
 
     let slice = [0, 0x02, 0x7F, 0x03, 0x7F, 0x41, 0x01, 0x0B, 0x0B, 0x0B];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
-    WasmCodeBlock::generate(0, 0, &mut stream, &[], &[WasmValType::I32], &module).unwrap();
+    let instance = WasmInstance::empty();
+    WasmCodeBlock::generate(
+        0,
+        0,
+        &mut stream,
+        &[],
+        &[WasmValType::I32],
+        instance.module(),
+    )
+    .unwrap();
 
     let slice = [0, 0x02, 0x7F, 0x03, 0x7F, 0x01, 0x0B, 0x0B, 0x0B];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
+    let instance = WasmInstance::empty();
     assert_matches!(
-        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], &module)
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], instance.module())
             .unwrap_err()
             .kind(),
         CompileErrorKind::OutOfStack
@@ -3125,9 +3342,9 @@ fn loop_nest() {
 
 #[test]
 fn loop_test() {
-    let module =
+    let instance =
         WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
-    let runnable = module.func("loop_test").unwrap();
+    let runnable = instance.function("loop_test").unwrap();
 
     let result = runnable
         .invoke(&[10.into()])
@@ -3150,26 +3367,26 @@ fn loop_test() {
 fn if_nest() {
     let slice = [0, 0x41, 0x01, 0x04, 0x40, 0x01, 0x0B, 0x0B];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
-    WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], &module).unwrap();
+    let instance = WasmInstance::empty();
+    WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], instance.module()).unwrap();
 
     let slice = [0, 0x41, 0x01, 0x04, 0x40, 0x01, 0x05, 0x01, 0x0B, 0x0B];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
-    WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], &module).unwrap();
+    let instance = WasmInstance::empty();
+    WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], instance.module()).unwrap();
 
     let slice = [
         0, 0x41, 0x01, 0x04, 0x7F, 0x41, 0x01, 0x05, 0x41, 0x01, 0x0B, 0x1A, 0x0B,
     ];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
-    WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], &module).unwrap();
+    let instance = WasmInstance::empty();
+    WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], instance.module()).unwrap();
 
     let slice = [0, 0x41, 0x01, 0x04, 0x7F, 0x41, 0x01, 0x0B, 0x1A, 0x0B];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
+    let instance = WasmInstance::empty();
     assert_matches!(
-        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], &module)
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], instance.module())
             .unwrap_err()
             .kind(),
         CompileErrorKind::ElseNotExists
@@ -3177,9 +3394,9 @@ fn if_nest() {
 
     let slice = [0, 0x05, 0x01, 0x0B];
     let mut stream = Leb128Reader::from_slice(&slice);
-    let module = WasmModule::empty();
+    let instance = WasmInstance::empty();
     assert_matches!(
-        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], &module)
+        WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], instance.module())
             .unwrap_err()
             .kind(),
         CompileErrorKind::ElseWithoutIf
@@ -3188,9 +3405,9 @@ fn if_nest() {
 
 #[test]
 fn if_test() {
-    let module =
+    let instance =
         WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
-    let runnable = module.func("if_test1").unwrap();
+    let runnable = instance.function("if_test1").unwrap();
 
     let result = runnable
         .invoke(&[123.into(), 456.into(), 1.into()])
@@ -3216,7 +3433,7 @@ fn if_test() {
         .unwrap();
     assert_eq!(result, 456);
 
-    let runnable = module.func("if_test2").unwrap();
+    let runnable = instance.function("if_test2").unwrap();
 
     let result = runnable
         .invoke(&[123.into(), 456.into(), 1.into()])
@@ -3245,9 +3462,9 @@ fn if_test() {
 
 #[test]
 fn import_test() {
-    let module =
+    let instance =
         WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
-    let runnable = module.func("import_test1").unwrap();
+    let runnable = instance.function("import_test1").unwrap();
 
     let result = runnable
         .invoke(&[123.into(), 456.into()])
@@ -3257,7 +3474,7 @@ fn import_test() {
         .unwrap();
     assert_eq!(result, 123 + 456);
 
-    let runnable = module.func("import_test2").unwrap();
+    let runnable = instance.function("import_test2").unwrap();
 
     let result = runnable
         .invoke(&[987.into(), 654.into()])

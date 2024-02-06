@@ -1,27 +1,32 @@
 //! WebAssembly Intermediate Code Interpreter
 
-use super::{intcode::*, *};
-use crate::{memory::WasmMemory, stack::*, wasm::*};
-use alloc::{borrow::ToOwned, string::String, vec::Vec};
-use core::{
-    fmt, iter,
-    mem::{size_of, transmute},
-    ops::Neg,
-};
+use super::intcode::*;
+use super::*;
+use crate::memory::WasmMemory;
+use crate::stack::*;
+use crate::wasm::*;
+use alloc::borrow::ToOwned;
+use alloc::string::String;
+use alloc::vec::Vec;
+use core::fmt;
+use core::iter;
+use core::mem::{size_of, transmute};
+use core::ops::Neg;
+use libm::{ceil, ceilf, floor, floorf, rint, rintf, trunc, truncf};
 
 const INITIAL_VALUE_STACK_SIZE: usize = 512;
 
 /// Wasm Intermediate Code Interpreter
 pub struct WasmInterpreter<'a> {
-    module: &'a WasmModule,
+    instance: &'a WasmInstance,
     func_index: usize,
 }
 
 impl<'a> WasmInterpreter<'a> {
     #[inline]
-    pub fn new(module: &'a WasmModule) -> Self {
+    pub fn new(instance: &'a WasmInstance) -> Self {
         Self {
-            module,
+            instance,
             func_index: 0,
         }
     }
@@ -36,12 +41,17 @@ impl WasmInterpreter<'_> {
         ex_position: ExceptionPosition,
     ) -> WasmRuntimeError {
         let function_name = self
-            .module
+            .instance
+            .module()
             .names()
             .and_then(|v| v.func_by_index(self.func_index))
             .map(|v| v.to_owned());
-        let file_position =
-            self.module.func_position(self.func_index).unwrap_or(0) + ex_position.position();
+        let file_position = self
+            .instance
+            .module()
+            .func_position(self.func_index)
+            .unwrap_or(0)
+            + ex_position.position();
 
         WasmRuntimeError {
             kind,
@@ -65,7 +75,7 @@ impl WasmInterpreter<'_> {
             return Err(WasmRuntimeErrorKind::InvalidParameter.into());
         }
         let mut heap = StackHeap::with_capacity(0x10000);
-        let local2 = heap.alloc_slice::<WasmUnionValue>(locals.len());
+        let local2 = heap.alloc_slice(locals.len(), WasmUnionValue::zero());
         local2.copy_from_slice(locals);
         self._interpret(
             func_index,
@@ -87,7 +97,8 @@ impl WasmInterpreter<'_> {
         macro_rules! GET_MEMORY {
             ($self:ident) => {
                 $self
-                    .module
+                    .instance
+                    .module()
                     .memories()
                     .get(0)
                     .ok_or(WasmRuntimeErrorKind::OutOfMemory)
@@ -107,8 +118,10 @@ impl WasmInterpreter<'_> {
                 WasmRuntimeErrorKind::InternalInconsistency,
             ))?;
 
-        let mut value_stack =
-            StackFrame::new(heap.alloc_slice(code_block.max_value_stack().as_usize()));
+        let mut value_stack = StackFrame::new(heap.alloc_slice(
+            code_block.max_value_stack().as_usize(),
+            WasmUnionValue::zero(),
+        ));
 
         let mut result_stack_level = StackLevel::zero();
 
@@ -184,7 +197,7 @@ impl WasmInterpreter<'_> {
                 }
 
                 WasmImInstruction::NotSupported(mnemonic, position) => {
-                    return Err(self.error(WasmRuntimeErrorKind::NotSupprted, mnemonic, position));
+                    return Err(self.error(WasmRuntimeErrorKind::NotSupported, mnemonic, position));
                 }
 
                 WasmImInstruction::Marker(_, _) => {
@@ -241,7 +254,8 @@ impl WasmInterpreter<'_> {
                 }
 
                 WasmImInstruction::Call(func_index, ex_position) => {
-                    let func = unsafe { self.module.functions().get_unchecked(func_index) };
+                    let func =
+                        unsafe { self.instance.module().functions().get_unchecked(func_index) };
                     drop(memory);
                     self.call(
                         WasmMnemonic::Call,
@@ -257,7 +271,7 @@ impl WasmInterpreter<'_> {
                     let opcode = WasmMnemonic::CallIndirect;
                     let index =
                         unsafe { value_stack.get(code.base_stack_level()).get_i32() as usize };
-                    let func = self.module.elem_get(index).ok_or(self.error(
+                    let func = self.instance.module().elem_get(index).ok_or(self.error(
                         WasmRuntimeErrorKind::NoMethod,
                         opcode,
                         ex_position,
@@ -310,13 +324,13 @@ impl WasmInterpreter<'_> {
 
                 WasmImInstruction::GlobalGetI(global_ref)
                 | WasmImInstruction::GlobalGetF(global_ref) => {
-                    let global = self.module.global_get(global_ref);
+                    let global = self.instance.module().global_get(global_ref);
                     let ref_a = value_stack.get_mut(code.base_stack_level());
                     *ref_a = global.raw_value();
                 }
                 WasmImInstruction::GlobalSetI(global_ref)
                 | WasmImInstruction::GlobalSetF(global_ref) => {
-                    let global = self.module.global_get(global_ref);
+                    let global = self.instance.module().global_get(global_ref);
                     let ref_a = value_stack.get(code.base_stack_level());
                     global.set_raw_value(*ref_a);
                 }
@@ -857,22 +871,22 @@ impl WasmInterpreter<'_> {
                 }
                 WasmImInstruction::F32Ceil => {
                     Self::unary_op(code, &mut value_stack, |v| unsafe {
-                        v.map_f32(|v| core::intrinsics::ceilf32(v));
+                        v.map_f32(|v| ceilf(v));
                     });
                 }
                 WasmImInstruction::F32Floor => {
                     Self::unary_op(code, &mut value_stack, |v| unsafe {
-                        v.map_f32(|v| core::intrinsics::floorf32(v));
+                        v.map_f32(|v| floorf(v));
                     });
                 }
                 WasmImInstruction::F32Trunc => {
                     Self::unary_op(code, &mut value_stack, |v| unsafe {
-                        v.map_f32(|v| core::intrinsics::truncf32(v));
+                        v.map_f32(|v| truncf(v));
                     });
                 }
                 WasmImInstruction::F32Nearest => {
                     Self::unary_op(code, &mut value_stack, |v| unsafe {
-                        v.map_f32(|v| core::intrinsics::rintf32(v));
+                        v.map_f32(|v| rintf(v));
                     });
                 }
                 WasmImInstruction::F32Sqrt => {
@@ -960,22 +974,22 @@ impl WasmInterpreter<'_> {
                 }
                 WasmImInstruction::F64Ceil => {
                     Self::unary_op(code, &mut value_stack, |v| unsafe {
-                        v.map_f64(|v| core::intrinsics::ceilf64(v));
+                        v.map_f64(|v| ceil(v));
                     });
                 }
                 WasmImInstruction::F64Floor => {
                     Self::unary_op(code, &mut value_stack, |v| unsafe {
-                        v.map_f64(|v| core::intrinsics::floorf64(v));
+                        v.map_f64(|v| floor(v));
                     });
                 }
                 WasmImInstruction::F64Trunc => {
                     Self::unary_op(code, &mut value_stack, |v| unsafe {
-                        v.map_f64(|v| core::intrinsics::truncf64(v));
+                        v.map_f64(|v| trunc(v));
                     });
                 }
                 WasmImInstruction::F64Nearest => {
                     Self::unary_op(code, &mut value_stack, |v| unsafe {
-                        v.map_f64(|v| core::intrinsics::rintf64(v));
+                        v.map_f64(|v| rint(v));
                     });
                 }
                 WasmImInstruction::F64Sqrt => {
@@ -1176,6 +1190,13 @@ impl WasmInterpreter<'_> {
                     })
                 }
 
+                WasmImInstruction::FusedI32AddConst(local_index, val) => {
+                    let local = locals.get_local_mut(local_index);
+                    unsafe {
+                        local.map_i32(|a| a.wrapping_add(val));
+                    }
+                }
+
                 WasmImInstruction::FusedI32SetConst(local_index, val) => {
                     let local = locals.get_local_mut(local_index);
                     local.write_i32(val);
@@ -1222,7 +1243,7 @@ impl WasmInterpreter<'_> {
                 }
                 WasmImInstruction::FusedI32ShrUI(val) => {
                     Self::unary_op(code, &mut value_stack, |lhs| unsafe {
-                        lhs.map_u32(|lhs| lhs.wrapping_shl(val));
+                        lhs.map_u32(|lhs| lhs.wrapping_shr(val));
                     });
                 }
 
@@ -1417,43 +1438,39 @@ impl WasmInterpreter<'_> {
         heap: &mut StackHeap,
     ) -> Result<(), WasmRuntimeError> {
         let current_function = self.func_index;
-        let module = self.module;
         let result_types = target.result_types();
 
         let param_len = target.param_types().len();
-        // if stack_pointer < param_len {
-        //     return Err(self.error(WasmRuntimeError::InternalInconsistency, code));
-        // }
         let stack_under = unsafe { stack_pointer.sub(StackOffset::new(param_len)) };
 
         match target.content() {
             WasmFunctionContent::CodeBlock(code_block) => heap.snapshot(|heap| {
-                let local_len = param_len + code_block.local_types().len();
+                let local_len = code_block.local_types().len();
 
-                let mut locals = if value_stack.len()
-                    >= (unsafe { stack_under.add(StackOffset::new(local_len)) }).as_usize()
-                {
-                    let (_, locals) = unsafe { value_stack.split_at_mut_unchecked(stack_under) };
+                let mut locals = if value_stack.len() >= (stack_under.as_usize() + local_len) {
+                    let (_, mut locals) =
+                        unsafe { value_stack.split_at_mut_unchecked(stack_under) };
+
+                    for local in locals.iter_mut().skip(param_len) {
+                        *local = WasmUnionValue::zero();
+                    }
+
                     locals
                 } else {
-                    let mut locals = StackFrame::new(
-                        heap.alloc_slice(usize::max(INITIAL_VALUE_STACK_SIZE, local_len)),
-                    );
+                    let mut locals = StackFrame::new(heap.alloc_slice(
+                        local_len.max(INITIAL_VALUE_STACK_SIZE),
+                        WasmUnionValue::zero(),
+                    ));
+
                     for (local, value) in locals
                         .iter_mut()
-                        .skip(stack_under.as_usize())
-                        .zip(value_stack.iter())
+                        .zip(unsafe { value_stack.get_range(stack_under, param_len) }.iter())
                     {
                         *local = *value;
                     }
+
                     locals
                 };
-
-                for (_, local) in
-                    (0..code_block.local_types().len()).zip(locals.iter_mut().skip(param_len))
-                {
-                    *local = WasmUnionValue::zero();
-                }
 
                 self._interpret(
                     target.index(),
@@ -1473,7 +1490,7 @@ impl WasmInterpreter<'_> {
             }),
             WasmFunctionContent::Dynamic(function) => {
                 let locals = unsafe { value_stack.get_range(stack_under, param_len) };
-                let result = match function(module, locals) {
+                let result = match function(self.instance, locals) {
                     Ok(v) => v,
                     Err(e) => return Err(self.error(e, opcode, ex_position)),
                 };
@@ -1567,7 +1584,7 @@ impl WasmInvocation for WasmRunnable<'_> {
 
         let result_types = function.result_types();
 
-        let mut interp = WasmInterpreter::new(self.module());
+        let mut interp = WasmInterpreter::new(self.instance());
         interp.invoke(
             function.index(),
             code_block,
@@ -1577,6 +1594,7 @@ impl WasmInvocation for WasmRunnable<'_> {
     }
 }
 
+#[derive(Debug)]
 pub struct WasmRuntimeError {
     kind: WasmRuntimeErrorKind,
     file_position: usize,
@@ -1632,7 +1650,7 @@ impl From<WasmRuntimeErrorKind> for WasmRuntimeError {
     }
 }
 
-impl fmt::Debug for WasmRuntimeError {
+impl fmt::Display for WasmRuntimeError {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mnemonic = self.mnemonic();
@@ -1653,13 +1671,18 @@ impl fmt::Debug for WasmRuntimeError {
     }
 }
 
+impl core::error::Error for WasmRuntimeError {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+        Some(self)
+    }
+}
+
 #[repr(transparent)]
 pub struct StackFrame<'a>(&'a mut [WasmUnionValue]);
 
 impl<'a> StackFrame<'a> {
     #[inline]
     pub fn new(slice: &'a mut [WasmUnionValue]) -> Self {
-        slice.fill(WasmUnionValue::zero());
         Self(slice)
     }
 
@@ -1688,8 +1711,11 @@ impl<'a> StackFrame<'a> {
     /// Since stack-level verification is guaranteed by the code verifier
     #[inline]
     pub unsafe fn split_at_mut_unchecked(&mut self, index: StackLevel) -> (StackFrame, StackFrame) {
+        #[cfg(test)]
+        let _ = self.0.split_at(index.as_usize());
+
         let (l, r) = unsafe { self.0.split_at_mut_unchecked(index.as_usize()) };
-        (StackFrame::new(l), StackFrame::new(r))
+        (StackFrame(l), StackFrame(r))
     }
 
     /// # Safety
@@ -1697,6 +1723,9 @@ impl<'a> StackFrame<'a> {
     /// Since stack-level verification is guaranteed by the code verifier
     #[inline]
     pub fn get(&self, index: StackLevel) -> &WasmUnionValue {
+        #[cfg(test)]
+        let _ = self.0[index.as_usize()];
+
         unsafe { self.0.get_unchecked(index.as_usize()) }
     }
 
@@ -1705,6 +1734,9 @@ impl<'a> StackFrame<'a> {
     /// Since stack-level verification is guaranteed by the code verifier
     #[inline]
     pub fn get_mut(&mut self, index: StackLevel) -> &mut WasmUnionValue {
+        #[cfg(test)]
+        let _ = self.0[index.as_usize()];
+
         unsafe { self.0.get_unchecked_mut(index.as_usize()) }
     }
 
@@ -1718,7 +1750,11 @@ impl<'a> StackFrame<'a> {
     /// Since stack-level verification is guaranteed by the code verifier
     pub unsafe fn get_range(&mut self, offset: StackLevel, size: usize) -> &[WasmUnionValue] {
         let offset = offset.as_usize();
-        unsafe { self.0.get_unchecked_mut(offset..offset + size) }
+
+        #[cfg(test)]
+        let _ = self.0[offset..offset + size];
+
+        unsafe { self.0.get_unchecked(offset..offset + size) }
     }
 }
 
@@ -1741,6 +1777,9 @@ impl<'a> LocalVariables<'a> {
     /// Because the range is guaranteed by the code verifier
     #[inline]
     pub fn get_local(&self, index: LocalVarIndex) -> &WasmUnionValue {
+        #[cfg(test)]
+        let _ = self.0[index.as_usize()];
+
         unsafe { self.0.get_unchecked(index.as_usize()) }
     }
 
@@ -1749,6 +1788,9 @@ impl<'a> LocalVariables<'a> {
     /// Because the range is guaranteed by the code verifier
     #[inline]
     pub fn get_local_mut(&mut self, index: LocalVarIndex) -> &mut WasmUnionValue {
+        #[cfg(test)]
+        let _ = self.0[index.as_usize()];
+
         unsafe { self.0.get_unchecked_mut(index.as_usize()) }
     }
 }

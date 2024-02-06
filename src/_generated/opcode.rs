@@ -1143,983 +1143,726 @@ impl WasmOpcode {
         let leading = reader.read_byte()?;
         match leading {
             // 0x00 `unreachable` (MVP)
-            0x00 => {
-                Ok(Self::Unreachable)
-            }
+            0x00 => Ok(Self::Unreachable),
+
             // 0x01 `nop` (MVP)
-            0x01 => {
-                Ok(Self::Nop)
-            }
+            0x01 => Ok(Self::Nop),
+
             // 0x02 `block` bt (MVP)
-            0x02 => {
-                let a1 = reader.read()?;
-                Ok(Self::Block(a1))
-            }
+            0x02 => Ok(Self::Block(reader.read()?)),
+
             // 0x03 `loop` bt (MVP)
-            0x03 => {
-                let a1 = reader.read()?;
-                Ok(Self::Loop(a1))
-            }
+            0x03 => Ok(Self::Loop(reader.read()?)),
+
             // 0x04 `if` bt (MVP)
-            0x04 => {
-                let a1 = reader.read()?;
-                Ok(Self::If(a1))
-            }
+            0x04 => Ok(Self::If(reader.read()?)),
+
             // 0x05 `else` (MVP)
-            0x05 => {
-                Ok(Self::Else)
-            }
+            0x05 => Ok(Self::Else),
+
             // 0x0B `end` (MVP)
-            0x0B => {
-                Ok(Self::End)
-            }
+            0x0B => Ok(Self::End),
+
             // 0x0C `br` u32 (MVP)
-            0x0C => {
-                let a1 = reader.read()?;
-                Ok(Self::Br(a1))
-            }
+            0x0C => Ok(Self::Br(reader.read()?)),
+
             // 0x0D `br_if` u32 (MVP)
-            0x0D => {
-                let a1 = reader.read()?;
-                Ok(Self::BrIf(a1))
-            }
+            0x0D => Ok(Self::BrIf(reader.read()?)),
+
             // 0x0E `br_table` br_table (MVP)
-            0x0E => {
-                let a1 = reader.read()?;
-                Ok(Self::BrTable(a1))
-            }
+            0x0E => Ok(Self::BrTable(reader.read()?)),
+
             // 0x0F `return` (MVP)
-            0x0F => {
-                Ok(Self::Return)
-            }
+            0x0F => Ok(Self::Return),
+
             // 0x10 `call` u32 (MVP)
-            0x10 => {
-                let a1 = reader.read()?;
-                Ok(Self::Call(a1))
-            }
+            0x10 => Ok(Self::Call(reader.read()?)),
+
             // 0x11 `call_indirect` u32 u32 (MVP)
             0x11 => {
                 let a1 = reader.read()?;
                 let a2 = reader.read()?;
                 Ok(Self::CallIndirect(a1, a2))
             }
+
             // 0x12 `return_call` (TailCall)
-            0x12 => {
-                Ok(Self::ReturnCall)
-            }
+            0x12 => Ok(Self::ReturnCall),
+
             // 0x13 `return_call_indirect` (TailCall)
-            0x13 => {
-                Ok(Self::ReturnCallIndirect)
-            }
+            0x13 => Ok(Self::ReturnCallIndirect),
+
             // 0x14 `call_ref` (TypedFunctionReferences)
-            0x14 => {
-                Ok(Self::CallRef)
-            }
+            0x14 => Ok(Self::CallRef),
+
             // 0x15 `return_call_ref` (TypedFunctionReferences)
-            0x15 => {
-                Ok(Self::ReturnCallRef)
-            }
+            0x15 => Ok(Self::ReturnCallRef),
+
             // 0x1A `drop` (MVP)
-            0x1A => {
-                Ok(Self::Drop)
-            }
+            0x1A => Ok(Self::Drop),
+
             // 0x1B `select` (MVP)
-            0x1B => {
-                Ok(Self::Select)
-            }
+            0x1B => Ok(Self::Select),
+
             // 0x1C `select_t` u32 (ReferenceTypes)
-            0x1C => {
-                let a1 = reader.read()?;
-                Ok(Self::SelectT(a1))
-            }
+            0x1C => Ok(Self::SelectT(reader.read()?)),
+
             // 0x20 `local.get` u32 (MVP)
-            0x20 => {
-                let a1 = reader.read()?;
-                Ok(Self::LocalGet(a1))
-            }
+            0x20 => Ok(Self::LocalGet(reader.read()?)),
+
             // 0x21 `local.set` u32 (MVP)
-            0x21 => {
-                let a1 = reader.read()?;
-                Ok(Self::LocalSet(a1))
-            }
+            0x21 => Ok(Self::LocalSet(reader.read()?)),
+
             // 0x22 `local.tee` u32 (MVP)
-            0x22 => {
-                let a1 = reader.read()?;
-                Ok(Self::LocalTee(a1))
-            }
+            0x22 => Ok(Self::LocalTee(reader.read()?)),
+
             // 0x23 `global.get` u32 (MVP)
-            0x23 => {
-                let a1 = reader.read()?;
-                Ok(Self::GlobalGet(a1))
-            }
+            0x23 => Ok(Self::GlobalGet(reader.read()?)),
+
             // 0x24 `global.set` u32 (MVP)
-            0x24 => {
-                let a1 = reader.read()?;
-                Ok(Self::GlobalSet(a1))
-            }
+            0x24 => Ok(Self::GlobalSet(reader.read()?)),
+
             // 0x25 `table.get` u32 (ReferenceTypes)
-            0x25 => {
-                let a1 = reader.read()?;
-                Ok(Self::TableGet(a1))
-            }
+            0x25 => Ok(Self::TableGet(reader.read()?)),
+
             // 0x26 `table.set` u32 (ReferenceTypes)
-            0x26 => {
-                let a1 = reader.read()?;
-                Ok(Self::TableSet(a1))
-            }
+            0x26 => Ok(Self::TableSet(reader.read()?)),
+
             // 0x28 `i32.load` memarg (MVP)
-            0x28 => {
-                let a1 = reader.read()?;
-                Ok(Self::I32Load(a1))
-            }
+            0x28 => Ok(Self::I32Load(reader.read()?)),
+
             // 0x29 `i64.load` memarg (MVP)
-            0x29 => {
-                let a1 = reader.read()?;
-                Ok(Self::I64Load(a1))
-            }
+            0x29 => Ok(Self::I64Load(reader.read()?)),
+
             // 0x2A `f32.load` memarg (MVP)
-            0x2A => {
-                let a1 = reader.read()?;
-                Ok(Self::F32Load(a1))
-            }
+            0x2A => Ok(Self::F32Load(reader.read()?)),
+
             // 0x2B `f64.load` memarg (MVP)
-            0x2B => {
-                let a1 = reader.read()?;
-                Ok(Self::F64Load(a1))
-            }
+            0x2B => Ok(Self::F64Load(reader.read()?)),
+
             // 0x2C `i32.load8_s` memarg (MVP)
-            0x2C => {
-                let a1 = reader.read()?;
-                Ok(Self::I32Load8S(a1))
-            }
+            0x2C => Ok(Self::I32Load8S(reader.read()?)),
+
             // 0x2D `i32.load8_u` memarg (MVP)
-            0x2D => {
-                let a1 = reader.read()?;
-                Ok(Self::I32Load8U(a1))
-            }
+            0x2D => Ok(Self::I32Load8U(reader.read()?)),
+
             // 0x2E `i32.load16_s` memarg (MVP)
-            0x2E => {
-                let a1 = reader.read()?;
-                Ok(Self::I32Load16S(a1))
-            }
+            0x2E => Ok(Self::I32Load16S(reader.read()?)),
+
             // 0x2F `i32.load16_u` memarg (MVP)
-            0x2F => {
-                let a1 = reader.read()?;
-                Ok(Self::I32Load16U(a1))
-            }
+            0x2F => Ok(Self::I32Load16U(reader.read()?)),
+
             // 0x30 `i64.load8_s` memarg (MVP)
-            0x30 => {
-                let a1 = reader.read()?;
-                Ok(Self::I64Load8S(a1))
-            }
+            0x30 => Ok(Self::I64Load8S(reader.read()?)),
+
             // 0x31 `i64.load8_u` memarg (MVP)
-            0x31 => {
-                let a1 = reader.read()?;
-                Ok(Self::I64Load8U(a1))
-            }
+            0x31 => Ok(Self::I64Load8U(reader.read()?)),
+
             // 0x32 `i64.load16_s` memarg (MVP)
-            0x32 => {
-                let a1 = reader.read()?;
-                Ok(Self::I64Load16S(a1))
-            }
+            0x32 => Ok(Self::I64Load16S(reader.read()?)),
+
             // 0x33 `i64.load16_u` memarg (MVP)
-            0x33 => {
-                let a1 = reader.read()?;
-                Ok(Self::I64Load16U(a1))
-            }
+            0x33 => Ok(Self::I64Load16U(reader.read()?)),
+
             // 0x34 `i64.load32_s` memarg (MVP)
-            0x34 => {
-                let a1 = reader.read()?;
-                Ok(Self::I64Load32S(a1))
-            }
+            0x34 => Ok(Self::I64Load32S(reader.read()?)),
+
             // 0x35 `i64.load32_u` memarg (MVP)
-            0x35 => {
-                let a1 = reader.read()?;
-                Ok(Self::I64Load32U(a1))
-            }
+            0x35 => Ok(Self::I64Load32U(reader.read()?)),
+
             // 0x36 `i32.store` memarg (MVP)
-            0x36 => {
-                let a1 = reader.read()?;
-                Ok(Self::I32Store(a1))
-            }
+            0x36 => Ok(Self::I32Store(reader.read()?)),
+
             // 0x37 `i64.store` memarg (MVP)
-            0x37 => {
-                let a1 = reader.read()?;
-                Ok(Self::I64Store(a1))
-            }
+            0x37 => Ok(Self::I64Store(reader.read()?)),
+
             // 0x38 `f32.store` memarg (MVP)
-            0x38 => {
-                let a1 = reader.read()?;
-                Ok(Self::F32Store(a1))
-            }
+            0x38 => Ok(Self::F32Store(reader.read()?)),
+
             // 0x39 `f64.store` memarg (MVP)
-            0x39 => {
-                let a1 = reader.read()?;
-                Ok(Self::F64Store(a1))
-            }
+            0x39 => Ok(Self::F64Store(reader.read()?)),
+
             // 0x3A `i32.store8` memarg (MVP)
-            0x3A => {
-                let a1 = reader.read()?;
-                Ok(Self::I32Store8(a1))
-            }
+            0x3A => Ok(Self::I32Store8(reader.read()?)),
+
             // 0x3B `i32.store16` memarg (MVP)
-            0x3B => {
-                let a1 = reader.read()?;
-                Ok(Self::I32Store16(a1))
-            }
+            0x3B => Ok(Self::I32Store16(reader.read()?)),
+
             // 0x3C `i64.store8` memarg (MVP)
-            0x3C => {
-                let a1 = reader.read()?;
-                Ok(Self::I64Store8(a1))
-            }
+            0x3C => Ok(Self::I64Store8(reader.read()?)),
+
             // 0x3D `i64.store16` memarg (MVP)
-            0x3D => {
-                let a1 = reader.read()?;
-                Ok(Self::I64Store16(a1))
-            }
+            0x3D => Ok(Self::I64Store16(reader.read()?)),
+
             // 0x3E `i64.store32` memarg (MVP)
-            0x3E => {
-                let a1 = reader.read()?;
-                Ok(Self::I64Store32(a1))
-            }
+            0x3E => Ok(Self::I64Store32(reader.read()?)),
+
             // 0x3F `memory.size` u32 (MVP)
-            0x3F => {
-                let a1 = reader.read()?;
-                Ok(Self::MemorySize(a1))
-            }
+            0x3F => Ok(Self::MemorySize(reader.read()?)),
+
             // 0x40 `memory.grow` u32 (MVP)
-            0x40 => {
-                let a1 = reader.read()?;
-                Ok(Self::MemoryGrow(a1))
-            }
+            0x40 => Ok(Self::MemoryGrow(reader.read()?)),
+
             // 0x41 `i32.const` i32 (MVP)
-            0x41 => {
-                let a1 = reader.read()?;
-                Ok(Self::I32Const(a1))
-            }
+            0x41 => Ok(Self::I32Const(reader.read()?)),
+
             // 0x42 `i64.const` i64 (MVP)
-            0x42 => {
-                let a1 = reader.read()?;
-                Ok(Self::I64Const(a1))
-            }
+            0x42 => Ok(Self::I64Const(reader.read()?)),
+
             // 0x43 `f32.const` f32 (MVP)
-            0x43 => {
-                let a1 = reader.read()?;
-                Ok(Self::F32Const(a1))
-            }
+            0x43 => Ok(Self::F32Const(reader.read()?)),
+
             // 0x44 `f64.const` f64 (MVP)
-            0x44 => {
-                let a1 = reader.read()?;
-                Ok(Self::F64Const(a1))
-            }
+            0x44 => Ok(Self::F64Const(reader.read()?)),
+
             // 0x45 `i32.eqz` (MVP)
-            0x45 => {
-                Ok(Self::I32Eqz)
-            }
+            0x45 => Ok(Self::I32Eqz),
+
             // 0x46 `i32.eq` (MVP)
-            0x46 => {
-                Ok(Self::I32Eq)
-            }
+            0x46 => Ok(Self::I32Eq),
+
             // 0x47 `i32.ne` (MVP)
-            0x47 => {
-                Ok(Self::I32Ne)
-            }
+            0x47 => Ok(Self::I32Ne),
+
             // 0x48 `i32.lt_s` (MVP)
-            0x48 => {
-                Ok(Self::I32LtS)
-            }
+            0x48 => Ok(Self::I32LtS),
+
             // 0x49 `i32.lt_u` (MVP)
-            0x49 => {
-                Ok(Self::I32LtU)
-            }
+            0x49 => Ok(Self::I32LtU),
+
             // 0x4A `i32.gt_s` (MVP)
-            0x4A => {
-                Ok(Self::I32GtS)
-            }
+            0x4A => Ok(Self::I32GtS),
+
             // 0x4B `i32.gt_u` (MVP)
-            0x4B => {
-                Ok(Self::I32GtU)
-            }
+            0x4B => Ok(Self::I32GtU),
+
             // 0x4C `i32.le_s` (MVP)
-            0x4C => {
-                Ok(Self::I32LeS)
-            }
+            0x4C => Ok(Self::I32LeS),
+
             // 0x4D `i32.le_u` (MVP)
-            0x4D => {
-                Ok(Self::I32LeU)
-            }
+            0x4D => Ok(Self::I32LeU),
+
             // 0x4E `i32.ge_s` (MVP)
-            0x4E => {
-                Ok(Self::I32GeS)
-            }
+            0x4E => Ok(Self::I32GeS),
+
             // 0x4F `i32.ge_u` (MVP)
-            0x4F => {
-                Ok(Self::I32GeU)
-            }
+            0x4F => Ok(Self::I32GeU),
+
             // 0x50 `i64.eqz` (MVP)
-            0x50 => {
-                Ok(Self::I64Eqz)
-            }
+            0x50 => Ok(Self::I64Eqz),
+
             // 0x51 `i64.eq` (MVP)
-            0x51 => {
-                Ok(Self::I64Eq)
-            }
+            0x51 => Ok(Self::I64Eq),
+
             // 0x52 `i64.ne` (MVP)
-            0x52 => {
-                Ok(Self::I64Ne)
-            }
+            0x52 => Ok(Self::I64Ne),
+
             // 0x53 `i64.lt_s` (MVP)
-            0x53 => {
-                Ok(Self::I64LtS)
-            }
+            0x53 => Ok(Self::I64LtS),
+
             // 0x54 `i64.lt_u` (MVP)
-            0x54 => {
-                Ok(Self::I64LtU)
-            }
+            0x54 => Ok(Self::I64LtU),
+
             // 0x55 `i64.gt_s` (MVP)
-            0x55 => {
-                Ok(Self::I64GtS)
-            }
+            0x55 => Ok(Self::I64GtS),
+
             // 0x56 `i64.gt_u` (MVP)
-            0x56 => {
-                Ok(Self::I64GtU)
-            }
+            0x56 => Ok(Self::I64GtU),
+
             // 0x57 `i64.le_s` (MVP)
-            0x57 => {
-                Ok(Self::I64LeS)
-            }
+            0x57 => Ok(Self::I64LeS),
+
             // 0x58 `i64.le_u` (MVP)
-            0x58 => {
-                Ok(Self::I64LeU)
-            }
+            0x58 => Ok(Self::I64LeU),
+
             // 0x59 `i64.ge_s` (MVP)
-            0x59 => {
-                Ok(Self::I64GeS)
-            }
+            0x59 => Ok(Self::I64GeS),
+
             // 0x5A `i64.ge_u` (MVP)
-            0x5A => {
-                Ok(Self::I64GeU)
-            }
+            0x5A => Ok(Self::I64GeU),
+
             // 0x5B `f32.eq` (MVP)
-            0x5B => {
-                Ok(Self::F32Eq)
-            }
+            0x5B => Ok(Self::F32Eq),
+
             // 0x5C `f32.ne` (MVP)
-            0x5C => {
-                Ok(Self::F32Ne)
-            }
+            0x5C => Ok(Self::F32Ne),
+
             // 0x5D `f32.lt` (MVP)
-            0x5D => {
-                Ok(Self::F32Lt)
-            }
+            0x5D => Ok(Self::F32Lt),
+
             // 0x5E `f32.gt` (MVP)
-            0x5E => {
-                Ok(Self::F32Gt)
-            }
+            0x5E => Ok(Self::F32Gt),
+
             // 0x5F `f32.le` (MVP)
-            0x5F => {
-                Ok(Self::F32Le)
-            }
+            0x5F => Ok(Self::F32Le),
+
             // 0x60 `f32.ge` (MVP)
-            0x60 => {
-                Ok(Self::F32Ge)
-            }
+            0x60 => Ok(Self::F32Ge),
+
             // 0x61 `f64.eq` (MVP)
-            0x61 => {
-                Ok(Self::F64Eq)
-            }
+            0x61 => Ok(Self::F64Eq),
+
             // 0x62 `f64.ne` (MVP)
-            0x62 => {
-                Ok(Self::F64Ne)
-            }
+            0x62 => Ok(Self::F64Ne),
+
             // 0x63 `f64.lt` (MVP)
-            0x63 => {
-                Ok(Self::F64Lt)
-            }
+            0x63 => Ok(Self::F64Lt),
+
             // 0x64 `f64.gt` (MVP)
-            0x64 => {
-                Ok(Self::F64Gt)
-            }
+            0x64 => Ok(Self::F64Gt),
+
             // 0x65 `f64.le` (MVP)
-            0x65 => {
-                Ok(Self::F64Le)
-            }
+            0x65 => Ok(Self::F64Le),
+
             // 0x66 `f64.ge` (MVP)
-            0x66 => {
-                Ok(Self::F64Ge)
-            }
+            0x66 => Ok(Self::F64Ge),
+
             // 0x67 `i32.clz` (MVP)
-            0x67 => {
-                Ok(Self::I32Clz)
-            }
+            0x67 => Ok(Self::I32Clz),
+
             // 0x68 `i32.ctz` (MVP)
-            0x68 => {
-                Ok(Self::I32Ctz)
-            }
+            0x68 => Ok(Self::I32Ctz),
+
             // 0x69 `i32.popcnt` (MVP)
-            0x69 => {
-                Ok(Self::I32Popcnt)
-            }
+            0x69 => Ok(Self::I32Popcnt),
+
             // 0x6A `i32.add` (MVP)
-            0x6A => {
-                Ok(Self::I32Add)
-            }
+            0x6A => Ok(Self::I32Add),
+
             // 0x6B `i32.sub` (MVP)
-            0x6B => {
-                Ok(Self::I32Sub)
-            }
+            0x6B => Ok(Self::I32Sub),
+
             // 0x6C `i32.mul` (MVP)
-            0x6C => {
-                Ok(Self::I32Mul)
-            }
+            0x6C => Ok(Self::I32Mul),
+
             // 0x6D `i32.div_s` (MVP)
-            0x6D => {
-                Ok(Self::I32DivS)
-            }
+            0x6D => Ok(Self::I32DivS),
+
             // 0x6E `i32.div_u` (MVP)
-            0x6E => {
-                Ok(Self::I32DivU)
-            }
+            0x6E => Ok(Self::I32DivU),
+
             // 0x6F `i32.rem_s` (MVP)
-            0x6F => {
-                Ok(Self::I32RemS)
-            }
+            0x6F => Ok(Self::I32RemS),
+
             // 0x70 `i32.rem_u` (MVP)
-            0x70 => {
-                Ok(Self::I32RemU)
-            }
+            0x70 => Ok(Self::I32RemU),
+
             // 0x71 `i32.and` (MVP)
-            0x71 => {
-                Ok(Self::I32And)
-            }
+            0x71 => Ok(Self::I32And),
+
             // 0x72 `i32.or` (MVP)
-            0x72 => {
-                Ok(Self::I32Or)
-            }
+            0x72 => Ok(Self::I32Or),
+
             // 0x73 `i32.xor` (MVP)
-            0x73 => {
-                Ok(Self::I32Xor)
-            }
+            0x73 => Ok(Self::I32Xor),
+
             // 0x74 `i32.shl` (MVP)
-            0x74 => {
-                Ok(Self::I32Shl)
-            }
+            0x74 => Ok(Self::I32Shl),
+
             // 0x75 `i32.shr_s` (MVP)
-            0x75 => {
-                Ok(Self::I32ShrS)
-            }
+            0x75 => Ok(Self::I32ShrS),
+
             // 0x76 `i32.shr_u` (MVP)
-            0x76 => {
-                Ok(Self::I32ShrU)
-            }
+            0x76 => Ok(Self::I32ShrU),
+
             // 0x77 `i32.rotl` (MVP)
-            0x77 => {
-                Ok(Self::I32Rotl)
-            }
+            0x77 => Ok(Self::I32Rotl),
+
             // 0x78 `i32.rotr` (MVP)
-            0x78 => {
-                Ok(Self::I32Rotr)
-            }
+            0x78 => Ok(Self::I32Rotr),
+
             // 0x79 `i64.clz` (MVP)
-            0x79 => {
-                Ok(Self::I64Clz)
-            }
+            0x79 => Ok(Self::I64Clz),
+
             // 0x7A `i64.ctz` (MVP)
-            0x7A => {
-                Ok(Self::I64Ctz)
-            }
+            0x7A => Ok(Self::I64Ctz),
+
             // 0x7B `i64.popcnt` (MVP)
-            0x7B => {
-                Ok(Self::I64Popcnt)
-            }
+            0x7B => Ok(Self::I64Popcnt),
+
             // 0x7C `i64.add` (MVP)
-            0x7C => {
-                Ok(Self::I64Add)
-            }
+            0x7C => Ok(Self::I64Add),
+
             // 0x7D `i64.sub` (MVP)
-            0x7D => {
-                Ok(Self::I64Sub)
-            }
+            0x7D => Ok(Self::I64Sub),
+
             // 0x7E `i64.mul` (MVP)
-            0x7E => {
-                Ok(Self::I64Mul)
-            }
+            0x7E => Ok(Self::I64Mul),
+
             // 0x7F `i64.div_s` (MVP)
-            0x7F => {
-                Ok(Self::I64DivS)
-            }
+            0x7F => Ok(Self::I64DivS),
+
             // 0x80 `i64.div_u` (MVP)
-            0x80 => {
-                Ok(Self::I64DivU)
-            }
+            0x80 => Ok(Self::I64DivU),
+
             // 0x81 `i64.rem_s` (MVP)
-            0x81 => {
-                Ok(Self::I64RemS)
-            }
+            0x81 => Ok(Self::I64RemS),
+
             // 0x82 `i64.rem_u` (MVP)
-            0x82 => {
-                Ok(Self::I64RemU)
-            }
+            0x82 => Ok(Self::I64RemU),
+
             // 0x83 `i64.and` (MVP)
-            0x83 => {
-                Ok(Self::I64And)
-            }
+            0x83 => Ok(Self::I64And),
+
             // 0x84 `i64.or` (MVP)
-            0x84 => {
-                Ok(Self::I64Or)
-            }
+            0x84 => Ok(Self::I64Or),
+
             // 0x85 `i64.xor` (MVP)
-            0x85 => {
-                Ok(Self::I64Xor)
-            }
+            0x85 => Ok(Self::I64Xor),
+
             // 0x86 `i64.shl` (MVP)
-            0x86 => {
-                Ok(Self::I64Shl)
-            }
+            0x86 => Ok(Self::I64Shl),
+
             // 0x87 `i64.shr_s` (MVP)
-            0x87 => {
-                Ok(Self::I64ShrS)
-            }
+            0x87 => Ok(Self::I64ShrS),
+
             // 0x88 `i64.shr_u` (MVP)
-            0x88 => {
-                Ok(Self::I64ShrU)
-            }
+            0x88 => Ok(Self::I64ShrU),
+
             // 0x89 `i64.rotl` (MVP)
-            0x89 => {
-                Ok(Self::I64Rotl)
-            }
+            0x89 => Ok(Self::I64Rotl),
+
             // 0x8A `i64.rotr` (MVP)
-            0x8A => {
-                Ok(Self::I64Rotr)
-            }
+            0x8A => Ok(Self::I64Rotr),
+
             // 0x8B `f32.abs` (MVP)
-            0x8B => {
-                Ok(Self::F32Abs)
-            }
+            0x8B => Ok(Self::F32Abs),
+
             // 0x8C `f32.neg` (MVP)
-            0x8C => {
-                Ok(Self::F32Neg)
-            }
+            0x8C => Ok(Self::F32Neg),
+
             // 0x8D `f32.ceil` (MVP)
-            0x8D => {
-                Ok(Self::F32Ceil)
-            }
+            0x8D => Ok(Self::F32Ceil),
+
             // 0x8E `f32.floor` (MVP)
-            0x8E => {
-                Ok(Self::F32Floor)
-            }
+            0x8E => Ok(Self::F32Floor),
+
             // 0x8F `f32.trunc` (MVP)
-            0x8F => {
-                Ok(Self::F32Trunc)
-            }
+            0x8F => Ok(Self::F32Trunc),
+
             // 0x90 `f32.nearest` (MVP)
-            0x90 => {
-                Ok(Self::F32Nearest)
-            }
+            0x90 => Ok(Self::F32Nearest),
+
             // 0x91 `f32.sqrt` (MVP)
-            0x91 => {
-                Ok(Self::F32Sqrt)
-            }
+            0x91 => Ok(Self::F32Sqrt),
+
             // 0x92 `f32.add` (MVP)
-            0x92 => {
-                Ok(Self::F32Add)
-            }
+            0x92 => Ok(Self::F32Add),
+
             // 0x93 `f32.sub` (MVP)
-            0x93 => {
-                Ok(Self::F32Sub)
-            }
+            0x93 => Ok(Self::F32Sub),
+
             // 0x94 `f32.mul` (MVP)
-            0x94 => {
-                Ok(Self::F32Mul)
-            }
+            0x94 => Ok(Self::F32Mul),
+
             // 0x95 `f32.div` (MVP)
-            0x95 => {
-                Ok(Self::F32Div)
-            }
+            0x95 => Ok(Self::F32Div),
+
             // 0x96 `f32.min` (MVP)
-            0x96 => {
-                Ok(Self::F32Min)
-            }
+            0x96 => Ok(Self::F32Min),
+
             // 0x97 `f32.max` (MVP)
-            0x97 => {
-                Ok(Self::F32Max)
-            }
+            0x97 => Ok(Self::F32Max),
+
             // 0x98 `f32.copysign` (MVP)
-            0x98 => {
-                Ok(Self::F32Copysign)
-            }
+            0x98 => Ok(Self::F32Copysign),
+
             // 0x99 `f64.abs` (MVP)
-            0x99 => {
-                Ok(Self::F64Abs)
-            }
+            0x99 => Ok(Self::F64Abs),
+
             // 0x9A `f64.neg` (MVP)
-            0x9A => {
-                Ok(Self::F64Neg)
-            }
+            0x9A => Ok(Self::F64Neg),
+
             // 0x9B `f64.ceil` (MVP)
-            0x9B => {
-                Ok(Self::F64Ceil)
-            }
+            0x9B => Ok(Self::F64Ceil),
+
             // 0x9C `f64.floor` (MVP)
-            0x9C => {
-                Ok(Self::F64Floor)
-            }
+            0x9C => Ok(Self::F64Floor),
+
             // 0x9D `f64.trunc` (MVP)
-            0x9D => {
-                Ok(Self::F64Trunc)
-            }
+            0x9D => Ok(Self::F64Trunc),
+
             // 0x9E `f64.nearest` (MVP)
-            0x9E => {
-                Ok(Self::F64Nearest)
-            }
+            0x9E => Ok(Self::F64Nearest),
+
             // 0x9F `f64.sqrt` (MVP)
-            0x9F => {
-                Ok(Self::F64Sqrt)
-            }
+            0x9F => Ok(Self::F64Sqrt),
+
             // 0xA0 `f64.add` (MVP)
-            0xA0 => {
-                Ok(Self::F64Add)
-            }
+            0xA0 => Ok(Self::F64Add),
+
             // 0xA1 `f64.sub` (MVP)
-            0xA1 => {
-                Ok(Self::F64Sub)
-            }
+            0xA1 => Ok(Self::F64Sub),
+
             // 0xA2 `f64.mul` (MVP)
-            0xA2 => {
-                Ok(Self::F64Mul)
-            }
+            0xA2 => Ok(Self::F64Mul),
+
             // 0xA3 `f64.div` (MVP)
-            0xA3 => {
-                Ok(Self::F64Div)
-            }
+            0xA3 => Ok(Self::F64Div),
+
             // 0xA4 `f64.min` (MVP)
-            0xA4 => {
-                Ok(Self::F64Min)
-            }
+            0xA4 => Ok(Self::F64Min),
+
             // 0xA5 `f64.max` (MVP)
-            0xA5 => {
-                Ok(Self::F64Max)
-            }
+            0xA5 => Ok(Self::F64Max),
+
             // 0xA6 `f64.copysign` (MVP)
-            0xA6 => {
-                Ok(Self::F64Copysign)
-            }
+            0xA6 => Ok(Self::F64Copysign),
+
             // 0xA7 `i32.wrap_i64` (MVP)
-            0xA7 => {
-                Ok(Self::I32WrapI64)
-            }
+            0xA7 => Ok(Self::I32WrapI64),
+
             // 0xA8 `i32.trunc_f32_s` (MVP)
-            0xA8 => {
-                Ok(Self::I32TruncF32S)
-            }
+            0xA8 => Ok(Self::I32TruncF32S),
+
             // 0xA9 `i32.trunc_f32_u` (MVP)
-            0xA9 => {
-                Ok(Self::I32TruncF32U)
-            }
+            0xA9 => Ok(Self::I32TruncF32U),
+
             // 0xAA `i32.trunc_f64_s` (MVP)
-            0xAA => {
-                Ok(Self::I32TruncF64S)
-            }
+            0xAA => Ok(Self::I32TruncF64S),
+
             // 0xAB `i32.trunc_f64_u` (MVP)
-            0xAB => {
-                Ok(Self::I32TruncF64U)
-            }
+            0xAB => Ok(Self::I32TruncF64U),
+
             // 0xAC `i64.extend_i32_s` (MVP)
-            0xAC => {
-                Ok(Self::I64ExtendI32S)
-            }
+            0xAC => Ok(Self::I64ExtendI32S),
+
             // 0xAD `i64.extend_i32_u` (MVP)
-            0xAD => {
-                Ok(Self::I64ExtendI32U)
-            }
+            0xAD => Ok(Self::I64ExtendI32U),
+
             // 0xAE `i64.trunc_f32_s` (MVP)
-            0xAE => {
-                Ok(Self::I64TruncF32S)
-            }
+            0xAE => Ok(Self::I64TruncF32S),
+
             // 0xAF `i64.trunc_f32_u` (MVP)
-            0xAF => {
-                Ok(Self::I64TruncF32U)
-            }
+            0xAF => Ok(Self::I64TruncF32U),
+
             // 0xB0 `i64.trunc_f64_s` (MVP)
-            0xB0 => {
-                Ok(Self::I64TruncF64S)
-            }
+            0xB0 => Ok(Self::I64TruncF64S),
+
             // 0xB1 `i64.trunc_f64_u` (MVP)
-            0xB1 => {
-                Ok(Self::I64TruncF64U)
-            }
+            0xB1 => Ok(Self::I64TruncF64U),
+
             // 0xB2 `f32.convert_i32_s` (MVP)
-            0xB2 => {
-                Ok(Self::F32ConvertI32S)
-            }
+            0xB2 => Ok(Self::F32ConvertI32S),
+
             // 0xB3 `f32.convert_i32_u` (MVP)
-            0xB3 => {
-                Ok(Self::F32ConvertI32U)
-            }
+            0xB3 => Ok(Self::F32ConvertI32U),
+
             // 0xB4 `f32.convert_i64_s` (MVP)
-            0xB4 => {
-                Ok(Self::F32ConvertI64S)
-            }
+            0xB4 => Ok(Self::F32ConvertI64S),
+
             // 0xB5 `f32.convert_i64_u` (MVP)
-            0xB5 => {
-                Ok(Self::F32ConvertI64U)
-            }
+            0xB5 => Ok(Self::F32ConvertI64U),
+
             // 0xB6 `f32.demote_f64` (MVP)
-            0xB6 => {
-                Ok(Self::F32DemoteF64)
-            }
+            0xB6 => Ok(Self::F32DemoteF64),
+
             // 0xB7 `f64.convert_i32_s` (MVP)
-            0xB7 => {
-                Ok(Self::F64ConvertI32S)
-            }
+            0xB7 => Ok(Self::F64ConvertI32S),
+
             // 0xB8 `f64.convert_i32_u` (MVP)
-            0xB8 => {
-                Ok(Self::F64ConvertI32U)
-            }
+            0xB8 => Ok(Self::F64ConvertI32U),
+
             // 0xB9 `f64.convert_i64_s` (MVP)
-            0xB9 => {
-                Ok(Self::F64ConvertI64S)
-            }
+            0xB9 => Ok(Self::F64ConvertI64S),
+
             // 0xBA `f64.convert_i64_u` (MVP)
-            0xBA => {
-                Ok(Self::F64ConvertI64U)
-            }
+            0xBA => Ok(Self::F64ConvertI64U),
+
             // 0xBB `f64.promote_f32` (MVP)
-            0xBB => {
-                Ok(Self::F64PromoteF32)
-            }
+            0xBB => Ok(Self::F64PromoteF32),
+
             // 0xBC `i32.reinterpret_f32` (MVP)
-            0xBC => {
-                Ok(Self::I32ReinterpretF32)
-            }
+            0xBC => Ok(Self::I32ReinterpretF32),
+
             // 0xBD `i64.reinterpret_f64` (MVP)
-            0xBD => {
-                Ok(Self::I64ReinterpretF64)
-            }
+            0xBD => Ok(Self::I64ReinterpretF64),
+
             // 0xBE `f32.reinterpret_i32` (MVP)
-            0xBE => {
-                Ok(Self::F32ReinterpretI32)
-            }
+            0xBE => Ok(Self::F32ReinterpretI32),
+
             // 0xBF `f64.reinterpret_i64` (MVP)
-            0xBF => {
-                Ok(Self::F64ReinterpretI64)
-            }
+            0xBF => Ok(Self::F64ReinterpretI64),
+
             // 0xC0 `i32.extend8_s` (SignExtension)
-            0xC0 => {
-                Ok(Self::I32Extend8S)
-            }
+            0xC0 => Ok(Self::I32Extend8S),
+
             // 0xC1 `i32.extend16_s` (SignExtension)
-            0xC1 => {
-                Ok(Self::I32Extend16S)
-            }
+            0xC1 => Ok(Self::I32Extend16S),
+
             // 0xC2 `i64.extend8_s` (SignExtension)
-            0xC2 => {
-                Ok(Self::I64Extend8S)
-            }
+            0xC2 => Ok(Self::I64Extend8S),
+
             // 0xC3 `i64.extend16_s` (SignExtension)
-            0xC3 => {
-                Ok(Self::I64Extend16S)
-            }
+            0xC3 => Ok(Self::I64Extend16S),
+
             // 0xC4 `i64.extend32_s` (SignExtension)
-            0xC4 => {
-                Ok(Self::I64Extend32S)
-            }
+            0xC4 => Ok(Self::I64Extend32S),
+
             // 0xD0 `ref.null` u32 (ReferenceTypes)
-            0xD0 => {
-                let a1 = reader.read()?;
-                Ok(Self::RefNull(a1))
-            }
+            0xD0 => Ok(Self::RefNull(reader.read()?)),
+
             // 0xD1 `ref.is_null` (ReferenceTypes)
-            0xD1 => {
-                Ok(Self::RefIsNull)
-            }
+            0xD1 => Ok(Self::RefIsNull),
+
             // 0xD2 `ref.func` u32 (ReferenceTypes)
-            0xD2 => {
-                let a1 = reader.read()?;
-                Ok(Self::RefFunc(a1))
-            }
+            0xD2 => Ok(Self::RefFunc(reader.read()?)),
+
             // 0xD3 `ref.as_non_null` (TypedFunctionReferences)
-            0xD3 => {
-                Ok(Self::RefAsNonNull)
-            }
+            0xD3 => Ok(Self::RefAsNonNull),
+
             // 0xD4 `br_on_null` (TypedFunctionReferences)
-            0xD4 => {
-                Ok(Self::BrOnNull)
-            }
+            0xD4 => Ok(Self::BrOnNull),
+
             // 0xD5 `ref.eq` u32 (TypedFunctionReferences)
-            0xD5 => {
-                let a1 = reader.read()?;
-                Ok(Self::RefEq(a1))
-            }
+            0xD5 => Ok(Self::RefEq(reader.read()?)),
+
             // 0xD6 `br_on_non_null` u32 (TypedFunctionReferences)
-            0xD6 => {
-                let a1 = reader.read()?;
-                Ok(Self::BrOnNonNull(a1))
-            }
+            0xD6 => Ok(Self::BrOnNonNull(reader.read()?)),
+
             0xFB => {
                 let trailing: u32 = reader.read()?;
                 match trailing {
                     // 0xFB 0x00 `struct.new` u32 (Gc)
-                    0x00 => {
-                        let a1 = reader.read()?;
-                        Ok(Self::StructNew(a1))
-                    },
+                    0x00 => Ok(Self::StructNew(reader.read()?)),
+
                     // 0xFB 0x01 `struct.new_default` u32 (Gc)
-                    0x01 => {
-                        let a1 = reader.read()?;
-                        Ok(Self::StructNewDefault(a1))
-                    },
+                    0x01 => Ok(Self::StructNewDefault(reader.read()?)),
+
                     // 0xFB 0x02 `struct.get` u32 u32 (Gc)
                     0x02 => {
                         let a1 = reader.read()?;
                         let a2 = reader.read()?;
                         Ok(Self::StructGet(a1, a2))
-                    },
+                    }
+
                     // 0xFB 0x03 `struct.get_s` u32 u32 (Gc)
                     0x03 => {
                         let a1 = reader.read()?;
                         let a2 = reader.read()?;
                         Ok(Self::StructGetS(a1, a2))
-                    },
+                    }
+
                     // 0xFB 0x04 `struct.get_u` u32 u32 (Gc)
                     0x04 => {
                         let a1 = reader.read()?;
                         let a2 = reader.read()?;
                         Ok(Self::StructGetU(a1, a2))
-                    },
+                    }
+
                     // 0xFB 0x05 `struct.set` u32 u32 (Gc)
                     0x05 => {
                         let a1 = reader.read()?;
                         let a2 = reader.read()?;
                         Ok(Self::StructSet(a1, a2))
-                    },
+                    }
+
                     // 0xFB 0x06 `array.new` u32 (Gc)
-                    0x06 => {
-                        let a1 = reader.read()?;
-                        Ok(Self::ArrayNew(a1))
-                    },
+                    0x06 => Ok(Self::ArrayNew(reader.read()?)),
+
                     // 0xFB 0x07 `array.new_default` u32 (Gc)
-                    0x07 => {
-                        let a1 = reader.read()?;
-                        Ok(Self::ArrayNewDefault(a1))
-                    },
+                    0x07 => Ok(Self::ArrayNewDefault(reader.read()?)),
+
                     // 0xFB 0x08 `array.new_fixed` u32 u32 (Gc)
                     0x08 => {
                         let a1 = reader.read()?;
                         let a2 = reader.read()?;
                         Ok(Self::ArrayNewFixed(a1, a2))
-                    },
+                    }
+
                     // 0xFB 0x09 `array.new_data` u32 u32 (Gc)
                     0x09 => {
                         let a1 = reader.read()?;
                         let a2 = reader.read()?;
                         Ok(Self::ArrayNewData(a1, a2))
-                    },
+                    }
+
                     // 0xFB 0x0A `array.new_elem` u32 u32 (Gc)
                     0x0a => {
                         let a1 = reader.read()?;
                         let a2 = reader.read()?;
                         Ok(Self::ArrayNewElem(a1, a2))
-                    },
+                    }
+
                     // 0xFB 0x0B `array.get` u32 (Gc)
-                    0x0b => {
-                        let a1 = reader.read()?;
-                        Ok(Self::ArrayGet(a1))
-                    },
+                    0x0b => Ok(Self::ArrayGet(reader.read()?)),
+
                     // 0xFB 0x0C `array.get_s` u32 (Gc)
-                    0x0c => {
-                        let a1 = reader.read()?;
-                        Ok(Self::ArrayGetS(a1))
-                    },
+                    0x0c => Ok(Self::ArrayGetS(reader.read()?)),
+
                     // 0xFB 0x0D `array.get_u` u32 (Gc)
-                    0x0d => {
-                        let a1 = reader.read()?;
-                        Ok(Self::ArrayGetU(a1))
-                    },
+                    0x0d => Ok(Self::ArrayGetU(reader.read()?)),
+
                     // 0xFB 0x0E `array.set` u32 (Gc)
-                    0x0e => {
-                        let a1 = reader.read()?;
-                        Ok(Self::ArraySet(a1))
-                    },
+                    0x0e => Ok(Self::ArraySet(reader.read()?)),
+
                     // 0xFB 0x0F `array.len` (Gc)
-                    0x0f => {
-                        Ok(Self::ArrayLen)
-                    },
+                    0x0f => Ok(Self::ArrayLen),
+
                     // 0xFB 0x10 `array.fill` u32 (Gc)
-                    0x10 => {
-                        let a1 = reader.read()?;
-                        Ok(Self::ArrayFill(a1))
-                    },
+                    0x10 => Ok(Self::ArrayFill(reader.read()?)),
+
                     // 0xFB 0x11 `array.copy` u32 u32 (Gc)
                     0x11 => {
                         let a1 = reader.read()?;
                         let a2 = reader.read()?;
                         Ok(Self::ArrayCopy(a1, a2))
-                    },
+                    }
+
                     // 0xFB 0x12 `array.init_data` u32 u32 (Gc)
                     0x12 => {
                         let a1 = reader.read()?;
                         let a2 = reader.read()?;
                         Ok(Self::ArrayInitData(a1, a2))
-                    },
+                    }
+
                     // 0xFB 0x13 `array.init_elem` u32 u32 (Gc)
                     0x13 => {
                         let a1 = reader.read()?;
                         let a2 = reader.read()?;
                         Ok(Self::ArrayInitElem(a1, a2))
-                    },
+                    }
+
                     // 0xFB 0x14 `ref.test (ref ht)` u32 (Gc)
-                    0x14 => {
-                        let a1 = reader.read()?;
-                        Ok(Self::RefTestRefHt(a1))
-                    },
+                    0x14 => Ok(Self::RefTestRefHt(reader.read()?)),
+
                     // 0xFB 0x15 `ref.test (ref null ht)` u32 (Gc)
-                    0x15 => {
-                        let a1 = reader.read()?;
-                        Ok(Self::RefTestRefNullHt(a1))
-                    },
+                    0x15 => Ok(Self::RefTestRefNullHt(reader.read()?)),
+
                     // 0xFB 0x16 `ref.cast (ref ht)` u32 (Gc)
-                    0x16 => {
-                        let a1 = reader.read()?;
-                        Ok(Self::RefCastRefHt(a1))
-                    },
+                    0x16 => Ok(Self::RefCastRefHt(reader.read()?)),
+
                     // 0xFB 0x17 `ref.cast (ref null ht)` u32 (Gc)
-                    0x17 => {
-                        let a1 = reader.read()?;
-                        Ok(Self::RefCastRefNullHt(a1))
-                    },
+                    0x17 => Ok(Self::RefCastRefNullHt(reader.read()?)),
+
                     // 0xFB 0x18 `br_on_cast` u8 u32 (Gc)
                     0x18 => {
                         let a1 = reader.read()?;
                         let a2 = reader.read()?;
                         Ok(Self::BrOnCast(a1, a2))
-                    },
+                    }
+
                     // 0xFB 0x19 `br_on_cast_fail` u8 u32 (Gc)
                     0x19 => {
                         let a1 = reader.read()?;
                         let a2 = reader.read()?;
                         Ok(Self::BrOnCastFail(a1, a2))
-                    },
+                    }
+
                     // 0xFB 0x1A `any.convert_extern` (Gc)
-                    0x1a => {
-                        Ok(Self::AnyConvertExtern)
-                    },
+                    0x1a => Ok(Self::AnyConvertExtern),
+
                     // 0xFB 0x1B `extern.convert_any` (Gc)
-                    0x1b => {
-                        Ok(Self::ExternConvertAny)
-                    },
+                    0x1b => Ok(Self::ExternConvertAny),
+
                     // 0xFB 0x1C `ref.i31` (Gc)
-                    0x1c => {
-                        Ok(Self::RefI31)
-                    },
+                    0x1c => Ok(Self::RefI31),
+
                     // 0xFB 0x1D `i31.get_s` (Gc)
-                    0x1d => {
-                        Ok(Self::I31GetS)
-                    },
+                    0x1d => Ok(Self::I31GetS),
+
                     // 0xFB 0x1E `i31.get_u` (Gc)
-                    0x1e => {
-                        Ok(Self::I31GetU)
-                    },
+                    0x1e => Ok(Self::I31GetU),
+
                     _ => Err(CompileErrorKind::InvalidBytecode2(leading, trailing))
                 }
             }
@@ -2127,87 +1870,67 @@ impl WasmOpcode {
                 let trailing: u32 = reader.read()?;
                 match trailing {
                     // 0xFC 0x00 `i32.trunc_sat_f32_s` (NonTrappingFloatToIntConversion)
-                    0x00 => {
-                        Ok(Self::I32TruncSatF32S)
-                    },
+                    0x00 => Ok(Self::I32TruncSatF32S),
+
                     // 0xFC 0x01 `i32.trunc_sat_f32_u` (NonTrappingFloatToIntConversion)
-                    0x01 => {
-                        Ok(Self::I32TruncSatF32U)
-                    },
+                    0x01 => Ok(Self::I32TruncSatF32U),
+
                     // 0xFC 0x02 `i32.trunc_sat_f64_s` (NonTrappingFloatToIntConversion)
-                    0x02 => {
-                        Ok(Self::I32TruncSatF64S)
-                    },
+                    0x02 => Ok(Self::I32TruncSatF64S),
+
                     // 0xFC 0x03 `i32.trunc_sat_f64_u` (NonTrappingFloatToIntConversion)
-                    0x03 => {
-                        Ok(Self::I32TruncSatF64U)
-                    },
+                    0x03 => Ok(Self::I32TruncSatF64U),
+
                     // 0xFC 0x04 `i64.trunc_sat_f32_s` (NonTrappingFloatToIntConversion)
-                    0x04 => {
-                        Ok(Self::I64TruncSatF32S)
-                    },
+                    0x04 => Ok(Self::I64TruncSatF32S),
+
                     // 0xFC 0x05 `i64.trunc_sat_f32_u` (NonTrappingFloatToIntConversion)
-                    0x05 => {
-                        Ok(Self::I64TruncSatF32U)
-                    },
+                    0x05 => Ok(Self::I64TruncSatF32U),
+
                     // 0xFC 0x06 `i64.trunc_sat_f64_s` (NonTrappingFloatToIntConversion)
-                    0x06 => {
-                        Ok(Self::I64TruncSatF64S)
-                    },
+                    0x06 => Ok(Self::I64TruncSatF64S),
+
                     // 0xFC 0x07 `i64.trunc_sat_f64_u` (NonTrappingFloatToIntConversion)
-                    0x07 => {
-                        Ok(Self::I64TruncSatF64U)
-                    },
+                    0x07 => Ok(Self::I64TruncSatF64U),
+
                     // 0xFC 0x08 `memory.init` u32 (BulkMemoryOperations)
-                    0x08 => {
-                        let a1 = reader.read()?;
-                        Ok(Self::MemoryInit(a1))
-                    },
+                    0x08 => Ok(Self::MemoryInit(reader.read()?)),
+
                     // 0xFC 0x09 `data.drop` u32 (BulkMemoryOperations)
-                    0x09 => {
-                        let a1 = reader.read()?;
-                        Ok(Self::DataDrop(a1))
-                    },
+                    0x09 => Ok(Self::DataDrop(reader.read()?)),
+
                     // 0xFC 0x0A `memory.copy` (BulkMemoryOperations)
-                    0x0a => {
-                        Ok(Self::MemoryCopy)
-                    },
+                    0x0a => Ok(Self::MemoryCopy),
+
                     // 0xFC 0x0B `memory.fill` (BulkMemoryOperations)
-                    0x0b => {
-                        Ok(Self::MemoryFill)
-                    },
+                    0x0b => Ok(Self::MemoryFill),
+
                     // 0xFC 0x0C `table.init` u32 u32 (BulkMemoryOperations)
                     0x0c => {
                         let a1 = reader.read()?;
                         let a2 = reader.read()?;
                         Ok(Self::TableInit(a1, a2))
-                    },
+                    }
+
                     // 0xFC 0x0D `elem.drop` u32 (BulkMemoryOperations)
-                    0x0d => {
-                        let a1 = reader.read()?;
-                        Ok(Self::ElemDrop(a1))
-                    },
+                    0x0d => Ok(Self::ElemDrop(reader.read()?)),
+
                     // 0xFC 0x0E `table.copy` u32 u32 (BulkMemoryOperations)
                     0x0e => {
                         let a1 = reader.read()?;
                         let a2 = reader.read()?;
                         Ok(Self::TableCopy(a1, a2))
-                    },
+                    }
+
                     // 0xFC 0x0F `table.grow` u32 (ReferenceTypes)
-                    0x0f => {
-                        let a1 = reader.read()?;
-                        Ok(Self::TableGrow(a1))
-                    },
+                    0x0f => Ok(Self::TableGrow(reader.read()?)),
+
                     // 0xFC 0x10 `table.size` u32 (ReferenceTypes)
-                    0x10 => {
-                        let a1 = reader.read()?;
-                        Ok(Self::TableSize(a1))
-                    },
+                    0x10 => Ok(Self::TableSize(reader.read()?)),
+
                     // 0xFC 0x11 `table.fill` u32 (ReferenceTypes)
-                    0x11 => {
-                        let a1 = reader.read()?;
-                        Ok(Self::TableFill(a1))
-                    },
+                    0x11 => Ok(Self::TableFill(reader.read()?)),
+
                     _ => Err(CompileErrorKind::InvalidBytecode2(leading, trailing))
                 }
             }
@@ -2215,1033 +1938,776 @@ impl WasmOpcode {
                 let trailing: u32 = reader.read()?;
                 match trailing {
                     // 0xFD 0x00 `v128.load` (Simd)
-                    0x00 => {
-                        Ok(Self::V128Load)
-                    },
+                    0x00 => Ok(Self::V128Load),
+
                     // 0xFD 0x01 `v128.load8x8_s` (Simd)
-                    0x01 => {
-                        Ok(Self::V128Load8x8S)
-                    },
+                    0x01 => Ok(Self::V128Load8x8S),
+
                     // 0xFD 0x02 `v128.load8x8_u` (Simd)
-                    0x02 => {
-                        Ok(Self::V128Load8x8U)
-                    },
+                    0x02 => Ok(Self::V128Load8x8U),
+
                     // 0xFD 0x03 `v128.load16x4_s` (Simd)
-                    0x03 => {
-                        Ok(Self::V128Load16x4S)
-                    },
+                    0x03 => Ok(Self::V128Load16x4S),
+
                     // 0xFD 0x04 `v128.load16x4_u` (Simd)
-                    0x04 => {
-                        Ok(Self::V128Load16x4U)
-                    },
+                    0x04 => Ok(Self::V128Load16x4U),
+
                     // 0xFD 0x05 `v128.load32x2_s` (Simd)
-                    0x05 => {
-                        Ok(Self::V128Load32x2S)
-                    },
+                    0x05 => Ok(Self::V128Load32x2S),
+
                     // 0xFD 0x06 `v128.load32x2_u` (Simd)
-                    0x06 => {
-                        Ok(Self::V128Load32x2U)
-                    },
+                    0x06 => Ok(Self::V128Load32x2U),
+
                     // 0xFD 0x07 `v128.load8_splat` (Simd)
-                    0x07 => {
-                        Ok(Self::V128Load8Splat)
-                    },
+                    0x07 => Ok(Self::V128Load8Splat),
+
                     // 0xFD 0x08 `v128.load16_splat` (Simd)
-                    0x08 => {
-                        Ok(Self::V128Load16Splat)
-                    },
+                    0x08 => Ok(Self::V128Load16Splat),
+
                     // 0xFD 0x09 `v128.load32_splat` (Simd)
-                    0x09 => {
-                        Ok(Self::V128Load32Splat)
-                    },
+                    0x09 => Ok(Self::V128Load32Splat),
+
                     // 0xFD 0x0A `v128.load64_splat` (Simd)
-                    0x0a => {
-                        Ok(Self::V128Load64Splat)
-                    },
+                    0x0a => Ok(Self::V128Load64Splat),
+
                     // 0xFD 0x0B `v128.store` (Simd)
-                    0x0b => {
-                        Ok(Self::V128Store)
-                    },
+                    0x0b => Ok(Self::V128Store),
+
                     // 0xFD 0x0C `v128.const` (Simd)
-                    0x0c => {
-                        Ok(Self::V128Const)
-                    },
+                    0x0c => Ok(Self::V128Const),
+
                     // 0xFD 0x0D `i8x16.shuffle` (Simd)
-                    0x0d => {
-                        Ok(Self::I8x16Shuffle)
-                    },
+                    0x0d => Ok(Self::I8x16Shuffle),
+
                     // 0xFD 0x0E `i8x16.swizzle` (Simd)
-                    0x0e => {
-                        Ok(Self::I8x16Swizzle)
-                    },
+                    0x0e => Ok(Self::I8x16Swizzle),
+
                     // 0xFD 0x0F `i8x16.splat` (Simd)
-                    0x0f => {
-                        Ok(Self::I8x16Splat)
-                    },
+                    0x0f => Ok(Self::I8x16Splat),
+
                     // 0xFD 0x10 `i16x8.splat` (Simd)
-                    0x10 => {
-                        Ok(Self::I16x8Splat)
-                    },
+                    0x10 => Ok(Self::I16x8Splat),
+
                     // 0xFD 0x11 `i32x4.splat` (Simd)
-                    0x11 => {
-                        Ok(Self::I32x4Splat)
-                    },
+                    0x11 => Ok(Self::I32x4Splat),
+
                     // 0xFD 0x12 `i64x2.splat` (Simd)
-                    0x12 => {
-                        Ok(Self::I64x2Splat)
-                    },
+                    0x12 => Ok(Self::I64x2Splat),
+
                     // 0xFD 0x13 `f32x4.splat` (Simd)
-                    0x13 => {
-                        Ok(Self::F32x4Splat)
-                    },
+                    0x13 => Ok(Self::F32x4Splat),
+
                     // 0xFD 0x14 `f64x2.splat` (Simd)
-                    0x14 => {
-                        Ok(Self::F64x2Splat)
-                    },
+                    0x14 => Ok(Self::F64x2Splat),
+
                     // 0xFD 0x15 `i8x16.extract_lane_s` (Simd)
-                    0x15 => {
-                        Ok(Self::I8x16ExtractLaneS)
-                    },
+                    0x15 => Ok(Self::I8x16ExtractLaneS),
+
                     // 0xFD 0x16 `i8x16.extract_lane_u` (Simd)
-                    0x16 => {
-                        Ok(Self::I8x16ExtractLaneU)
-                    },
+                    0x16 => Ok(Self::I8x16ExtractLaneU),
+
                     // 0xFD 0x17 `i8x16.replace_lane` (Simd)
-                    0x17 => {
-                        Ok(Self::I8x16ReplaceLane)
-                    },
+                    0x17 => Ok(Self::I8x16ReplaceLane),
+
                     // 0xFD 0x18 `i16x8.extract_lane_s` (Simd)
-                    0x18 => {
-                        Ok(Self::I16x8ExtractLaneS)
-                    },
+                    0x18 => Ok(Self::I16x8ExtractLaneS),
+
                     // 0xFD 0x19 `i16x8.extract_lane_u` (Simd)
-                    0x19 => {
-                        Ok(Self::I16x8ExtractLaneU)
-                    },
+                    0x19 => Ok(Self::I16x8ExtractLaneU),
+
                     // 0xFD 0x1A `i16x8.replace_lane` (Simd)
-                    0x1a => {
-                        Ok(Self::I16x8ReplaceLane)
-                    },
+                    0x1a => Ok(Self::I16x8ReplaceLane),
+
                     // 0xFD 0x1B `i32x4.extract_lane` (Simd)
-                    0x1b => {
-                        Ok(Self::I32x4ExtractLane)
-                    },
+                    0x1b => Ok(Self::I32x4ExtractLane),
+
                     // 0xFD 0x1C `i32x4.replace_lane` (Simd)
-                    0x1c => {
-                        Ok(Self::I32x4ReplaceLane)
-                    },
+                    0x1c => Ok(Self::I32x4ReplaceLane),
+
                     // 0xFD 0x1D `i64x2.extract_lane` (Simd)
-                    0x1d => {
-                        Ok(Self::I64x2ExtractLane)
-                    },
+                    0x1d => Ok(Self::I64x2ExtractLane),
+
                     // 0xFD 0x1E `i64x2.replace_lane` (Simd)
-                    0x1e => {
-                        Ok(Self::I64x2ReplaceLane)
-                    },
+                    0x1e => Ok(Self::I64x2ReplaceLane),
+
                     // 0xFD 0x1F `f32x4.extract_lane` (Simd)
-                    0x1f => {
-                        Ok(Self::F32x4ExtractLane)
-                    },
+                    0x1f => Ok(Self::F32x4ExtractLane),
+
                     // 0xFD 0x20 `f32x4.replace_lane` (Simd)
-                    0x20 => {
-                        Ok(Self::F32x4ReplaceLane)
-                    },
+                    0x20 => Ok(Self::F32x4ReplaceLane),
+
                     // 0xFD 0x21 `f64x2.extract_lane` (Simd)
-                    0x21 => {
-                        Ok(Self::F64x2ExtractLane)
-                    },
+                    0x21 => Ok(Self::F64x2ExtractLane),
+
                     // 0xFD 0x22 `f64x2.replace_lane` (Simd)
-                    0x22 => {
-                        Ok(Self::F64x2ReplaceLane)
-                    },
+                    0x22 => Ok(Self::F64x2ReplaceLane),
+
                     // 0xFD 0x23 `i8x16.eq` (Simd)
-                    0x23 => {
-                        Ok(Self::I8x16Eq)
-                    },
+                    0x23 => Ok(Self::I8x16Eq),
+
                     // 0xFD 0x24 `i8x16.ne` (Simd)
-                    0x24 => {
-                        Ok(Self::I8x16Ne)
-                    },
+                    0x24 => Ok(Self::I8x16Ne),
+
                     // 0xFD 0x25 `i8x16.lt_s` (Simd)
-                    0x25 => {
-                        Ok(Self::I8x16LtS)
-                    },
+                    0x25 => Ok(Self::I8x16LtS),
+
                     // 0xFD 0x26 `i8x16.lt_u` (Simd)
-                    0x26 => {
-                        Ok(Self::I8x16LtU)
-                    },
+                    0x26 => Ok(Self::I8x16LtU),
+
                     // 0xFD 0x27 `i8x16.gt_s` (Simd)
-                    0x27 => {
-                        Ok(Self::I8x16GtS)
-                    },
+                    0x27 => Ok(Self::I8x16GtS),
+
                     // 0xFD 0x28 `i8x16.gt_u` (Simd)
-                    0x28 => {
-                        Ok(Self::I8x16GtU)
-                    },
+                    0x28 => Ok(Self::I8x16GtU),
+
                     // 0xFD 0x29 `i8x16.le_s` (Simd)
-                    0x29 => {
-                        Ok(Self::I8x16LeS)
-                    },
+                    0x29 => Ok(Self::I8x16LeS),
+
                     // 0xFD 0x2A `i8x16.le_u` (Simd)
-                    0x2a => {
-                        Ok(Self::I8x16LeU)
-                    },
+                    0x2a => Ok(Self::I8x16LeU),
+
                     // 0xFD 0x2B `i8x16.ge_s` (Simd)
-                    0x2b => {
-                        Ok(Self::I8x16GeS)
-                    },
+                    0x2b => Ok(Self::I8x16GeS),
+
                     // 0xFD 0x2C `i8x16.ge_u` (Simd)
-                    0x2c => {
-                        Ok(Self::I8x16GeU)
-                    },
+                    0x2c => Ok(Self::I8x16GeU),
+
                     // 0xFD 0x2D `i16x8.eq` (Simd)
-                    0x2d => {
-                        Ok(Self::I16x8Eq)
-                    },
+                    0x2d => Ok(Self::I16x8Eq),
+
                     // 0xFD 0x2E `i16x8.ne` (Simd)
-                    0x2e => {
-                        Ok(Self::I16x8Ne)
-                    },
+                    0x2e => Ok(Self::I16x8Ne),
+
                     // 0xFD 0x2F `i16x8.lt_s` (Simd)
-                    0x2f => {
-                        Ok(Self::I16x8LtS)
-                    },
+                    0x2f => Ok(Self::I16x8LtS),
+
                     // 0xFD 0x30 `i16x8.lt_u` (Simd)
-                    0x30 => {
-                        Ok(Self::I16x8LtU)
-                    },
+                    0x30 => Ok(Self::I16x8LtU),
+
                     // 0xFD 0x31 `i16x8.gt_s` (Simd)
-                    0x31 => {
-                        Ok(Self::I16x8GtS)
-                    },
+                    0x31 => Ok(Self::I16x8GtS),
+
                     // 0xFD 0x32 `i16x8.gt_u` (Simd)
-                    0x32 => {
-                        Ok(Self::I16x8GtU)
-                    },
+                    0x32 => Ok(Self::I16x8GtU),
+
                     // 0xFD 0x33 `i16x8.le_s` (Simd)
-                    0x33 => {
-                        Ok(Self::I16x8LeS)
-                    },
+                    0x33 => Ok(Self::I16x8LeS),
+
                     // 0xFD 0x34 `i16x8.le_u` (Simd)
-                    0x34 => {
-                        Ok(Self::I16x8LeU)
-                    },
+                    0x34 => Ok(Self::I16x8LeU),
+
                     // 0xFD 0x35 `i16x8.ge_s` (Simd)
-                    0x35 => {
-                        Ok(Self::I16x8GeS)
-                    },
+                    0x35 => Ok(Self::I16x8GeS),
+
                     // 0xFD 0x36 `i16x8.ge_u` (Simd)
-                    0x36 => {
-                        Ok(Self::I16x8GeU)
-                    },
+                    0x36 => Ok(Self::I16x8GeU),
+
                     // 0xFD 0x37 `i32x4.eq` (Simd)
-                    0x37 => {
-                        Ok(Self::I32x4Eq)
-                    },
+                    0x37 => Ok(Self::I32x4Eq),
+
                     // 0xFD 0x38 `i32x4.ne` (Simd)
-                    0x38 => {
-                        Ok(Self::I32x4Ne)
-                    },
+                    0x38 => Ok(Self::I32x4Ne),
+
                     // 0xFD 0x39 `i32x4.lt_s` (Simd)
-                    0x39 => {
-                        Ok(Self::I32x4LtS)
-                    },
+                    0x39 => Ok(Self::I32x4LtS),
+
                     // 0xFD 0x3A `i32x4.lt_u` (Simd)
-                    0x3a => {
-                        Ok(Self::I32x4LtU)
-                    },
+                    0x3a => Ok(Self::I32x4LtU),
+
                     // 0xFD 0x3B `i32x4.gt_s` (Simd)
-                    0x3b => {
-                        Ok(Self::I32x4GtS)
-                    },
+                    0x3b => Ok(Self::I32x4GtS),
+
                     // 0xFD 0x3C `i32x4.gt_u` (Simd)
-                    0x3c => {
-                        Ok(Self::I32x4GtU)
-                    },
+                    0x3c => Ok(Self::I32x4GtU),
+
                     // 0xFD 0x3D `i32x4.le_s` (Simd)
-                    0x3d => {
-                        Ok(Self::I32x4LeS)
-                    },
+                    0x3d => Ok(Self::I32x4LeS),
+
                     // 0xFD 0x3E `i32x4.le_u` (Simd)
-                    0x3e => {
-                        Ok(Self::I32x4LeU)
-                    },
+                    0x3e => Ok(Self::I32x4LeU),
+
                     // 0xFD 0x3F `i32x4.ge_s` (Simd)
-                    0x3f => {
-                        Ok(Self::I32x4GeS)
-                    },
+                    0x3f => Ok(Self::I32x4GeS),
+
                     // 0xFD 0x40 `i32x4.ge_u` (Simd)
-                    0x40 => {
-                        Ok(Self::I32x4GeU)
-                    },
+                    0x40 => Ok(Self::I32x4GeU),
+
                     // 0xFD 0x41 `f32x4.eq` (Simd)
-                    0x41 => {
-                        Ok(Self::F32x4Eq)
-                    },
+                    0x41 => Ok(Self::F32x4Eq),
+
                     // 0xFD 0x42 `f32x4.ne` (Simd)
-                    0x42 => {
-                        Ok(Self::F32x4Ne)
-                    },
+                    0x42 => Ok(Self::F32x4Ne),
+
                     // 0xFD 0x43 `f32x4.lt` (Simd)
-                    0x43 => {
-                        Ok(Self::F32x4Lt)
-                    },
+                    0x43 => Ok(Self::F32x4Lt),
+
                     // 0xFD 0x44 `f32x4.gt` (Simd)
-                    0x44 => {
-                        Ok(Self::F32x4Gt)
-                    },
+                    0x44 => Ok(Self::F32x4Gt),
+
                     // 0xFD 0x45 `f32x4.le` (Simd)
-                    0x45 => {
-                        Ok(Self::F32x4Le)
-                    },
+                    0x45 => Ok(Self::F32x4Le),
+
                     // 0xFD 0x46 `f32x4.ge` (Simd)
-                    0x46 => {
-                        Ok(Self::F32x4Ge)
-                    },
+                    0x46 => Ok(Self::F32x4Ge),
+
                     // 0xFD 0x47 `f64x2.eq` (Simd)
-                    0x47 => {
-                        Ok(Self::F64x2Eq)
-                    },
+                    0x47 => Ok(Self::F64x2Eq),
+
                     // 0xFD 0x48 `f64x2.ne` (Simd)
-                    0x48 => {
-                        Ok(Self::F64x2Ne)
-                    },
+                    0x48 => Ok(Self::F64x2Ne),
+
                     // 0xFD 0x49 `f64x2.lt` (Simd)
-                    0x49 => {
-                        Ok(Self::F64x2Lt)
-                    },
+                    0x49 => Ok(Self::F64x2Lt),
+
                     // 0xFD 0x4A `f64x2.gt` (Simd)
-                    0x4a => {
-                        Ok(Self::F64x2Gt)
-                    },
+                    0x4a => Ok(Self::F64x2Gt),
+
                     // 0xFD 0x4B `f64x2.le` (Simd)
-                    0x4b => {
-                        Ok(Self::F64x2Le)
-                    },
+                    0x4b => Ok(Self::F64x2Le),
+
                     // 0xFD 0x4C `f64x2.ge` (Simd)
-                    0x4c => {
-                        Ok(Self::F64x2Ge)
-                    },
+                    0x4c => Ok(Self::F64x2Ge),
+
                     // 0xFD 0x4D `v128.not` (Simd)
-                    0x4d => {
-                        Ok(Self::V128Not)
-                    },
+                    0x4d => Ok(Self::V128Not),
+
                     // 0xFD 0x4E `v128.and` (Simd)
-                    0x4e => {
-                        Ok(Self::V128And)
-                    },
+                    0x4e => Ok(Self::V128And),
+
                     // 0xFD 0x4F `v128.andnot` (Simd)
-                    0x4f => {
-                        Ok(Self::V128Andnot)
-                    },
+                    0x4f => Ok(Self::V128Andnot),
+
                     // 0xFD 0x50 `v128.or` (Simd)
-                    0x50 => {
-                        Ok(Self::V128Or)
-                    },
+                    0x50 => Ok(Self::V128Or),
+
                     // 0xFD 0x51 `v128.xor` (Simd)
-                    0x51 => {
-                        Ok(Self::V128Xor)
-                    },
+                    0x51 => Ok(Self::V128Xor),
+
                     // 0xFD 0x52 `v128.bitselect` (Simd)
-                    0x52 => {
-                        Ok(Self::V128Bitselect)
-                    },
+                    0x52 => Ok(Self::V128Bitselect),
+
                     // 0xFD 0x53 `v128.any_true` (Simd)
-                    0x53 => {
-                        Ok(Self::V128AnyTrue)
-                    },
+                    0x53 => Ok(Self::V128AnyTrue),
+
                     // 0xFD 0x54 `v128.load8_lane` (Simd)
-                    0x54 => {
-                        Ok(Self::V128Load8Lane)
-                    },
+                    0x54 => Ok(Self::V128Load8Lane),
+
                     // 0xFD 0x55 `v128.load16_lane` (Simd)
-                    0x55 => {
-                        Ok(Self::V128Load16Lane)
-                    },
+                    0x55 => Ok(Self::V128Load16Lane),
+
                     // 0xFD 0x56 `v128.load32_lane` (Simd)
-                    0x56 => {
-                        Ok(Self::V128Load32Lane)
-                    },
+                    0x56 => Ok(Self::V128Load32Lane),
+
                     // 0xFD 0x57 `v128.load64_lane` (Simd)
-                    0x57 => {
-                        Ok(Self::V128Load64Lane)
-                    },
+                    0x57 => Ok(Self::V128Load64Lane),
+
                     // 0xFD 0x58 `v128.store8_lane` (Simd)
-                    0x58 => {
-                        Ok(Self::V128Store8Lane)
-                    },
+                    0x58 => Ok(Self::V128Store8Lane),
+
                     // 0xFD 0x59 `v128.store16_lane` (Simd)
-                    0x59 => {
-                        Ok(Self::V128Store16Lane)
-                    },
+                    0x59 => Ok(Self::V128Store16Lane),
+
                     // 0xFD 0x5A `v128.store32_lane` (Simd)
-                    0x5a => {
-                        Ok(Self::V128Store32Lane)
-                    },
+                    0x5a => Ok(Self::V128Store32Lane),
+
                     // 0xFD 0x5B `v128.store64_lane` (Simd)
-                    0x5b => {
-                        Ok(Self::V128Store64Lane)
-                    },
+                    0x5b => Ok(Self::V128Store64Lane),
+
                     // 0xFD 0x5C `v128.load32_zero` (Simd)
-                    0x5c => {
-                        Ok(Self::V128Load32Zero)
-                    },
+                    0x5c => Ok(Self::V128Load32Zero),
+
                     // 0xFD 0x5D `v128.load64_zero` (Simd)
-                    0x5d => {
-                        Ok(Self::V128Load64Zero)
-                    },
+                    0x5d => Ok(Self::V128Load64Zero),
+
                     // 0xFD 0x5E `f32x4.demote_f64x2_zero` (Simd)
-                    0x5e => {
-                        Ok(Self::F32x4DemoteF64x2Zero)
-                    },
+                    0x5e => Ok(Self::F32x4DemoteF64x2Zero),
+
                     // 0xFD 0x5F `f64x2.promote_low_f32x4` (Simd)
-                    0x5f => {
-                        Ok(Self::F64x2PromoteLowF32x4)
-                    },
+                    0x5f => Ok(Self::F64x2PromoteLowF32x4),
+
                     // 0xFD 0x60 `i8x16.abs` (Simd)
-                    0x60 => {
-                        Ok(Self::I8x16Abs)
-                    },
+                    0x60 => Ok(Self::I8x16Abs),
+
                     // 0xFD 0x61 `i8x16.neg` (Simd)
-                    0x61 => {
-                        Ok(Self::I8x16Neg)
-                    },
+                    0x61 => Ok(Self::I8x16Neg),
+
                     // 0xFD 0x62 `i8x16.popcnt` (Simd)
-                    0x62 => {
-                        Ok(Self::I8x16Popcnt)
-                    },
+                    0x62 => Ok(Self::I8x16Popcnt),
+
                     // 0xFD 0x63 `i8x16.all_true` (Simd)
-                    0x63 => {
-                        Ok(Self::I8x16AllTrue)
-                    },
+                    0x63 => Ok(Self::I8x16AllTrue),
+
                     // 0xFD 0x64 `i8x16.bitmask` (Simd)
-                    0x64 => {
-                        Ok(Self::I8x16Bitmask)
-                    },
+                    0x64 => Ok(Self::I8x16Bitmask),
+
                     // 0xFD 0x65 `i8x16.narrow_i16x8_s` (Simd)
-                    0x65 => {
-                        Ok(Self::I8x16NarrowI16x8S)
-                    },
+                    0x65 => Ok(Self::I8x16NarrowI16x8S),
+
                     // 0xFD 0x66 `i8x16.narrow_i16x8_u` (Simd)
-                    0x66 => {
-                        Ok(Self::I8x16NarrowI16x8U)
-                    },
+                    0x66 => Ok(Self::I8x16NarrowI16x8U),
+
                     // 0xFD 0x67 `f32x4.ceil` (Simd)
-                    0x67 => {
-                        Ok(Self::F32x4Ceil)
-                    },
+                    0x67 => Ok(Self::F32x4Ceil),
+
                     // 0xFD 0x68 `f32x4.floor` (Simd)
-                    0x68 => {
-                        Ok(Self::F32x4Floor)
-                    },
+                    0x68 => Ok(Self::F32x4Floor),
+
                     // 0xFD 0x69 `f32x4.trunc` (Simd)
-                    0x69 => {
-                        Ok(Self::F32x4Trunc)
-                    },
+                    0x69 => Ok(Self::F32x4Trunc),
+
                     // 0xFD 0x6A `f32x4.nearest` (Simd)
-                    0x6a => {
-                        Ok(Self::F32x4Nearest)
-                    },
+                    0x6a => Ok(Self::F32x4Nearest),
+
                     // 0xFD 0x6B `i8x16.shl` (Simd)
-                    0x6b => {
-                        Ok(Self::I8x16Shl)
-                    },
+                    0x6b => Ok(Self::I8x16Shl),
+
                     // 0xFD 0x6C `i8x16.shr_s` (Simd)
-                    0x6c => {
-                        Ok(Self::I8x16ShrS)
-                    },
+                    0x6c => Ok(Self::I8x16ShrS),
+
                     // 0xFD 0x6D `i8x16.shr_u` (Simd)
-                    0x6d => {
-                        Ok(Self::I8x16ShrU)
-                    },
+                    0x6d => Ok(Self::I8x16ShrU),
+
                     // 0xFD 0x6E `i8x16.add` (Simd)
-                    0x6e => {
-                        Ok(Self::I8x16Add)
-                    },
+                    0x6e => Ok(Self::I8x16Add),
+
                     // 0xFD 0x6F `i8x16.add_sat_s` (Simd)
-                    0x6f => {
-                        Ok(Self::I8x16AddSatS)
-                    },
+                    0x6f => Ok(Self::I8x16AddSatS),
+
                     // 0xFD 0x70 `i8x16.add_sat_u` (Simd)
-                    0x70 => {
-                        Ok(Self::I8x16AddSatU)
-                    },
+                    0x70 => Ok(Self::I8x16AddSatU),
+
                     // 0xFD 0x71 `i8x16.sub` (Simd)
-                    0x71 => {
-                        Ok(Self::I8x16Sub)
-                    },
+                    0x71 => Ok(Self::I8x16Sub),
+
                     // 0xFD 0x72 `i8x16.sub_sat_s` (Simd)
-                    0x72 => {
-                        Ok(Self::I8x16SubSatS)
-                    },
+                    0x72 => Ok(Self::I8x16SubSatS),
+
                     // 0xFD 0x73 `i8x16.sub_sat_u` (Simd)
-                    0x73 => {
-                        Ok(Self::I8x16SubSatU)
-                    },
+                    0x73 => Ok(Self::I8x16SubSatU),
+
                     // 0xFD 0x74 `f64x2.ceil` (Simd)
-                    0x74 => {
-                        Ok(Self::F64x2Ceil)
-                    },
+                    0x74 => Ok(Self::F64x2Ceil),
+
                     // 0xFD 0x75 `f64x2.floor` (Simd)
-                    0x75 => {
-                        Ok(Self::F64x2Floor)
-                    },
+                    0x75 => Ok(Self::F64x2Floor),
+
                     // 0xFD 0x76 `i8x16.min_s` (Simd)
-                    0x76 => {
-                        Ok(Self::I8x16MinS)
-                    },
+                    0x76 => Ok(Self::I8x16MinS),
+
                     // 0xFD 0x77 `i8x16.min_u` (Simd)
-                    0x77 => {
-                        Ok(Self::I8x16MinU)
-                    },
+                    0x77 => Ok(Self::I8x16MinU),
+
                     // 0xFD 0x78 `i8x16.max_s` (Simd)
-                    0x78 => {
-                        Ok(Self::I8x16MaxS)
-                    },
+                    0x78 => Ok(Self::I8x16MaxS),
+
                     // 0xFD 0x79 `i8x16.max_u` (Simd)
-                    0x79 => {
-                        Ok(Self::I8x16MaxU)
-                    },
+                    0x79 => Ok(Self::I8x16MaxU),
+
                     // 0xFD 0x7A `f64x2.trunc` (Simd)
-                    0x7a => {
-                        Ok(Self::F64x2Trunc)
-                    },
+                    0x7a => Ok(Self::F64x2Trunc),
+
                     // 0xFD 0x7B `i8x16.avgr_u` (Simd)
-                    0x7b => {
-                        Ok(Self::I8x16AvgrU)
-                    },
+                    0x7b => Ok(Self::I8x16AvgrU),
+
                     // 0xFD 0x7C `i16x8.extadd_pairwise_i8x16_s` (Simd)
-                    0x7c => {
-                        Ok(Self::I16x8ExtaddPairwiseI8x16S)
-                    },
+                    0x7c => Ok(Self::I16x8ExtaddPairwiseI8x16S),
+
                     // 0xFD 0x7D `i16x8.extadd_pairwise_i8x16_u` (Simd)
-                    0x7d => {
-                        Ok(Self::I16x8ExtaddPairwiseI8x16U)
-                    },
+                    0x7d => Ok(Self::I16x8ExtaddPairwiseI8x16U),
+
                     // 0xFD 0x7E `i32x4.extadd_pairwise_i16x8_s` (Simd)
-                    0x7e => {
-                        Ok(Self::I32x4ExtaddPairwiseI16x8S)
-                    },
+                    0x7e => Ok(Self::I32x4ExtaddPairwiseI16x8S),
+
                     // 0xFD 0x7F `i32x4.extadd_pairwise_i16x8_u` (Simd)
-                    0x7f => {
-                        Ok(Self::I32x4ExtaddPairwiseI16x8U)
-                    },
+                    0x7f => Ok(Self::I32x4ExtaddPairwiseI16x8U),
+
                     // 0xFD 0x80 `i16x8.abs` (Simd)
-                    0x80 => {
-                        Ok(Self::I16x8Abs)
-                    },
+                    0x80 => Ok(Self::I16x8Abs),
+
                     // 0xFD 0x81 `i16x8.neg` (Simd)
-                    0x81 => {
-                        Ok(Self::I16x8Neg)
-                    },
+                    0x81 => Ok(Self::I16x8Neg),
+
                     // 0xFD 0x82 `i16x8.q15mulr_sat_s` (Simd)
-                    0x82 => {
-                        Ok(Self::I16x8Q15mulrSatS)
-                    },
+                    0x82 => Ok(Self::I16x8Q15mulrSatS),
+
                     // 0xFD 0x83 `i16x8.all_true` (Simd)
-                    0x83 => {
-                        Ok(Self::I16x8AllTrue)
-                    },
+                    0x83 => Ok(Self::I16x8AllTrue),
+
                     // 0xFD 0x84 `i16x8.bitmask` (Simd)
-                    0x84 => {
-                        Ok(Self::I16x8Bitmask)
-                    },
+                    0x84 => Ok(Self::I16x8Bitmask),
+
                     // 0xFD 0x85 `i16x8.narrow_i32x4_s` (Simd)
-                    0x85 => {
-                        Ok(Self::I16x8NarrowI32x4S)
-                    },
+                    0x85 => Ok(Self::I16x8NarrowI32x4S),
+
                     // 0xFD 0x86 `i16x8.narrow_i32x4_u` (Simd)
-                    0x86 => {
-                        Ok(Self::I16x8NarrowI32x4U)
-                    },
+                    0x86 => Ok(Self::I16x8NarrowI32x4U),
+
                     // 0xFD 0x87 `i16x8.extend_low_i8x16_s` (Simd)
-                    0x87 => {
-                        Ok(Self::I16x8ExtendLowI8x16S)
-                    },
+                    0x87 => Ok(Self::I16x8ExtendLowI8x16S),
+
                     // 0xFD 0x88 `i16x8.extend_high_i8x16_s` (Simd)
-                    0x88 => {
-                        Ok(Self::I16x8ExtendHighI8x16S)
-                    },
+                    0x88 => Ok(Self::I16x8ExtendHighI8x16S),
+
                     // 0xFD 0x89 `i16x8.extend_low_i8x16_u` (Simd)
-                    0x89 => {
-                        Ok(Self::I16x8ExtendLowI8x16U)
-                    },
+                    0x89 => Ok(Self::I16x8ExtendLowI8x16U),
+
                     // 0xFD 0x8A `i16x8.extend_high_i8x16_u` (Simd)
-                    0x8a => {
-                        Ok(Self::I16x8ExtendHighI8x16U)
-                    },
+                    0x8a => Ok(Self::I16x8ExtendHighI8x16U),
+
                     // 0xFD 0x8B `i16x8.shl` (Simd)
-                    0x8b => {
-                        Ok(Self::I16x8Shl)
-                    },
+                    0x8b => Ok(Self::I16x8Shl),
+
                     // 0xFD 0x8C `i16x8.shr_s` (Simd)
-                    0x8c => {
-                        Ok(Self::I16x8ShrS)
-                    },
+                    0x8c => Ok(Self::I16x8ShrS),
+
                     // 0xFD 0x8D `i16x8.shr_u` (Simd)
-                    0x8d => {
-                        Ok(Self::I16x8ShrU)
-                    },
+                    0x8d => Ok(Self::I16x8ShrU),
+
                     // 0xFD 0x8E `i16x8.add` (Simd)
-                    0x8e => {
-                        Ok(Self::I16x8Add)
-                    },
+                    0x8e => Ok(Self::I16x8Add),
+
                     // 0xFD 0x8F `i16x8.add_sat_s` (Simd)
-                    0x8f => {
-                        Ok(Self::I16x8AddSatS)
-                    },
+                    0x8f => Ok(Self::I16x8AddSatS),
+
                     // 0xFD 0x90 `i16x8.add_sat_u` (Simd)
-                    0x90 => {
-                        Ok(Self::I16x8AddSatU)
-                    },
+                    0x90 => Ok(Self::I16x8AddSatU),
+
                     // 0xFD 0x91 `i16x8.sub` (Simd)
-                    0x91 => {
-                        Ok(Self::I16x8Sub)
-                    },
+                    0x91 => Ok(Self::I16x8Sub),
+
                     // 0xFD 0x92 `i16x8.sub_sat_s` (Simd)
-                    0x92 => {
-                        Ok(Self::I16x8SubSatS)
-                    },
+                    0x92 => Ok(Self::I16x8SubSatS),
+
                     // 0xFD 0x93 `i16x8.sub_sat_u` (Simd)
-                    0x93 => {
-                        Ok(Self::I16x8SubSatU)
-                    },
+                    0x93 => Ok(Self::I16x8SubSatU),
+
                     // 0xFD 0x94 `f64x2.nearest` (Simd)
-                    0x94 => {
-                        Ok(Self::F64x2Nearest)
-                    },
+                    0x94 => Ok(Self::F64x2Nearest),
+
                     // 0xFD 0x95 `i16x8.mul` (Simd)
-                    0x95 => {
-                        Ok(Self::I16x8Mul)
-                    },
+                    0x95 => Ok(Self::I16x8Mul),
+
                     // 0xFD 0x96 `i16x8.min_s` (Simd)
-                    0x96 => {
-                        Ok(Self::I16x8MinS)
-                    },
+                    0x96 => Ok(Self::I16x8MinS),
+
                     // 0xFD 0x97 `i16x8.min_u` (Simd)
-                    0x97 => {
-                        Ok(Self::I16x8MinU)
-                    },
+                    0x97 => Ok(Self::I16x8MinU),
+
                     // 0xFD 0x98 `i16x8.max_s` (Simd)
-                    0x98 => {
-                        Ok(Self::I16x8MaxS)
-                    },
+                    0x98 => Ok(Self::I16x8MaxS),
+
                     // 0xFD 0x99 `i16x8.max_u` (Simd)
-                    0x99 => {
-                        Ok(Self::I16x8MaxU)
-                    },
+                    0x99 => Ok(Self::I16x8MaxU),
+
                     // 0xFD 0x9B `i16x8.avgr_u` (Simd)
-                    0x9b => {
-                        Ok(Self::I16x8AvgrU)
-                    },
+                    0x9b => Ok(Self::I16x8AvgrU),
+
                     // 0xFD 0x9C `i16x8.extmul_low_i8x16_s` (Simd)
-                    0x9c => {
-                        Ok(Self::I16x8ExtmulLowI8x16S)
-                    },
+                    0x9c => Ok(Self::I16x8ExtmulLowI8x16S),
+
                     // 0xFD 0x9D `i16x8.extmul_high_i8x16_s` (Simd)
-                    0x9d => {
-                        Ok(Self::I16x8ExtmulHighI8x16S)
-                    },
+                    0x9d => Ok(Self::I16x8ExtmulHighI8x16S),
+
                     // 0xFD 0x9E `i16x8.extmul_low_i8x16_u` (Simd)
-                    0x9e => {
-                        Ok(Self::I16x8ExtmulLowI8x16U)
-                    },
+                    0x9e => Ok(Self::I16x8ExtmulLowI8x16U),
+
                     // 0xFD 0x9F `i16x8.extmul_high_i8x16_u` (Simd)
-                    0x9f => {
-                        Ok(Self::I16x8ExtmulHighI8x16U)
-                    },
+                    0x9f => Ok(Self::I16x8ExtmulHighI8x16U),
+
                     // 0xFD 0xA0 `i32x4.abs` (Simd)
-                    0xa0 => {
-                        Ok(Self::I32x4Abs)
-                    },
+                    0xa0 => Ok(Self::I32x4Abs),
+
                     // 0xFD 0xA1 `i32x4.neg` (Simd)
-                    0xa1 => {
-                        Ok(Self::I32x4Neg)
-                    },
+                    0xa1 => Ok(Self::I32x4Neg),
+
                     // 0xFD 0xA3 `i32x4.all_true` (Simd)
-                    0xa3 => {
-                        Ok(Self::I32x4AllTrue)
-                    },
+                    0xa3 => Ok(Self::I32x4AllTrue),
+
                     // 0xFD 0xA4 `i32x4.bitmask` (Simd)
-                    0xa4 => {
-                        Ok(Self::I32x4Bitmask)
-                    },
+                    0xa4 => Ok(Self::I32x4Bitmask),
+
                     // 0xFD 0xA7 `i32x4.extend_low_i16x8_s` (Simd)
-                    0xa7 => {
-                        Ok(Self::I32x4ExtendLowI16x8S)
-                    },
+                    0xa7 => Ok(Self::I32x4ExtendLowI16x8S),
+
                     // 0xFD 0xA8 `i32x4.extend_high_i16x8_s` (Simd)
-                    0xa8 => {
-                        Ok(Self::I32x4ExtendHighI16x8S)
-                    },
+                    0xa8 => Ok(Self::I32x4ExtendHighI16x8S),
+
                     // 0xFD 0xA9 `i32x4.extend_low_i16x8_u` (Simd)
-                    0xa9 => {
-                        Ok(Self::I32x4ExtendLowI16x8U)
-                    },
+                    0xa9 => Ok(Self::I32x4ExtendLowI16x8U),
+
                     // 0xFD 0xAA `i32x4.extend_high_i16x8_u` (Simd)
-                    0xaa => {
-                        Ok(Self::I32x4ExtendHighI16x8U)
-                    },
+                    0xaa => Ok(Self::I32x4ExtendHighI16x8U),
+
                     // 0xFD 0xAB `i32x4.shl` (Simd)
-                    0xab => {
-                        Ok(Self::I32x4Shl)
-                    },
+                    0xab => Ok(Self::I32x4Shl),
+
                     // 0xFD 0xAC `i32x4.shr_s` (Simd)
-                    0xac => {
-                        Ok(Self::I32x4ShrS)
-                    },
+                    0xac => Ok(Self::I32x4ShrS),
+
                     // 0xFD 0xAD `i32x4.shr_u` (Simd)
-                    0xad => {
-                        Ok(Self::I32x4ShrU)
-                    },
+                    0xad => Ok(Self::I32x4ShrU),
+
                     // 0xFD 0xAE `i32x4.add` (Simd)
-                    0xae => {
-                        Ok(Self::I32x4Add)
-                    },
+                    0xae => Ok(Self::I32x4Add),
+
                     // 0xFD 0xB1 `i32x4.sub` (Simd)
-                    0xb1 => {
-                        Ok(Self::I32x4Sub)
-                    },
+                    0xb1 => Ok(Self::I32x4Sub),
+
                     // 0xFD 0xB5 `i32x4.mul` (Simd)
-                    0xb5 => {
-                        Ok(Self::I32x4Mul)
-                    },
+                    0xb5 => Ok(Self::I32x4Mul),
+
                     // 0xFD 0xB6 `i32x4.min_s` (Simd)
-                    0xb6 => {
-                        Ok(Self::I32x4MinS)
-                    },
+                    0xb6 => Ok(Self::I32x4MinS),
+
                     // 0xFD 0xB7 `i32x4.min_u` (Simd)
-                    0xb7 => {
-                        Ok(Self::I32x4MinU)
-                    },
+                    0xb7 => Ok(Self::I32x4MinU),
+
                     // 0xFD 0xB8 `i32x4.max_s` (Simd)
-                    0xb8 => {
-                        Ok(Self::I32x4MaxS)
-                    },
+                    0xb8 => Ok(Self::I32x4MaxS),
+
                     // 0xFD 0xB9 `i32x4.max_u` (Simd)
-                    0xb9 => {
-                        Ok(Self::I32x4MaxU)
-                    },
+                    0xb9 => Ok(Self::I32x4MaxU),
+
                     // 0xFD 0xBA `i32x4.dot_i16x8_s` (Simd)
-                    0xba => {
-                        Ok(Self::I32x4DotI16x8S)
-                    },
+                    0xba => Ok(Self::I32x4DotI16x8S),
+
                     // 0xFD 0xBC `i32x4.extmul_low_i16x8_s` (Simd)
-                    0xbc => {
-                        Ok(Self::I32x4ExtmulLowI16x8S)
-                    },
+                    0xbc => Ok(Self::I32x4ExtmulLowI16x8S),
+
                     // 0xFD 0xBD `i32x4.extmul_high_i16x8_s` (Simd)
-                    0xbd => {
-                        Ok(Self::I32x4ExtmulHighI16x8S)
-                    },
+                    0xbd => Ok(Self::I32x4ExtmulHighI16x8S),
+
                     // 0xFD 0xBE `i32x4.extmul_low_i16x8_u` (Simd)
-                    0xbe => {
-                        Ok(Self::I32x4ExtmulLowI16x8U)
-                    },
+                    0xbe => Ok(Self::I32x4ExtmulLowI16x8U),
+
                     // 0xFD 0xBF `i32x4.extmul_high_i16x8_u` (Simd)
-                    0xbf => {
-                        Ok(Self::I32x4ExtmulHighI16x8U)
-                    },
+                    0xbf => Ok(Self::I32x4ExtmulHighI16x8U),
+
                     // 0xFD 0xC0 `i64x2.abs` (Simd)
-                    0xc0 => {
-                        Ok(Self::I64x2Abs)
-                    },
+                    0xc0 => Ok(Self::I64x2Abs),
+
                     // 0xFD 0xC1 `i64x2.neg` (Simd)
-                    0xc1 => {
-                        Ok(Self::I64x2Neg)
-                    },
+                    0xc1 => Ok(Self::I64x2Neg),
+
                     // 0xFD 0xC3 `i64x2.all_true` (Simd)
-                    0xc3 => {
-                        Ok(Self::I64x2AllTrue)
-                    },
+                    0xc3 => Ok(Self::I64x2AllTrue),
+
                     // 0xFD 0xC4 `i64x2.bitmask` (Simd)
-                    0xc4 => {
-                        Ok(Self::I64x2Bitmask)
-                    },
+                    0xc4 => Ok(Self::I64x2Bitmask),
+
                     // 0xFD 0xC7 `i64x2.extend_low_i32x4_s` (Simd)
-                    0xc7 => {
-                        Ok(Self::I64x2ExtendLowI32x4S)
-                    },
+                    0xc7 => Ok(Self::I64x2ExtendLowI32x4S),
+
                     // 0xFD 0xC8 `i64x2.extend_high_i32x4_s` (Simd)
-                    0xc8 => {
-                        Ok(Self::I64x2ExtendHighI32x4S)
-                    },
+                    0xc8 => Ok(Self::I64x2ExtendHighI32x4S),
+
                     // 0xFD 0xC9 `i64x2.extend_low_i32x4_u` (Simd)
-                    0xc9 => {
-                        Ok(Self::I64x2ExtendLowI32x4U)
-                    },
+                    0xc9 => Ok(Self::I64x2ExtendLowI32x4U),
+
                     // 0xFD 0xCA `i64x2.extend_high_i32x4_u` (Simd)
-                    0xca => {
-                        Ok(Self::I64x2ExtendHighI32x4U)
-                    },
+                    0xca => Ok(Self::I64x2ExtendHighI32x4U),
+
                     // 0xFD 0xCB `i64x2.shl` (Simd)
-                    0xcb => {
-                        Ok(Self::I64x2Shl)
-                    },
+                    0xcb => Ok(Self::I64x2Shl),
+
                     // 0xFD 0xCC `i64x2.shr_s` (Simd)
-                    0xcc => {
-                        Ok(Self::I64x2ShrS)
-                    },
+                    0xcc => Ok(Self::I64x2ShrS),
+
                     // 0xFD 0xCD `i64x2.shr_u` (Simd)
-                    0xcd => {
-                        Ok(Self::I64x2ShrU)
-                    },
+                    0xcd => Ok(Self::I64x2ShrU),
+
                     // 0xFD 0xCE `i64x2.add` (Simd)
-                    0xce => {
-                        Ok(Self::I64x2Add)
-                    },
+                    0xce => Ok(Self::I64x2Add),
+
                     // 0xFD 0xD1 `i64x2.sub` (Simd)
-                    0xd1 => {
-                        Ok(Self::I64x2Sub)
-                    },
+                    0xd1 => Ok(Self::I64x2Sub),
+
                     // 0xFD 0xD5 `i64x2.mul` (Simd)
-                    0xd5 => {
-                        Ok(Self::I64x2Mul)
-                    },
+                    0xd5 => Ok(Self::I64x2Mul),
+
                     // 0xFD 0xD6 `i64x2.eq` (Simd)
-                    0xd6 => {
-                        Ok(Self::I64x2Eq)
-                    },
+                    0xd6 => Ok(Self::I64x2Eq),
+
                     // 0xFD 0xD7 `i64x2.ne` (Simd)
-                    0xd7 => {
-                        Ok(Self::I64x2Ne)
-                    },
+                    0xd7 => Ok(Self::I64x2Ne),
+
                     // 0xFD 0xD8 `i64x2.lt_s` (Simd)
-                    0xd8 => {
-                        Ok(Self::I64x2LtS)
-                    },
+                    0xd8 => Ok(Self::I64x2LtS),
+
                     // 0xFD 0xD9 `i64x2.gt_s` (Simd)
-                    0xd9 => {
-                        Ok(Self::I64x2GtS)
-                    },
+                    0xd9 => Ok(Self::I64x2GtS),
+
                     // 0xFD 0xDA `i64x2.le_s` (Simd)
-                    0xda => {
-                        Ok(Self::I64x2LeS)
-                    },
+                    0xda => Ok(Self::I64x2LeS),
+
                     // 0xFD 0xDB `i64x2.ge_s` (Simd)
-                    0xdb => {
-                        Ok(Self::I64x2GeS)
-                    },
+                    0xdb => Ok(Self::I64x2GeS),
+
                     // 0xFD 0xDC `i64x2.extmul_low_i32x4_s` (Simd)
-                    0xdc => {
-                        Ok(Self::I64x2ExtmulLowI32x4S)
-                    },
+                    0xdc => Ok(Self::I64x2ExtmulLowI32x4S),
+
                     // 0xFD 0xDD `i64x2.extmul_high_i32x4_s` (Simd)
-                    0xdd => {
-                        Ok(Self::I64x2ExtmulHighI32x4S)
-                    },
+                    0xdd => Ok(Self::I64x2ExtmulHighI32x4S),
+
                     // 0xFD 0xDE `i64x2.extmul_low_i32x4_u` (Simd)
-                    0xde => {
-                        Ok(Self::I64x2ExtmulLowI32x4U)
-                    },
+                    0xde => Ok(Self::I64x2ExtmulLowI32x4U),
+
                     // 0xFD 0xDF `i64x2.extmul_high_i32x4_u` (Simd)
-                    0xdf => {
-                        Ok(Self::I64x2ExtmulHighI32x4U)
-                    },
+                    0xdf => Ok(Self::I64x2ExtmulHighI32x4U),
+
                     // 0xFD 0xE0 `f32x4.abs` (Simd)
-                    0xe0 => {
-                        Ok(Self::F32x4Abs)
-                    },
+                    0xe0 => Ok(Self::F32x4Abs),
+
                     // 0xFD 0xE1 `f32x4.neg` (Simd)
-                    0xe1 => {
-                        Ok(Self::F32x4Neg)
-                    },
+                    0xe1 => Ok(Self::F32x4Neg),
+
                     // 0xFD 0xE3 `f32x4.sqrt` (Simd)
-                    0xe3 => {
-                        Ok(Self::F32x4Sqrt)
-                    },
+                    0xe3 => Ok(Self::F32x4Sqrt),
+
                     // 0xFD 0xE4 `f32x4.add` (Simd)
-                    0xe4 => {
-                        Ok(Self::F32x4Add)
-                    },
+                    0xe4 => Ok(Self::F32x4Add),
+
                     // 0xFD 0xE5 `f32x4.sub` (Simd)
-                    0xe5 => {
-                        Ok(Self::F32x4Sub)
-                    },
+                    0xe5 => Ok(Self::F32x4Sub),
+
                     // 0xFD 0xE6 `f32x4.mul` (Simd)
-                    0xe6 => {
-                        Ok(Self::F32x4Mul)
-                    },
+                    0xe6 => Ok(Self::F32x4Mul),
+
                     // 0xFD 0xE7 `f32x4.div` (Simd)
-                    0xe7 => {
-                        Ok(Self::F32x4Div)
-                    },
+                    0xe7 => Ok(Self::F32x4Div),
+
                     // 0xFD 0xE8 `f32x4.min` (Simd)
-                    0xe8 => {
-                        Ok(Self::F32x4Min)
-                    },
+                    0xe8 => Ok(Self::F32x4Min),
+
                     // 0xFD 0xE9 `f32x4.max` (Simd)
-                    0xe9 => {
-                        Ok(Self::F32x4Max)
-                    },
+                    0xe9 => Ok(Self::F32x4Max),
+
                     // 0xFD 0xEA `f32x4.pmin` (Simd)
-                    0xea => {
-                        Ok(Self::F32x4Pmin)
-                    },
+                    0xea => Ok(Self::F32x4Pmin),
+
                     // 0xFD 0xEB `f32x4.pmax` (Simd)
-                    0xeb => {
-                        Ok(Self::F32x4Pmax)
-                    },
+                    0xeb => Ok(Self::F32x4Pmax),
+
                     // 0xFD 0xEC `f64x2.abs` (Simd)
-                    0xec => {
-                        Ok(Self::F64x2Abs)
-                    },
+                    0xec => Ok(Self::F64x2Abs),
+
                     // 0xFD 0xED `f64x2.neg` (Simd)
-                    0xed => {
-                        Ok(Self::F64x2Neg)
-                    },
+                    0xed => Ok(Self::F64x2Neg),
+
                     // 0xFD 0xEF `f64x2.sqrt` (Simd)
-                    0xef => {
-                        Ok(Self::F64x2Sqrt)
-                    },
+                    0xef => Ok(Self::F64x2Sqrt),
+
                     // 0xFD 0xF0 `f64x2.add` (Simd)
-                    0xf0 => {
-                        Ok(Self::F64x2Add)
-                    },
+                    0xf0 => Ok(Self::F64x2Add),
+
                     // 0xFD 0xF1 `f64x2.sub` (Simd)
-                    0xf1 => {
-                        Ok(Self::F64x2Sub)
-                    },
+                    0xf1 => Ok(Self::F64x2Sub),
+
                     // 0xFD 0xF2 `f64x2.mul` (Simd)
-                    0xf2 => {
-                        Ok(Self::F64x2Mul)
-                    },
+                    0xf2 => Ok(Self::F64x2Mul),
+
                     // 0xFD 0xF3 `f64x2.div` (Simd)
-                    0xf3 => {
-                        Ok(Self::F64x2Div)
-                    },
+                    0xf3 => Ok(Self::F64x2Div),
+
                     // 0xFD 0xF4 `f64x2.min` (Simd)
-                    0xf4 => {
-                        Ok(Self::F64x2Min)
-                    },
+                    0xf4 => Ok(Self::F64x2Min),
+
                     // 0xFD 0xF5 `f64x2.max` (Simd)
-                    0xf5 => {
-                        Ok(Self::F64x2Max)
-                    },
+                    0xf5 => Ok(Self::F64x2Max),
+
                     // 0xFD 0xF6 `f64x2.pmin` (Simd)
-                    0xf6 => {
-                        Ok(Self::F64x2Pmin)
-                    },
+                    0xf6 => Ok(Self::F64x2Pmin),
+
                     // 0xFD 0xF7 `f64x2.pmax` (Simd)
-                    0xf7 => {
-                        Ok(Self::F64x2Pmax)
-                    },
+                    0xf7 => Ok(Self::F64x2Pmax),
+
                     // 0xFD 0xF8 `i32x4.trunc_sat_f32x4_s` (Simd)
-                    0xf8 => {
-                        Ok(Self::I32x4TruncSatF32x4S)
-                    },
+                    0xf8 => Ok(Self::I32x4TruncSatF32x4S),
+
                     // 0xFD 0xF9 `i32x4.trunc_sat_f32x4_u` (Simd)
-                    0xf9 => {
-                        Ok(Self::I32x4TruncSatF32x4U)
-                    },
+                    0xf9 => Ok(Self::I32x4TruncSatF32x4U),
+
                     // 0xFD 0xFA `f32x4.convert_i32x4_s` (Simd)
-                    0xfa => {
-                        Ok(Self::F32x4ConvertI32x4S)
-                    },
+                    0xfa => Ok(Self::F32x4ConvertI32x4S),
+
                     // 0xFD 0xFB `f32x4.convert_i32x4_u` (Simd)
-                    0xfb => {
-                        Ok(Self::F32x4ConvertI32x4U)
-                    },
+                    0xfb => Ok(Self::F32x4ConvertI32x4U),
+
                     // 0xFD 0xFC `i32x4.trunc_sat_f64x2_s_zero` (Simd)
-                    0xfc => {
-                        Ok(Self::I32x4TruncSatF64x2SZero)
-                    },
+                    0xfc => Ok(Self::I32x4TruncSatF64x2SZero),
+
                     // 0xFD 0xFD `i32x4.trunc_sat_f64x2_u_zero` (Simd)
-                    0xfd => {
-                        Ok(Self::I32x4TruncSatF64x2UZero)
-                    },
+                    0xfd => Ok(Self::I32x4TruncSatF64x2UZero),
+
                     // 0xFD 0xFE `f64x2.convert_low_i32x4_s` (Simd)
-                    0xfe => {
-                        Ok(Self::F64x2ConvertLowI32x4S)
-                    },
+                    0xfe => Ok(Self::F64x2ConvertLowI32x4S),
+
                     // 0xFD 0xFF `f64x2.convert_low_i32x4_u` (Simd)
-                    0xff => {
-                        Ok(Self::F64x2ConvertLowI32x4U)
-                    },
+                    0xff => Ok(Self::F64x2ConvertLowI32x4U),
+
                     // 0xFD 0x100 `Zi8x16.relaxed_swizzle` (RelaxedSimd)
-                    0x100 => {
-                        Ok(Self::Zi8x16RelaxedSwizzle)
-                    },
+                    0x100 => Ok(Self::Zi8x16RelaxedSwizzle),
+
                     // 0xFD 0x101 `Zi32x4.relaxed_trunc_f32x4_s` (RelaxedSimd)
-                    0x101 => {
-                        Ok(Self::Zi32x4RelaxedTruncF32x4S)
-                    },
+                    0x101 => Ok(Self::Zi32x4RelaxedTruncF32x4S),
+
                     // 0xFD 0x102 `i32x4.relaxed_trunc_f32x4_u` (RelaxedSimd)
-                    0x102 => {
-                        Ok(Self::I32x4RelaxedTruncF32x4U)
-                    },
+                    0x102 => Ok(Self::I32x4RelaxedTruncF32x4U),
+
                     // 0xFD 0x103 `i32x4.relaxed_trunc_f64x2_s_zero` (RelaxedSimd)
-                    0x103 => {
-                        Ok(Self::I32x4RelaxedTruncF64x2SZero)
-                    },
+                    0x103 => Ok(Self::I32x4RelaxedTruncF64x2SZero),
+
                     // 0xFD 0x104 `i32x4.relaxed_trunc_f64x2_u_zero` (RelaxedSimd)
-                    0x104 => {
-                        Ok(Self::I32x4RelaxedTruncF64x2UZero)
-                    },
+                    0x104 => Ok(Self::I32x4RelaxedTruncF64x2UZero),
+
                     // 0xFD 0x105 `f32x4.relaxed_madd` (RelaxedSimd)
-                    0x105 => {
-                        Ok(Self::F32x4RelaxedMadd)
-                    },
+                    0x105 => Ok(Self::F32x4RelaxedMadd),
+
                     // 0xFD 0x106 `f32x4.relaxed_nmadd` (RelaxedSimd)
-                    0x106 => {
-                        Ok(Self::F32x4RelaxedNmadd)
-                    },
+                    0x106 => Ok(Self::F32x4RelaxedNmadd),
+
                     // 0xFD 0x107 `f64x2.relaxed_madd` (RelaxedSimd)
-                    0x107 => {
-                        Ok(Self::F64x2RelaxedMadd)
-                    },
+                    0x107 => Ok(Self::F64x2RelaxedMadd),
+
                     // 0xFD 0x108 `f64x2.relaxed_nmadd` (RelaxedSimd)
-                    0x108 => {
-                        Ok(Self::F64x2RelaxedNmadd)
-                    },
+                    0x108 => Ok(Self::F64x2RelaxedNmadd),
+
                     // 0xFD 0x109 `i8x16.relaxed_laneselect` (RelaxedSimd)
-                    0x109 => {
-                        Ok(Self::I8x16RelaxedLaneselect)
-                    },
+                    0x109 => Ok(Self::I8x16RelaxedLaneselect),
+
                     // 0xFD 0x10A `i16x8.relaxed_laneselect` (RelaxedSimd)
-                    0x10a => {
-                        Ok(Self::I16x8RelaxedLaneselect)
-                    },
+                    0x10a => Ok(Self::I16x8RelaxedLaneselect),
+
                     // 0xFD 0x10B `i32x4.relaxed_laneselect` (RelaxedSimd)
-                    0x10b => {
-                        Ok(Self::I32x4RelaxedLaneselect)
-                    },
+                    0x10b => Ok(Self::I32x4RelaxedLaneselect),
+
                     // 0xFD 0x10C `i64x2.relaxed_laneselect` (RelaxedSimd)
-                    0x10c => {
-                        Ok(Self::I64x2RelaxedLaneselect)
-                    },
+                    0x10c => Ok(Self::I64x2RelaxedLaneselect),
+
                     // 0xFD 0x10D `f32x4.relaxed_min` (RelaxedSimd)
-                    0x10d => {
-                        Ok(Self::F32x4RelaxedMin)
-                    },
+                    0x10d => Ok(Self::F32x4RelaxedMin),
+
                     // 0xFD 0x10E `f32x4.relaxed_max` (RelaxedSimd)
-                    0x10e => {
-                        Ok(Self::F32x4RelaxedMax)
-                    },
+                    0x10e => Ok(Self::F32x4RelaxedMax),
+
                     // 0xFD 0x10F `f64x2.relaxed_min` (RelaxedSimd)
-                    0x10f => {
-                        Ok(Self::F64x2RelaxedMin)
-                    },
+                    0x10f => Ok(Self::F64x2RelaxedMin),
+
                     // 0xFD 0x110 `f64x2.relaxed_max` (RelaxedSimd)
-                    0x110 => {
-                        Ok(Self::F64x2RelaxedMax)
-                    },
+                    0x110 => Ok(Self::F64x2RelaxedMax),
+
                     // 0xFD 0x111 `i16x8.relaxed_q15mulr_s` (RelaxedSimd)
-                    0x111 => {
-                        Ok(Self::I16x8RelaxedQ15mulrS)
-                    },
+                    0x111 => Ok(Self::I16x8RelaxedQ15mulrS),
+
                     // 0xFD 0x112 `i16x8.relaxed_dot_i8x16_i7x16_s` (RelaxedSimd)
-                    0x112 => {
-                        Ok(Self::I16x8RelaxedDotI8x16I7x16S)
-                    },
+                    0x112 => Ok(Self::I16x8RelaxedDotI8x16I7x16S),
+
                     // 0xFD 0x113 `i32x4.relaxed_dot_i8x16_i7x16_add_s` (RelaxedSimd)
-                    0x113 => {
-                        Ok(Self::I32x4RelaxedDotI8x16I7x16AddS)
-                    },
+                    0x113 => Ok(Self::I32x4RelaxedDotI8x16I7x16AddS),
+
                     // 0xFD 0x114 `f32x4.relaxed_dot_bf16x8_add_f32x4` (RelaxedSimd)
-                    0x114 => {
-                        Ok(Self::F32x4RelaxedDotBf16x8AddF32x4)
-                    },
+                    0x114 => Ok(Self::F32x4RelaxedDotBf16x8AddF32x4),
+
                     _ => Err(CompileErrorKind::InvalidBytecode2(leading, trailing))
                 }
             }
@@ -3249,273 +2715,206 @@ impl WasmOpcode {
                 let trailing: u32 = reader.read()?;
                 match trailing {
                     // 0xFE 0x00 `memory.atomic.notify` (Threads)
-                    0x00 => {
-                        Ok(Self::MemoryAtomicNotify)
-                    },
+                    0x00 => Ok(Self::MemoryAtomicNotify),
+
                     // 0xFE 0x01 `memory.atomic.wait32` (Threads)
-                    0x01 => {
-                        Ok(Self::MemoryAtomicWait32)
-                    },
+                    0x01 => Ok(Self::MemoryAtomicWait32),
+
                     // 0xFE 0x02 `memory.atomic.wait64` (Threads)
-                    0x02 => {
-                        Ok(Self::MemoryAtomicWait64)
-                    },
+                    0x02 => Ok(Self::MemoryAtomicWait64),
+
                     // 0xFE 0x03 `atomic.fence` (Threads)
-                    0x03 => {
-                        Ok(Self::AtomicFence)
-                    },
+                    0x03 => Ok(Self::AtomicFence),
+
                     // 0xFE 0x10 `i32.atomic.load` (Threads)
-                    0x10 => {
-                        Ok(Self::I32AtomicLoad)
-                    },
+                    0x10 => Ok(Self::I32AtomicLoad),
+
                     // 0xFE 0x11 `i64.atomic.load` (Threads)
-                    0x11 => {
-                        Ok(Self::I64AtomicLoad)
-                    },
+                    0x11 => Ok(Self::I64AtomicLoad),
+
                     // 0xFE 0x12 `i32.atomic.load8_u` (Threads)
-                    0x12 => {
-                        Ok(Self::I32AtomicLoad8U)
-                    },
+                    0x12 => Ok(Self::I32AtomicLoad8U),
+
                     // 0xFE 0x13 `i32.atomic.load16_u` (Threads)
-                    0x13 => {
-                        Ok(Self::I32AtomicLoad16U)
-                    },
+                    0x13 => Ok(Self::I32AtomicLoad16U),
+
                     // 0xFE 0x14 `i64.atomic.load8_u` (Threads)
-                    0x14 => {
-                        Ok(Self::I64AtomicLoad8U)
-                    },
+                    0x14 => Ok(Self::I64AtomicLoad8U),
+
                     // 0xFE 0x15 `i64.atomic.load16_u` (Threads)
-                    0x15 => {
-                        Ok(Self::I64AtomicLoad16U)
-                    },
+                    0x15 => Ok(Self::I64AtomicLoad16U),
+
                     // 0xFE 0x16 `i64.atomic.load32_u` (Threads)
-                    0x16 => {
-                        Ok(Self::I64AtomicLoad32U)
-                    },
+                    0x16 => Ok(Self::I64AtomicLoad32U),
+
                     // 0xFE 0x17 `i32.atomic.store` (Threads)
-                    0x17 => {
-                        Ok(Self::I32AtomicStore)
-                    },
+                    0x17 => Ok(Self::I32AtomicStore),
+
                     // 0xFE 0x18 `i64.atomic.store` (Threads)
-                    0x18 => {
-                        Ok(Self::I64AtomicStore)
-                    },
+                    0x18 => Ok(Self::I64AtomicStore),
+
                     // 0xFE 0x19 `i32.atomic.store8` (Threads)
-                    0x19 => {
-                        Ok(Self::I32AtomicStore8)
-                    },
+                    0x19 => Ok(Self::I32AtomicStore8),
+
                     // 0xFE 0x1A `i32.atomic.store16` (Threads)
-                    0x1a => {
-                        Ok(Self::I32AtomicStore16)
-                    },
+                    0x1a => Ok(Self::I32AtomicStore16),
+
                     // 0xFE 0x1B `i64.atomic.store8` (Threads)
-                    0x1b => {
-                        Ok(Self::I64AtomicStore8)
-                    },
+                    0x1b => Ok(Self::I64AtomicStore8),
+
                     // 0xFE 0x1C `i64.atomic.store16` (Threads)
-                    0x1c => {
-                        Ok(Self::I64AtomicStore16)
-                    },
+                    0x1c => Ok(Self::I64AtomicStore16),
+
                     // 0xFE 0x1D `i64.atomic.store32` (Threads)
-                    0x1d => {
-                        Ok(Self::I64AtomicStore32)
-                    },
+                    0x1d => Ok(Self::I64AtomicStore32),
+
                     // 0xFE 0x1E `i32.atomic.rmw.add` (Threads)
-                    0x1e => {
-                        Ok(Self::I32AtomicRmwAdd)
-                    },
+                    0x1e => Ok(Self::I32AtomicRmwAdd),
+
                     // 0xFE 0x1F `i64.atomic.rmw.add` (Threads)
-                    0x1f => {
-                        Ok(Self::I64AtomicRmwAdd)
-                    },
+                    0x1f => Ok(Self::I64AtomicRmwAdd),
+
                     // 0xFE 0x20 `i32.atomic.rmw8.add_u` (Threads)
-                    0x20 => {
-                        Ok(Self::I32AtomicRmw8AddU)
-                    },
+                    0x20 => Ok(Self::I32AtomicRmw8AddU),
+
                     // 0xFE 0x21 `i32.atomic.rmw16.add_u` (Threads)
-                    0x21 => {
-                        Ok(Self::I32AtomicRmw16AddU)
-                    },
+                    0x21 => Ok(Self::I32AtomicRmw16AddU),
+
                     // 0xFE 0x22 `i64.atomic.rmw8.add_u` (Threads)
-                    0x22 => {
-                        Ok(Self::I64AtomicRmw8AddU)
-                    },
+                    0x22 => Ok(Self::I64AtomicRmw8AddU),
+
                     // 0xFE 0x23 `i64.atomic.rmw16.add_u` (Threads)
-                    0x23 => {
-                        Ok(Self::I64AtomicRmw16AddU)
-                    },
+                    0x23 => Ok(Self::I64AtomicRmw16AddU),
+
                     // 0xFE 0x24 `i64.atomic.rmw32.add_u` (Threads)
-                    0x24 => {
-                        Ok(Self::I64AtomicRmw32AddU)
-                    },
+                    0x24 => Ok(Self::I64AtomicRmw32AddU),
+
                     // 0xFE 0x25 `i32.atomic.rmw.sub` (Threads)
-                    0x25 => {
-                        Ok(Self::I32AtomicRmwSub)
-                    },
+                    0x25 => Ok(Self::I32AtomicRmwSub),
+
                     // 0xFE 0x26 `i64.atomic.rmw.sub` (Threads)
-                    0x26 => {
-                        Ok(Self::I64AtomicRmwSub)
-                    },
+                    0x26 => Ok(Self::I64AtomicRmwSub),
+
                     // 0xFE 0x27 `i32.atomic.rmw8.sub_u` (Threads)
-                    0x27 => {
-                        Ok(Self::I32AtomicRmw8SubU)
-                    },
+                    0x27 => Ok(Self::I32AtomicRmw8SubU),
+
                     // 0xFE 0x28 `i32.atomic.rmw16.sub_u` (Threads)
-                    0x28 => {
-                        Ok(Self::I32AtomicRmw16SubU)
-                    },
+                    0x28 => Ok(Self::I32AtomicRmw16SubU),
+
                     // 0xFE 0x29 `i64.atomic.rmw8.sub_u` (Threads)
-                    0x29 => {
-                        Ok(Self::I64AtomicRmw8SubU)
-                    },
+                    0x29 => Ok(Self::I64AtomicRmw8SubU),
+
                     // 0xFE 0x2A `i64.atomic.rmw16.sub_u` (Threads)
-                    0x2a => {
-                        Ok(Self::I64AtomicRmw16SubU)
-                    },
+                    0x2a => Ok(Self::I64AtomicRmw16SubU),
+
                     // 0xFE 0x2B `i64.atomic.rmw32.sub_u` (Threads)
-                    0x2b => {
-                        Ok(Self::I64AtomicRmw32SubU)
-                    },
+                    0x2b => Ok(Self::I64AtomicRmw32SubU),
+
                     // 0xFE 0x2C `i32.atomic.rmw.and` (Threads)
-                    0x2c => {
-                        Ok(Self::I32AtomicRmwAnd)
-                    },
+                    0x2c => Ok(Self::I32AtomicRmwAnd),
+
                     // 0xFE 0x2D `i64.atomic.rmw.and` (Threads)
-                    0x2d => {
-                        Ok(Self::I64AtomicRmwAnd)
-                    },
+                    0x2d => Ok(Self::I64AtomicRmwAnd),
+
                     // 0xFE 0x2E `i32.atomic.rmw8.and_u` (Threads)
-                    0x2e => {
-                        Ok(Self::I32AtomicRmw8AndU)
-                    },
+                    0x2e => Ok(Self::I32AtomicRmw8AndU),
+
                     // 0xFE 0x2F `i32.atomic.rmw16.and_u` (Threads)
-                    0x2f => {
-                        Ok(Self::I32AtomicRmw16AndU)
-                    },
+                    0x2f => Ok(Self::I32AtomicRmw16AndU),
+
                     // 0xFE 0x30 `i64.atomic.rmw8.and_u` (Threads)
-                    0x30 => {
-                        Ok(Self::I64AtomicRmw8AndU)
-                    },
+                    0x30 => Ok(Self::I64AtomicRmw8AndU),
+
                     // 0xFE 0x31 `i64.atomic.rmw16.and_u` (Threads)
-                    0x31 => {
-                        Ok(Self::I64AtomicRmw16AndU)
-                    },
+                    0x31 => Ok(Self::I64AtomicRmw16AndU),
+
                     // 0xFE 0x32 `i64.atomic.rmw32.and_u` (Threads)
-                    0x32 => {
-                        Ok(Self::I64AtomicRmw32AndU)
-                    },
+                    0x32 => Ok(Self::I64AtomicRmw32AndU),
+
                     // 0xFE 0x33 `i32.atomic.rmw.or` (Threads)
-                    0x33 => {
-                        Ok(Self::I32AtomicRmwOr)
-                    },
+                    0x33 => Ok(Self::I32AtomicRmwOr),
+
                     // 0xFE 0x34 `i64.atomic.rmw.or` (Threads)
-                    0x34 => {
-                        Ok(Self::I64AtomicRmwOr)
-                    },
+                    0x34 => Ok(Self::I64AtomicRmwOr),
+
                     // 0xFE 0x35 `i32.atomic.rmw8.or_u` (Threads)
-                    0x35 => {
-                        Ok(Self::I32AtomicRmw8OrU)
-                    },
+                    0x35 => Ok(Self::I32AtomicRmw8OrU),
+
                     // 0xFE 0x36 `i32.atomic.rmw16.or_u` (Threads)
-                    0x36 => {
-                        Ok(Self::I32AtomicRmw16OrU)
-                    },
+                    0x36 => Ok(Self::I32AtomicRmw16OrU),
+
                     // 0xFE 0x37 `i64.atomic.rmw8.or_u` (Threads)
-                    0x37 => {
-                        Ok(Self::I64AtomicRmw8OrU)
-                    },
+                    0x37 => Ok(Self::I64AtomicRmw8OrU),
+
                     // 0xFE 0x38 `i64.atomic.rmw16.or_u` (Threads)
-                    0x38 => {
-                        Ok(Self::I64AtomicRmw16OrU)
-                    },
+                    0x38 => Ok(Self::I64AtomicRmw16OrU),
+
                     // 0xFE 0x39 `i64.atomic.rmw32.or_u` (Threads)
-                    0x39 => {
-                        Ok(Self::I64AtomicRmw32OrU)
-                    },
+                    0x39 => Ok(Self::I64AtomicRmw32OrU),
+
                     // 0xFE 0x3A `i32.atomic.rmw.xor` (Threads)
-                    0x3a => {
-                        Ok(Self::I32AtomicRmwXor)
-                    },
+                    0x3a => Ok(Self::I32AtomicRmwXor),
+
                     // 0xFE 0x3B `i64.atomic.rmw.xor` (Threads)
-                    0x3b => {
-                        Ok(Self::I64AtomicRmwXor)
-                    },
+                    0x3b => Ok(Self::I64AtomicRmwXor),
+
                     // 0xFE 0x3C `i32.atomic.rmw8.xor_u` (Threads)
-                    0x3c => {
-                        Ok(Self::I32AtomicRmw8XorU)
-                    },
+                    0x3c => Ok(Self::I32AtomicRmw8XorU),
+
                     // 0xFE 0x3D `i32.atomic.rmw16.xor_u` (Threads)
-                    0x3d => {
-                        Ok(Self::I32AtomicRmw16XorU)
-                    },
+                    0x3d => Ok(Self::I32AtomicRmw16XorU),
+
                     // 0xFE 0x3E `i64.atomic.rmw8.xor_u` (Threads)
-                    0x3e => {
-                        Ok(Self::I64AtomicRmw8XorU)
-                    },
+                    0x3e => Ok(Self::I64AtomicRmw8XorU),
+
                     // 0xFE 0x3F `i64.atomic.rmw16.xor_u` (Threads)
-                    0x3f => {
-                        Ok(Self::I64AtomicRmw16XorU)
-                    },
+                    0x3f => Ok(Self::I64AtomicRmw16XorU),
+
                     // 0xFE 0x40 `i64.atomic.rmw32.xor_u` (Threads)
-                    0x40 => {
-                        Ok(Self::I64AtomicRmw32XorU)
-                    },
+                    0x40 => Ok(Self::I64AtomicRmw32XorU),
+
                     // 0xFE 0x41 `i32.atomic.rmw.xchg` (Threads)
-                    0x41 => {
-                        Ok(Self::I32AtomicRmwXchg)
-                    },
+                    0x41 => Ok(Self::I32AtomicRmwXchg),
+
                     // 0xFE 0x42 `i64.atomic.rmw.xchg` (Threads)
-                    0x42 => {
-                        Ok(Self::I64AtomicRmwXchg)
-                    },
+                    0x42 => Ok(Self::I64AtomicRmwXchg),
+
                     // 0xFE 0x43 `i32.atomic.rmw8.xchg_u` (Threads)
-                    0x43 => {
-                        Ok(Self::I32AtomicRmw8XchgU)
-                    },
+                    0x43 => Ok(Self::I32AtomicRmw8XchgU),
+
                     // 0xFE 0x44 `i32.atomic.rmw16.xchg_u` (Threads)
-                    0x44 => {
-                        Ok(Self::I32AtomicRmw16XchgU)
-                    },
+                    0x44 => Ok(Self::I32AtomicRmw16XchgU),
+
                     // 0xFE 0x45 `i64.atomic.rmw8.xchg_u` (Threads)
-                    0x45 => {
-                        Ok(Self::I64AtomicRmw8XchgU)
-                    },
+                    0x45 => Ok(Self::I64AtomicRmw8XchgU),
+
                     // 0xFE 0x46 `i64.atomic.rmw16.xchg_u` (Threads)
-                    0x46 => {
-                        Ok(Self::I64AtomicRmw16XchgU)
-                    },
+                    0x46 => Ok(Self::I64AtomicRmw16XchgU),
+
                     // 0xFE 0x47 `i64.atomic.rmw32.xchg_u` (Threads)
-                    0x47 => {
-                        Ok(Self::I64AtomicRmw32XchgU)
-                    },
+                    0x47 => Ok(Self::I64AtomicRmw32XchgU),
+
                     // 0xFE 0x48 `i32.atomic.rmw.cmpxchg` (Threads)
-                    0x48 => {
-                        Ok(Self::I32AtomicRmwCmpxchg)
-                    },
+                    0x48 => Ok(Self::I32AtomicRmwCmpxchg),
+
                     // 0xFE 0x49 `i64.atomic.rmw.cmpxchg` (Threads)
-                    0x49 => {
-                        Ok(Self::I64AtomicRmwCmpxchg)
-                    },
+                    0x49 => Ok(Self::I64AtomicRmwCmpxchg),
+
                     // 0xFE 0x4A `i32.atomic.rmw8.cmpxchg_u` (Threads)
-                    0x4a => {
-                        Ok(Self::I32AtomicRmw8CmpxchgU)
-                    },
+                    0x4a => Ok(Self::I32AtomicRmw8CmpxchgU),
+
                     // 0xFE 0x4B `i32.atomic.rmw16.cmpxchg_u` (Threads)
-                    0x4b => {
-                        Ok(Self::I32AtomicRmw16CmpxchgU)
-                    },
+                    0x4b => Ok(Self::I32AtomicRmw16CmpxchgU),
+
                     // 0xFE 0x4C `i64.atomic.rmw8.cmpxchg_u` (Threads)
-                    0x4c => {
-                        Ok(Self::I64AtomicRmw8CmpxchgU)
-                    },
+                    0x4c => Ok(Self::I64AtomicRmw8CmpxchgU),
+
                     // 0xFE 0x4D `i64.atomic.rmw16.cmpxchg_u` (Threads)
-                    0x4d => {
-                        Ok(Self::I64AtomicRmw16CmpxchgU)
-                    },
+                    0x4d => Ok(Self::I64AtomicRmw16CmpxchgU),
+
                     // 0xFE 0x4E `i64.atomic.rmw32.cmpxchg_u` (Threads)
-                    0x4e => {
-                        Ok(Self::I64AtomicRmw32CmpxchgU)
-                    },
+                    0x4e => Ok(Self::I64AtomicRmw32CmpxchgU),
+
                     _ => Err(CompileErrorKind::InvalidBytecode2(leading, trailing))
                 }
             }

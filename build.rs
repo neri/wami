@@ -209,9 +209,9 @@ impl WasmOpcode {{
 
     for leading in single2id.values() {
         let opcode = opcodes.get(leading).unwrap();
-        writeln!(
+        write!(
             os,
-            "            // {}\n            0x{:02X} => {{",
+            "            // {}\n            0x{:02X} => ",
             opcode.common_comment(),
             opcode.leading,
         )
@@ -221,29 +221,22 @@ impl WasmOpcode {{
             2 => {
                 writeln!(
                     os,
-                    "                let a1 = reader.read()?;
+                    "{{
+                let a1 = reader.read()?;
                 let a2 = reader.read()?;
-                Ok(Self::{}(a1, a2))",
+                Ok(Self::{}(a1, a2))
+            }}",
                     opcode.identifier,
                 )
                 .unwrap();
             }
-            1 => match opcode.params[0].as_str() {
-                _ => {
-                    writeln!(
-                        os,
-                        "                let a1 = reader.read()?;
-                Ok(Self::{}(a1))",
-                        opcode.identifier,
-                    )
-                    .unwrap();
-                }
-            },
 
-            _ => writeln!(os, "                Ok(Self::{})", opcode.identifier,).unwrap(),
+            1 => writeln!(os, "Ok(Self::{}(reader.read()?)),", opcode.identifier,).unwrap(),
+
+            _ => writeln!(os, "Ok(Self::{}),", opcode.identifier,).unwrap(),
         }
 
-        writeln!(os, "            }}",).unwrap();
+        writeln!(os, "").unwrap();
     }
 
     for leading in leading_ids {
@@ -267,9 +260,9 @@ impl WasmOpcode {{
             let opcode = opcodes.get(identifier).unwrap();
             let trailing = opcode.trailing.unwrap();
 
-            writeln!(
+            write!(
                 os,
-                "                    // {}\n                    0x{:02x} => {{",
+                "                    // {}\n                    0x{:02x} => ",
                 opcode.common_comment(),
                 trailing,
             )
@@ -279,33 +272,22 @@ impl WasmOpcode {{
                 2 => {
                     writeln!(
                         os,
-                        "                        let a1 = reader.read()?;
+                        "{{
+                        let a1 = reader.read()?;
                         let a2 = reader.read()?;
-                        Ok(Self::{}(a1, a2))",
+                        Ok(Self::{}(a1, a2))
+                    }}",
                         opcode.identifier,
                     )
                     .unwrap();
                 }
-                1 => match opcode.params[0].as_str() {
-                    _ => {
-                        writeln!(
-                            os,
-                            "                        let a1 = reader.read()?;
-                        Ok(Self::{}(a1))",
-                            opcode.identifier,
-                        )
-                        .unwrap();
-                    }
-                },
-                _ => writeln!(
-                    os,
-                    "                        Ok(Self::{})",
-                    opcode.identifier,
-                )
-                .unwrap(),
+
+                1 => writeln!(os, "Ok(Self::{}(reader.read()?)),", opcode.identifier,).unwrap(),
+
+                _ => writeln!(os, "Ok(Self::{}),", opcode.identifier,).unwrap(),
             }
 
-            writeln!(os, "                    }},",).unwrap();
+            writeln!(os, "").unwrap();
         }
 
         writeln!(

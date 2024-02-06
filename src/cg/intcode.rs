@@ -225,6 +225,8 @@ pub enum WasmImInstruction {
     //
     // Fused Instructions
     //
+    FusedI32AddConst(LocalVarIndex, i32),
+
     FusedI32SetConst(LocalVarIndex, i32),
     FusedI64SetConst(LocalVarIndex, i64),
 

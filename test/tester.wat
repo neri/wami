@@ -2,10 +2,14 @@
   ;; test cases
   (import "env" "add" (func $env_add (param i32) (param i32) (result i32)))
   (import "env" "sub" (func $env_sub (param i32) (param i32) (result i32)))
+
   (memory 1)
+
   (global $stack_pointer (export "__stack_pointer") (mut i32) (i32.const 123))
   (global $global1 (export "global1") (mut i32) (i32.const 123))
 
+  (table 10 funcref)
+  (elem (i32.const 1) $elem1 $elem2 $elem3)
 
   ;; fn local_test() -> i32
   (func $local_test (export "local_test") (result i32)
@@ -686,12 +690,37 @@
 
   ;; fn call_test2(a1: i32, a2: i32, a2: i64, a4: i64) -> i32
   (func $call_test2 (export "call_test2") (param $a1 i32) (param $a2 i32) (param $a3 i64) (param $a4 i64) (result i32)
+    (local $i i32)
+
+    i64.const 0
+    i64.const 0
+    i64.const 0
+    i64.const 0
+
     local.get $a2
     local.get $a1
     local.get $a4
     local.get $a3
-    call $call_test1
 
+    i64.const 123456789
+    i64.const 987654321
+    i64.const 0x5555aaaa5555aaaa
+    i64.const 0xaaaa5555aaaa5555
+
+    drop
+    drop
+    drop
+    drop
+
+    call $call_test1
+    local.set $i
+
+    drop
+    drop
+    drop
+    drop
+
+    local.get $i
     local.get $a1
     i32.add
   )
@@ -1492,4 +1521,28 @@
     call $env_sub
   )
 
+  ;; fn call_indirect_test(sel: i32, a1: i32) -> i32
+  (func $call_indirect_test (export "call_indirect_test") (param $sel i32) (param $a1 i32) (result i32)
+    local.get $a1
+    local.get $sel
+    call_indirect (param i32) (result i32)
+  )
+
+  (func $elem1 (param $a0 i32) (result i32)
+    i32.const 123
+    local.get $a0
+    i32.add
+  )
+
+  (func $elem2 (param $a0 i32) (result i32)
+    i32.const 456
+    local.get $a0
+    i32.add
+  )
+
+  (func $elem3 (param $a0 i32) (result i32)
+    i32.const 789
+    local.get $a0
+    i32.add
+  )
 )

@@ -1,7 +1,9 @@
 //! Stack structure for the Webassembly Runtime
-
 use alloc::vec::Vec;
-use core::{cell::UnsafeCell, mem::align_of, mem::size_of, slice};
+use core::cell::UnsafeCell;
+use core::mem::align_of;
+use core::mem::size_of;
+use core::slice;
 
 /// Fixed size stack
 pub struct FixedStack<'a, T> {
@@ -147,7 +149,7 @@ impl StackHeap {
         r
     }
 
-    pub fn alloc_slice<'a, T>(&mut self, len: usize) -> &'a mut [T]
+    pub fn alloc_slice<'a, T>(&mut self, len: usize, value: T) -> &'a mut [T]
     where
         T: Sized + Copy + Clone,
     {
@@ -165,6 +167,7 @@ impl StackHeap {
             let base = self.vec.get_mut().as_mut_ptr().add(offset) as *const _ as *mut T;
             slice::from_raw_parts_mut(base, len)
         };
+        slice.fill(value);
 
         self.stack_pointer = new_size;
 
@@ -172,11 +175,11 @@ impl StackHeap {
     }
 
     #[inline]
-    pub fn alloc_stack<'a, T>(&mut self, len: usize) -> FixedStack<'a, T>
+    pub fn alloc_stack<'a, T>(&mut self, len: usize, value: T) -> FixedStack<'a, T>
     where
         T: Sized + Copy + Clone,
     {
-        let slice = self.alloc_slice(len);
+        let slice = self.alloc_slice(len, value);
         FixedStack::from_slice(slice)
     }
 }
@@ -191,7 +194,7 @@ mod tests {
 
         pool.snapshot(|stack| {
             assert_eq!(stack.stack_pointer, 0);
-            let mut stack1: FixedStack<i32> = stack.alloc_stack(123);
+            let mut stack1: FixedStack<i32> = stack.alloc_stack(123, 0);
             assert_eq!(stack.stack_pointer, 496);
 
             assert_eq!(stack1.stack_pointer, 0);

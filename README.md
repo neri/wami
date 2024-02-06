@@ -1,6 +1,6 @@
 # WAMI
 
-A WebAssembly Interpreter written in Rust
+A WebAssembly Interpreter used in [Maystorm](https://github.com/neri/maystorm)
 
 ## features
 

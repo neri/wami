@@ -1,6 +1,9 @@
 //! Little Endian Base 128
-use alloc::{borrow::ToOwned, string::String, vec::Vec};
-use core::{mem::size_of_val, str};
+use alloc::borrow::ToOwned;
+use alloc::string::String;
+use alloc::vec::Vec;
+use core::mem::size_of_val;
+use core::str;
 
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq)]

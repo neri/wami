@@ -1,11 +1,11 @@
-use crate::{sync::rwlock_nb::*, *};
+use crate::sync::rwlock_nb::*;
+use crate::*;
 use alloc::vec::Vec;
-use core::{
-    cell::UnsafeCell,
-    mem::size_of,
-    ops::{Deref, DerefMut},
-    sync::atomic::{fence, AtomicU32, Ordering},
-};
+use core::cell::UnsafeCell;
+use core::mem::{size_of, transmute};
+use core::ops::{Deref, DerefMut};
+use core::slice;
+use core::sync::atomic::{fence, AtomicU32, Ordering};
 
 /// WebAssembly memory object
 pub struct WasmMemory {
@@ -15,6 +15,8 @@ pub struct WasmMemory {
 }
 
 impl WasmMemory {
+    pub const MAX_LIMIT: u32 = 0x1_0000;
+
     #[inline]
     pub const fn zero() -> Self {
         Self {
@@ -29,7 +31,7 @@ impl WasmMemory {
         let memory = Self {
             data: RwLockNb::new(SharedDataStore::new()),
             size: AtomicU32::new(0),
-            limit: limit.max().unwrap_or(u32::MAX).min(0x1_0000),
+            limit: limit.max().unwrap_or(u32::MAX).min(Self::MAX_LIMIT),
         };
 
         if limit.is_zero() {
@@ -94,20 +96,6 @@ impl WasmMemory {
         }
     }
 
-    // pub fn slice<'a>(&self, base: u32, count: u32) -> Result<&'a [u8], WasmRuntimeErrorKind> {
-    //     let memory = self.as_slice();
-    //     let limit = memory.len();
-    //     let _ea = Self::effective_address_range(base, count, limit)?;
-    //     Ok(unsafe { slice::from_raw_parts(memory.as_ptr().add(base as usize), count as usize) })
-    // }
-
-    // pub unsafe fn transmute<'a, T>(&self, offset: u32) -> Result<&'a T, WasmRuntimeErrorKind> {
-    //     let memory = self.as_slice();
-    //     let limit = memory.len();
-    //     let _ea = Self::effective_address::<T>(offset, limit)?;
-    //     Ok(unsafe { transmute(memory.as_ptr().add(offset as usize)) })
-    // }
-
     /// Write slice to memory
     pub fn write_slice(&self, offset: usize, src: &[u8]) -> Result<(), WasmRuntimeErrorKind> {
         self.borrowing(|memory| {
@@ -141,7 +129,7 @@ impl WasmMemory {
     }
 
     #[inline]
-    pub fn effective_address<T>(
+    pub fn effective_address<T: Sized>(
         offset: u32,
         index: u32,
         limit: usize,
@@ -169,6 +157,40 @@ impl SharedDataStore {
     #[inline]
     pub fn as_mut_slice<'a>(&'a self) -> &'a mut [u8] {
         unsafe { &mut *self.0.get() }.as_mut_slice()
+    }
+
+    pub fn slice<'a, T: Sized>(
+        &self,
+        base: usize,
+        count: usize,
+    ) -> Result<&'a [T], WasmRuntimeErrorKind> {
+        let slice = self.as_slice();
+        let limit = slice.len();
+        let size_of_t = size_of::<T>();
+        WasmMemory::check_bound(base as u64, count * size_of_t, limit)?;
+        Ok(unsafe { slice::from_raw_parts(slice.as_ptr().add(base as usize) as *const T, count) })
+    }
+
+    pub fn slice_mut<'a, T: Sized>(
+        &self,
+        base: usize,
+        count: usize,
+    ) -> Result<&'a mut [T], WasmRuntimeErrorKind> {
+        let slice = self.as_mut_slice();
+        let limit = slice.len();
+        let size_of_t = size_of::<T>();
+        WasmMemory::check_bound(base as u64, count * size_of_t, limit)?;
+        Ok(unsafe { slice::from_raw_parts_mut(slice.as_mut_ptr().add(base) as *mut T, count) })
+    }
+
+    pub unsafe fn transmute<'a, T: Sized>(
+        &self,
+        offset: u64,
+    ) -> Result<&'a T, WasmRuntimeErrorKind> {
+        let slice = self.as_slice();
+        let limit = slice.len();
+        WasmMemory::check_bound(offset, size_of::<T>(), limit)?;
+        Ok(unsafe { transmute(slice.as_ptr().add(offset as usize)) })
     }
 
     #[inline]
