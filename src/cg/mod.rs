@@ -1421,7 +1421,7 @@ impl WasmCodeBlock {
                         fused2!(int_codes, i, FusedI32AddI(*val));
                     }
                     (I32Const(val), I32Sub) => {
-                        fused2!(int_codes, i, FusedI32SubI(*val));
+                        fused2!(int_codes, i, FusedI32AddI(0i32.wrapping_sub(*val)));
                     }
                     (I32Const(val), I32And) => {
                         fused2!(int_codes, i, FusedI32AndI(*val as u32));
@@ -1449,7 +1449,7 @@ impl WasmCodeBlock {
                         fused2!(int_codes, i, FusedI64AddI(*val));
                     }
                     (I64Const(val), I64Sub) => {
-                        fused2!(int_codes, i, FusedI64SubI(*val));
+                        fused2!(int_codes, i, FusedI64AddI(0i64.wrapping_sub(*val)));
                     }
                     (I64Const(val), I64And) => {
                         fused2!(int_codes, i, FusedI64AndI(*val as u64));

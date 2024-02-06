@@ -9,7 +9,7 @@
   (global $global1 (export "global1") (mut i32) (i32.const 123))
 
   (table 10 funcref)
-  (elem (i32.const 1) $elem1 $elem2 $elem3)
+  (elem (i32.const 1) $elem1 $elem2 $elem3 $call_indirect_test)
 
   ;; fn local_test() -> i32
   (func $local_test (export "local_test") (result i32)
@@ -1535,9 +1535,9 @@
   )
 
   (func $elem2 (param $a0 i32) (result i32)
-    i32.const 456
     local.get $a0
-    i32.add
+    i32.const 456
+    i32.sub
   )
 
   (func $elem3 (param $a0 i32) (result i32)
@@ -1545,4 +1545,327 @@
     local.get $a0
     i32.add
   )
+
+  ;; fn test_fused_i32(a0: i32) -> i32
+  (func $test_fused_i32 (export "test_fused_i32") (param $a0 i32) (result i32)
+    (local $p i32)
+    (local $i i32)
+
+    ;; i32.const N; local.set -> FusedI32SetConst
+    i32.const 0x10
+    local.tee $p
+    i32.const 0x12345678
+    local.set $i
+    i64.const 0xcccccccc
+    drop
+    local.get $i
+    i32.store
+
+    ;; i32.const N; i32.add -> FusedI32AddI
+    ;; i32.const N; i32.sub -> FusedI32AddI (sign reversed)
+    local.get $p
+    i32.const 4
+    i32.add
+    local.tee $p
+    local.get $a0
+    i32.const 1234
+    i32.add
+    i32.store
+
+    local.get $p
+    i32.const 4
+    i32.add
+    local.tee $p
+    local.get $a0
+    i32.const 1234
+    i32.sub
+    i32.store
+
+    local.get $p
+    i32.const 4
+    i32.add
+    local.tee $p
+    local.get $a0
+    i32.const 5678
+    i32.add
+    i32.store
+
+    ;; i32.const N; i32.and -> FusedI32AndI
+    local.get $p
+    i32.const 4
+    i32.add
+    local.tee $p
+    local.get $a0
+    i32.const 0x55555555
+    i32.and
+    i32.store
+
+    local.get $p
+    i32.const 4
+    i32.add
+    local.tee $p
+    local.get $a0
+    i32.const 0xaaaaaaaa
+    i32.and
+    i32.store
+
+    ;; i32.const N; i32.or -> FusedI32OrI
+    local.get $p
+    i32.const 4
+    i32.add
+    local.tee $p
+    local.get $a0
+    i32.const 0x55555555
+    i32.or
+    i32.store
+
+    local.get $p
+    i32.const 4
+    i32.add
+    local.tee $p
+    local.get $a0
+    i32.const 0xaaaaaaaa
+    i32.or
+    i32.store
+
+    ;; i32.const N; i32.xor -> FusedI32XorI
+    local.get $p
+    i32.const 4
+    i32.add
+    local.tee $p
+    local.get $a0
+    i32.const 0x55555555
+    i32.xor
+    i32.store
+
+    local.get $p
+    i32.const 4
+    i32.add
+    local.tee $p
+    local.get $a0
+    i32.const 0xaaaaaaaa
+    i32.xor
+    i32.store
+
+    ;; i32.const N; i32.shl -> FusedI32ShlI
+    local.get $p
+    i32.const 4
+    i32.add
+    local.tee $p
+    local.get $a0
+    i32.const 7
+    i32.shl
+    i32.store
+
+    local.get $p
+    i32.const 4
+    i32.add
+    local.tee $p
+    local.get $a0
+    i32.const 19
+    i32.shl
+    i32.store
+
+    ;; i32.const N; i32.shr_s -> FusedI32ShrSI
+    local.get $p
+    i32.const 4
+    i32.add
+    local.tee $p
+    local.get $a0
+    i32.const 5
+    i32.shr_s
+    i32.store
+
+    local.get $p
+    i32.const 4
+    i32.add
+    local.tee $p
+    local.get $a0
+    i32.const 17
+    i32.shr_s
+    i32.store
+
+    ;; i32.const N; i32.shr_s -> FusedI32ShrUI
+    local.get $p
+    i32.const 4
+    i32.add
+    local.tee $p
+    local.get $a0
+    i32.const 3
+    i32.shr_u
+    i32.store
+
+    local.get $p
+    i32.const 4
+    i32.add
+    local.tee $p
+    local.get $a0
+    i32.const 13
+    i32.shr_u
+    i32.store
+
+    local.get $p
+  )
+
+  ;; fn test_fused_i64(a0: i64) -> i32
+  (func $test_fused_i64 (export "test_fused_i64") (param $a0 i64) (result i32)
+    (local $p i32)
+    (local $l i64)
+
+    ;; i64.const N; local.set -> FusedI64SetConst
+    i32.const 0x10
+    local.tee $p
+    i64.const 0x12345678
+    local.set $l
+    i64.const 0xcccccccc
+    drop
+    local.get $l
+    i64.store
+
+    ;; i64.const N; i64.add -> FusedI64AddI
+    ;; i64.const N; i64.sub -> FusedI64AddI (sign reversed)
+    local.get $p
+    i32.const 8
+    i32.add
+    local.tee $p
+    local.get $a0
+    i64.const 12345678
+    i64.add
+    i64.store
+
+    local.get $p
+    i32.const 8
+    i32.add
+    local.tee $p
+    local.get $a0
+    i64.const 12345678
+    i64.sub
+    i64.store
+
+    local.get $p
+    i32.const 8
+    i32.add
+    local.tee $p
+    local.get $a0
+    i64.const 987654321
+    i64.add
+    i64.store
+
+    ;; i64.const N; i64.and -> FusedI64AndI
+    local.get $p
+    i32.const 8
+    i32.add
+    local.tee $p
+    local.get $a0
+    i64.const 0x5555555555555555
+    i64.and
+    i64.store
+
+    local.get $p
+    i32.const 8
+    i32.add
+    local.tee $p
+    local.get $a0
+    i64.const 0xaaaaaaaaaaaaaaaa
+    i64.and
+    i64.store
+
+    ;; i64.const N; i64.or -> FusedI64OrI
+    local.get $p
+    i32.const 8
+    i32.add
+    local.tee $p
+    local.get $a0
+    i64.const 0x5555555555555555
+    i64.or
+    i64.store
+
+    local.get $p
+    i32.const 8
+    i32.add
+    local.tee $p
+    local.get $a0
+    i64.const 0xaaaaaaaaaaaaaaaa
+    i64.or
+    i64.store
+
+    ;; i64.const N; i64.xor -> FusedI64XorI
+    local.get $p
+    i32.const 8
+    i32.add
+    local.tee $p
+    local.get $a0
+    i64.const 0x5555555555555555
+    i64.xor
+    i64.store
+
+    local.get $p
+    i32.const 8
+    i32.add
+    local.tee $p
+    local.get $a0
+    i64.const 0xaaaaaaaaaaaaaaaa
+    i64.xor
+    i64.store
+
+    ;; i64.const N; i64.shl -> FusedI64ShlI
+    local.get $p
+    i32.const 8
+    i32.add
+    local.tee $p
+    local.get $a0
+    i64.const 7
+    i64.shl
+    i64.store
+
+    local.get $p
+    i32.const 8
+    i32.add
+    local.tee $p
+    local.get $a0
+    i64.const 19
+    i64.shl
+    i64.store
+
+    ;; i64.const N; i64.shr_s -> FusedI64ShrSI
+    local.get $p
+    i32.const 8
+    i32.add
+    local.tee $p
+    local.get $a0
+    i64.const 5
+    i64.shr_s
+    i64.store
+
+    local.get $p
+    i32.const 8
+    i32.add
+    local.tee $p
+    local.get $a0
+    i64.const 17
+    i64.shr_s
+    i64.store
+
+    ;; i64.const N; i64.shr_s -> FusedI64ShrUI
+    local.get $p
+    i32.const 8
+    i32.add
+    local.tee $p
+    local.get $a0
+    i64.const 3
+    i64.shr_u
+    i64.store
+
+    local.get $p
+    i32.const 8
+    i32.add
+    local.tee $p
+    local.get $a0
+    i64.const 13
+    i64.shr_u
+    i64.store
+
+    local.get $p
+  )
+
 )

@@ -631,7 +631,6 @@ impl WasmInstance {
     }
 
     #[inline]
-    #[allow(dead_code)]
     pub fn function(&self, name: &str) -> Result<WasmRunnable, WasmRuntimeErrorKind> {
         for export in &self.module.exports {
             if let WasmExportDesc::Function(index) = export.desc {
@@ -640,7 +639,7 @@ impl WasmInstance {
                         .module
                         .functions
                         .get(index)
-                        .map(|v| WasmRunnable::from_function(v, self))
+                        .map(|v| WasmRunnable::new(v, self))
                         .ok_or(WasmRuntimeErrorKind::NoMethod);
                 }
             }
@@ -2360,7 +2359,7 @@ pub struct WasmRunnable<'a> {
 
 impl<'a> WasmRunnable<'a> {
     #[inline]
-    const fn from_function(function: &'a WasmFunction, instance: &'a WasmInstance) -> Self {
+    const fn new(function: &'a WasmFunction, instance: &'a WasmInstance) -> Self {
         Self { function, instance }
     }
 }

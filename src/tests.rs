@@ -964,6 +964,54 @@ fn opr_test_i32() {
         assert_eq!(memory.read_u32(0x74), 0xCCCCCCCC);
         assert_eq!(memory.read_u64(0x78), 0xCCCC_CCCC_CCCC_CCCC);
     }
+
+    for val in [
+        0i32,
+        1,
+        -1,
+        0x1234_5678,
+        0x5555_5555,
+        0xAAAA_AAAAu32 as i32,
+        0x0000_FFFF,
+        0xFFFF_0000u32 as i32,
+    ] {
+        memory.fill(0xCC);
+        let result = instance
+            .function("test_fused_i32")
+            .unwrap()
+            .invoke(&[val.into()])
+            .unwrap()
+            .unwrap()
+            .get_i32()
+            .unwrap();
+        assert_eq!(result, 0x4C);
+
+        assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
+        assert_eq!(memory.read_u64(8), 0xCCCC_CCCC_CCCC_CCCC);
+
+        let valu = val as u32;
+        assert_eq!(memory.read_i32(0x10), 0x12345678);
+        assert_eq!(memory.read_i32(0x14), val.wrapping_add(1234));
+        assert_eq!(memory.read_i32(0x18), val.wrapping_sub(1234));
+        assert_eq!(memory.read_i32(0x1C), val.wrapping_add(5678));
+
+        assert_eq!(memory.read_u32(0x20), valu & 0x5555_5555);
+        assert_eq!(memory.read_u32(0x24), valu & 0xaaaa_aaaa);
+        assert_eq!(memory.read_u32(0x28), valu | 0x5555_5555);
+        assert_eq!(memory.read_u32(0x2C), valu | 0xaaaa_aaaa);
+        assert_eq!(memory.read_u32(0x30), valu ^ 0x5555_5555);
+        assert_eq!(memory.read_u32(0x34), valu ^ 0xaaaa_aaaa);
+
+        assert_eq!(memory.read_u32(0x38), valu.wrapping_shl(7));
+        assert_eq!(memory.read_u32(0x3C), valu.wrapping_shl(19));
+        assert_eq!(memory.read_i32(0x40), val.wrapping_shr(5));
+        assert_eq!(memory.read_i32(0x44), val.wrapping_shr(17));
+        assert_eq!(memory.read_u32(0x48), valu.wrapping_shr(3));
+        assert_eq!(memory.read_u32(0x4C), valu.wrapping_shr(13));
+
+        assert_eq!(memory.read_u64(0x50), 0xCCCC_CCCC_CCCC_CCCC);
+        assert_eq!(memory.read_u64(0x58), 0xCCCC_CCCC_CCCC_CCCC);
+    }
 }
 
 #[test]
@@ -1071,6 +1119,54 @@ fn opr_test_i64() {
         assert_eq!(memory.read_u64(0xA8), (lhs as u64).rotate_right(rhs as u32));
 
         assert_eq!(memory.read_u64(0xB0), 0xCCCC_CCCC_CCCC_CCCC);
+    }
+
+    for val in [
+        0i64,
+        1,
+        -1,
+        0x1234_5678_ABCD_DEF0,
+        0x5555_5555_5555_5555,
+        0xAAAA_AAAA_AAAA_AAAAu64 as i64,
+        0x0000_0000_FFFF_FFFF,
+        0xFFFF_FFFF_0000_0000u64 as i64,
+    ] {
+        memory.fill(0xCC);
+        let result = instance
+            .function("test_fused_i64")
+            .unwrap()
+            .invoke(&[val.into()])
+            .unwrap()
+            .unwrap()
+            .get_i32()
+            .unwrap();
+        assert_eq!(result, 0x88);
+
+        assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
+        assert_eq!(memory.read_u64(8), 0xCCCC_CCCC_CCCC_CCCC);
+
+        let valu = val as u64;
+        assert_eq!(memory.read_i64(0x10), 0x12345678);
+        assert_eq!(memory.read_i64(0x18), val.wrapping_add(12345678));
+        assert_eq!(memory.read_i64(0x20), val.wrapping_sub(12345678));
+        assert_eq!(memory.read_i64(0x28), val.wrapping_add(987654321));
+
+        assert_eq!(memory.read_u64(0x30), valu & 0x5555_5555_5555_5555);
+        assert_eq!(memory.read_u64(0x38), valu & 0xaaaa_aaaa_aaaa_aaaa);
+        assert_eq!(memory.read_u64(0x40), valu | 0x5555_5555_5555_5555);
+        assert_eq!(memory.read_u64(0x48), valu | 0xaaaa_aaaa_aaaa_aaaa);
+        assert_eq!(memory.read_u64(0x50), valu ^ 0x5555_5555_5555_5555);
+        assert_eq!(memory.read_u64(0x58), valu ^ 0xaaaa_aaaa_aaaa_aaaa);
+
+        assert_eq!(memory.read_u64(0x60), valu.wrapping_shl(7));
+        assert_eq!(memory.read_u64(0x68), valu.wrapping_shl(19));
+        assert_eq!(memory.read_i64(0x70), val.wrapping_shr(5));
+        assert_eq!(memory.read_i64(0x78), val.wrapping_shr(17));
+        assert_eq!(memory.read_u64(0x80), valu.wrapping_shr(3));
+        assert_eq!(memory.read_u64(0x88), valu.wrapping_shr(13));
+
+        assert_eq!(memory.read_u64(0x90), 0xCCCC_CCCC_CCCC_CCCC);
+        assert_eq!(memory.read_u64(0x98), 0xCCCC_CCCC_CCCC_CCCC);
     }
 }
 
@@ -1183,16 +1279,16 @@ fn call_indirect_test() {
 
     // let memory = instance.memory(0).unwrap().try_borrow().unwrap();
 
-    for a1 in [0u32, 0x12345678, 0x55555555, 0xAAAAAAAA] {
+    for a1 in [0i32, 0x12345678, 0x55555555, 0xAAAAAAAAu32 as i32] {
         for i in 1..=3 {
-            let base = [0, 123, 456, 789][i as usize];
+            let base = [0i32, 123, -456, 789][i as usize];
             let result = instance
                 .function("call_indirect_test")
                 .unwrap()
-                .invoke(&[i.into(), a1.into()])
+                .invoke(&[(i as i32).into(), a1.into()])
                 .unwrap()
                 .unwrap()
-                .get_u32()
+                .get_i32()
                 .unwrap();
             assert_eq!(result, a1.wrapping_add(base));
         }
@@ -1200,7 +1296,7 @@ fn call_indirect_test() {
         let e = instance
             .function("call_indirect_test")
             .unwrap()
-            .invoke(&[0.into(), a1.into()])
+            .invoke(&[4.into(), a1.into()])
             .unwrap_err();
         assert_matches!(e.kind(), WasmRuntimeErrorKind::TypeMismatch);
 

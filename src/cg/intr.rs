@@ -1211,11 +1211,6 @@ impl WasmInterpreter<'_> {
                         lhs.map_i32(|lhs| lhs.wrapping_add(val));
                     });
                 }
-                WasmImInstruction::FusedI32SubI(val) => {
-                    Self::unary_op(code, &mut value_stack, |lhs| unsafe {
-                        lhs.map_i32(|lhs| lhs.wrapping_sub(val));
-                    });
-                }
                 WasmImInstruction::FusedI32AndI(val) => {
                     Self::unary_op(code, &mut value_stack, |lhs| unsafe {
                         lhs.map_u32(|lhs| lhs & val);
@@ -1250,11 +1245,6 @@ impl WasmInterpreter<'_> {
                 WasmImInstruction::FusedI64AddI(val) => {
                     Self::unary_op(code, &mut value_stack, |lhs| unsafe {
                         lhs.map_i64(|lhs| lhs.wrapping_add(val));
-                    });
-                }
-                WasmImInstruction::FusedI64SubI(val) => {
-                    Self::unary_op(code, &mut value_stack, |lhs| unsafe {
-                        lhs.map_i64(|lhs| lhs.wrapping_sub(val));
                     });
                 }
                 WasmImInstruction::FusedI64AndI(val) => {

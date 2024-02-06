@@ -231,7 +231,6 @@ pub enum WasmImInstruction {
     FusedI64SetConst(LocalVarIndex, i64),
 
     FusedI32AddI(i32),
-    FusedI32SubI(i32),
     FusedI32AndI(u32),
     FusedI32OrI(u32),
     FusedI32XorI(u32),
@@ -240,7 +239,6 @@ pub enum WasmImInstruction {
     FusedI32ShrUI(u32),
 
     FusedI64AddI(i64),
-    FusedI64SubI(i64),
     FusedI64AndI(u64),
     FusedI64OrI(u64),
     FusedI64XorI(u64),
