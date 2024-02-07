@@ -901,90 +901,17 @@ fn opr_test_i32() {
         assert_eq!(memory.read_u32(0x24), ((val as i16) as i32) as u32);
 
         assert_eq!(memory.read_u64(0x28), 0xCCCC_CCCC_CCCC_CCCC);
-    }
 
-    for (lhs, rhs) in [
-        (1i32, 1i32),
-        (-1, -1),
-        (1234, 1234),
-        (-5678, -5678),
-        (1234, 5678),
-        (5678, 1234),
-        (1234, -1234),
-        (-1234, 1234),
-        (0x1234_5678, 0x1234_5678),
-        (0x7FFF_FFFF, 0x8000_0000u32 as i32),
-        (0x8000_0000u32 as i32, 0x7FFF_FFFF),
-        (0x1234_5678, 0xFEDC_BA98u32 as i32),
-        (0x5555_5555, 0xAAAA_AAAAu32 as i32),
-    ] {
         memory.fill(0xCC);
         let result = instance
-            .function("test_bin_i32")
-            .unwrap()
-            .invoke(&[lhs.into(), rhs.into()])
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 112);
-
-        assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
-        assert_eq!(memory.read_u64(8), 0xCCCC_CCCC_CCCC_CCCC);
-
-        assert_eq!(memory.read_u32(0x10), (lhs == rhs) as u32);
-        assert_eq!(memory.read_u32(0x14), (lhs != rhs) as u32);
-        assert_eq!(memory.read_u32(0x18), (lhs < rhs) as u32);
-        assert_eq!(memory.read_u32(0x1c), ((lhs as u32) < (rhs as u32)) as u32);
-        assert_eq!(memory.read_u32(0x20), (lhs > rhs) as u32);
-        assert_eq!(memory.read_u32(0x24), ((lhs as u32) > (rhs as u32)) as u32);
-        assert_eq!(memory.read_u32(0x28), (lhs <= rhs) as u32);
-        assert_eq!(memory.read_u32(0x2c), ((lhs as u32) <= (rhs as u32)) as u32);
-        assert_eq!(memory.read_u32(0x30), (lhs >= rhs) as u32);
-        assert_eq!(memory.read_u32(0x34), ((lhs as u32) >= (rhs as u32)) as u32);
-
-        assert_eq!(memory.read_u32(0x38) as i32, lhs.wrapping_add(rhs));
-        assert_eq!(memory.read_u32(0x3c) as i32, lhs.wrapping_sub(rhs));
-        assert_eq!(memory.read_u32(0x40) as i32, lhs.wrapping_mul(rhs));
-        assert_eq!(memory.read_u32(0x44) as i32, lhs.wrapping_div(rhs));
-        assert_eq!(memory.read_u32(0x48), (lhs as u32).wrapping_div(rhs as u32));
-        assert_eq!(memory.read_u32(0x4c) as i32, lhs.wrapping_rem(rhs));
-        assert_eq!(memory.read_u32(0x50), (lhs as u32).wrapping_rem(rhs as u32));
-
-        assert_eq!(memory.read_u32(0x54) as i32, lhs & rhs);
-        assert_eq!(memory.read_u32(0x58) as i32, lhs | rhs);
-        assert_eq!(memory.read_u32(0x5c) as i32, lhs ^ rhs);
-
-        assert_eq!(memory.read_u32(0x60) as i32, lhs.wrapping_shl(rhs as u32));
-        assert_eq!(memory.read_u32(0x64) as i32, lhs.wrapping_shr(rhs as u32));
-        assert_eq!(memory.read_u32(0x68), (lhs as u32).wrapping_shr(rhs as u32));
-        assert_eq!(memory.read_u32(0x6c), (lhs as u32).rotate_left(rhs as u32));
-        assert_eq!(memory.read_u32(0x70), (lhs as u32).rotate_right(rhs as u32));
-
-        assert_eq!(memory.read_u32(0x74), 0xCCCCCCCC);
-        assert_eq!(memory.read_u64(0x78), 0xCCCC_CCCC_CCCC_CCCC);
-    }
-
-    for val in [
-        0i32,
-        1,
-        -1,
-        0x1234_5678,
-        0x5555_5555,
-        0xAAAA_AAAAu32 as i32,
-        0x0000_FFFF,
-        0xFFFF_0000u32 as i32,
-    ] {
-        memory.fill(0xCC);
-        let result = instance
-            .function("test_fused_i32")
+            .function("test_fusion_unary_i32")
             .unwrap()
             .invoke(&[val.into()])
             .unwrap()
             .unwrap()
             .get_i32()
             .unwrap();
-        assert_eq!(result, 0x4C);
+        assert_eq!(result, 0x50);
 
         assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
         assert_eq!(memory.read_u64(8), 0xCCCC_CCCC_CCCC_CCCC);
@@ -1009,8 +936,103 @@ fn opr_test_i32() {
         assert_eq!(memory.read_u32(0x48), valu.wrapping_shr(3));
         assert_eq!(memory.read_u32(0x4C), valu.wrapping_shr(13));
 
-        assert_eq!(memory.read_u64(0x50), 0xCCCC_CCCC_CCCC_CCCC);
+        assert_eq!(memory.read_i32(0x50), if val == 0 { 1234 } else { 5678 });
+
+        assert_eq!(memory.read_u32(0x54), 0xCCCC_CCCC);
         assert_eq!(memory.read_u64(0x58), 0xCCCC_CCCC_CCCC_CCCC);
+    }
+
+    for (lhs, rhs) in [
+        (1i32, 1i32),
+        (-1, -1),
+        (1234, 1234),
+        (-5678, -5678),
+        (1234, 5678),
+        (5678, 1234),
+        (1234, -1234),
+        (-1234, 1234),
+        (0x1234_5678, 0x1234_5678),
+        (0x7FFF_FFFF, 0x8000_0000u32 as i32),
+        (0x8000_0000u32 as i32, 0x7FFF_FFFF),
+        (0x1234_5678, 0xFEDC_BA98u32 as i32),
+        (0x5555_5555, 0xAAAA_AAAAu32 as i32),
+    ] {
+        let lhsu = lhs as u32;
+        let rhsu = rhs as u32;
+
+        memory.fill(0xCC);
+        let result = instance
+            .function("test_bin_i32")
+            .unwrap()
+            .invoke(&[lhs.into(), rhs.into()])
+            .unwrap()
+            .unwrap()
+            .get_i32()
+            .unwrap();
+        assert_eq!(result, 112);
+
+        assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
+        assert_eq!(memory.read_u64(8), 0xCCCC_CCCC_CCCC_CCCC);
+
+        assert_eq!(memory.read_u32(0x10), (lhs == rhs) as u32);
+        assert_eq!(memory.read_u32(0x14), (lhs != rhs) as u32);
+        assert_eq!(memory.read_u32(0x18), (lhs < rhs) as u32);
+        assert_eq!(memory.read_u32(0x1c), (lhsu < rhsu) as u32);
+        assert_eq!(memory.read_u32(0x20), (lhs > rhs) as u32);
+        assert_eq!(memory.read_u32(0x24), (lhsu > rhsu) as u32);
+        assert_eq!(memory.read_u32(0x28), (lhs <= rhs) as u32);
+        assert_eq!(memory.read_u32(0x2c), (lhsu <= rhsu) as u32);
+        assert_eq!(memory.read_u32(0x30), (lhs >= rhs) as u32);
+        assert_eq!(memory.read_u32(0x34), (lhsu >= rhsu) as u32);
+
+        assert_eq!(memory.read_u32(0x38) as i32, lhs.wrapping_add(rhs));
+        assert_eq!(memory.read_u32(0x3c) as i32, lhs.wrapping_sub(rhs));
+        assert_eq!(memory.read_u32(0x40) as i32, lhs.wrapping_mul(rhs));
+        assert_eq!(memory.read_u32(0x44) as i32, lhs.wrapping_div(rhs));
+        assert_eq!(memory.read_u32(0x48), lhsu.wrapping_div(rhsu));
+        assert_eq!(memory.read_u32(0x4c) as i32, lhs.wrapping_rem(rhs));
+        assert_eq!(memory.read_u32(0x50), lhsu.wrapping_rem(rhsu));
+
+        assert_eq!(memory.read_u32(0x54) as i32, lhs & rhs);
+        assert_eq!(memory.read_u32(0x58) as i32, lhs | rhs);
+        assert_eq!(memory.read_u32(0x5c) as i32, lhs ^ rhs);
+
+        assert_eq!(memory.read_u32(0x60) as i32, lhs.wrapping_shl(rhsu));
+        assert_eq!(memory.read_u32(0x64) as i32, lhs.wrapping_shr(rhsu));
+        assert_eq!(memory.read_u32(0x68), lhsu.wrapping_shr(rhsu));
+        assert_eq!(memory.read_u32(0x6c), lhsu.rotate_left(rhsu));
+        assert_eq!(memory.read_u32(0x70), lhsu.rotate_right(rhsu));
+
+        assert_eq!(memory.read_u32(0x74), 0xCCCCCCCC);
+        assert_eq!(memory.read_u64(0x78), 0xCCCC_CCCC_CCCC_CCCC);
+
+        memory.fill(0xCC);
+        let result = instance
+            .function("test_fusion_binary_i32")
+            .unwrap()
+            .invoke(&[lhs.into(), rhs.into()])
+            .unwrap()
+            .unwrap()
+            .get_i32()
+            .unwrap();
+        assert_eq!(result, 0x34);
+
+        assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
+        assert_eq!(memory.read_u64(8), 0xCCCC_CCCC_CCCC_CCCC);
+
+        assert_eq!(memory.read_u32(0x10), if lhs == rhs { 123 } else { 456 });
+        assert_eq!(memory.read_u32(0x14), if lhs != rhs { 123 } else { 456 });
+        assert_eq!(memory.read_u32(0x18), if lhs < rhs { 123 } else { 456 });
+        assert_eq!(memory.read_u32(0x1c), if lhsu < rhsu { 123 } else { 456 });
+        assert_eq!(memory.read_u32(0x20), if lhs > rhs { 123 } else { 456 });
+        assert_eq!(memory.read_u32(0x24), if lhsu > rhsu { 123 } else { 456 });
+        assert_eq!(memory.read_u32(0x28), if lhs <= rhs { 123 } else { 456 });
+        assert_eq!(memory.read_u32(0x2c), if lhsu <= rhsu { 123 } else { 456 });
+        assert_eq!(memory.read_u32(0x30), if lhs >= rhs { 123 } else { 456 });
+        assert_eq!(memory.read_u32(0x34), if lhsu >= rhsu { 123 } else { 456 });
+
+        assert_eq!(memory.read_u64(0x38), 0xCCCC_CCCC_CCCC_CCCC);
+        assert_eq!(memory.read_u64(0x40), 0xCCCC_CCCC_CCCC_CCCC);
     }
 }
 
@@ -1057,80 +1079,7 @@ fn opr_test_i64() {
         assert_eq!(memory.read_u32(0x4C), 0xCCCC_CCCC);
 
         assert_eq!(memory.read_u64(0x50), 0xCCCC_CCCC_CCCC_CCCC);
-    }
 
-    for (lhs, rhs) in [
-        (1i64, 1i64),
-        (-1, -1),
-        (1234, 1234),
-        (-5678, -5678),
-        (1234, 5678),
-        (5678, 1234),
-        (1234, -1234),
-        (-1234, 1234),
-        (0x1111_1111_1234_5678, 0x0000_0000_1234_5678),
-        (0x1234_5678_9ABC_DEF0, 0x1234_5678_9ABC_DEF0),
-        (0x7FFF_FFFF_FFFF_FFFF, 0x8000_0000_0000_0000u64 as i64),
-        (0x8000_0000_0000_0000u64 as i64, 0x7FFF_FFFF_FFFF_FFFF),
-        (0x1234_5678_9ABC_DEF0, 0xFEDC_BA98_7654_3210u64 as i64),
-        (0x5555_5555_5555_5555, 0xAAAA_AAAA_AAAA_AAAAu64 as i64),
-    ] {
-        memory.fill(0xCC);
-        let result = instance
-            .function("test_bin_i64")
-            .unwrap()
-            .invoke(&[lhs.into(), rhs.into()])
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, 168);
-
-        assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
-        assert_eq!(memory.read_u64(8), 0xCCCC_CCCC_CCCC_CCCC);
-
-        assert_eq!(memory.read_u32(0x10), (lhs == rhs) as u32);
-        assert_eq!(memory.read_u32(0x14), (lhs != rhs) as u32);
-        assert_eq!(memory.read_u32(0x18), (lhs < rhs) as u32);
-        assert_eq!(memory.read_u32(0x1c), ((lhs as u64) < (rhs as u64)) as u32);
-        assert_eq!(memory.read_u32(0x20), (lhs > rhs) as u32);
-        assert_eq!(memory.read_u32(0x24), ((lhs as u64) > (rhs as u64)) as u32);
-        assert_eq!(memory.read_u32(0x28), (lhs <= rhs) as u32);
-        assert_eq!(memory.read_u32(0x2c), ((lhs as u64) <= (rhs as u64)) as u32);
-        assert_eq!(memory.read_u32(0x30), (lhs >= rhs) as u32);
-        assert_eq!(memory.read_u32(0x34), ((lhs as u64) >= (rhs as u64)) as u32);
-
-        assert_eq!(memory.read_u64(0x38) as i64, lhs.wrapping_add(rhs));
-        assert_eq!(memory.read_u64(0x40) as i64, lhs.wrapping_sub(rhs));
-        assert_eq!(memory.read_u64(0x48) as i64, lhs.wrapping_mul(rhs));
-        assert_eq!(memory.read_u64(0x50) as i64, lhs.wrapping_div(rhs));
-        assert_eq!(memory.read_u64(0x58), (lhs as u64).wrapping_div(rhs as u64));
-        assert_eq!(memory.read_u64(0x60) as i64, lhs.wrapping_rem(rhs));
-        assert_eq!(memory.read_u64(0x68), (lhs as u64).wrapping_rem(rhs as u64));
-
-        assert_eq!(memory.read_u64(0x70) as i64, lhs & rhs);
-        assert_eq!(memory.read_u64(0x78) as i64, lhs | rhs);
-        assert_eq!(memory.read_u64(0x80) as i64, lhs ^ rhs);
-
-        assert_eq!(memory.read_u64(0x88) as i64, lhs.wrapping_shl(rhs as u32));
-        assert_eq!(memory.read_u64(0x90) as i64, lhs.wrapping_shr(rhs as u32));
-        assert_eq!(memory.read_u64(0x98), (lhs as u64).wrapping_shr(rhs as u32));
-        assert_eq!(memory.read_u64(0xA0), (lhs as u64).rotate_left(rhs as u32));
-        assert_eq!(memory.read_u64(0xA8), (lhs as u64).rotate_right(rhs as u32));
-
-        assert_eq!(memory.read_u64(0xB0), 0xCCCC_CCCC_CCCC_CCCC);
-    }
-
-    for val in [
-        0i64,
-        1,
-        -1,
-        0x1234_5678_ABCD_DEF0,
-        0x5555_5555_5555_5555,
-        0xAAAA_AAAA_AAAA_AAAAu64 as i64,
-        0x0000_0000_FFFF_FFFF,
-        0xFFFF_FFFF_0000_0000u64 as i64,
-    ] {
         memory.fill(0xCC);
         let result = instance
             .function("test_fused_i64")
@@ -1140,7 +1089,7 @@ fn opr_test_i64() {
             .unwrap()
             .get_i32()
             .unwrap();
-        assert_eq!(result, 0x88);
+        assert_eq!(result, 0x90);
 
         assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
         assert_eq!(memory.read_u64(8), 0xCCCC_CCCC_CCCC_CCCC);
@@ -1165,8 +1114,103 @@ fn opr_test_i64() {
         assert_eq!(memory.read_u64(0x80), valu.wrapping_shr(3));
         assert_eq!(memory.read_u64(0x88), valu.wrapping_shr(13));
 
-        assert_eq!(memory.read_u64(0x90), 0xCCCC_CCCC_CCCC_CCCC);
+        assert_eq!(memory.read_i32(0x90), if val == 0 { 1234 } else { 5678 });
+
+        assert_eq!(memory.read_u32(0x94), 0xCCCC_CCCC);
         assert_eq!(memory.read_u64(0x98), 0xCCCC_CCCC_CCCC_CCCC);
+    }
+
+    for (lhs, rhs) in [
+        (1i64, 1i64),
+        (-1, -1),
+        (1234, 1234),
+        (-5678, -5678),
+        (1234, 5678),
+        (5678, 1234),
+        (1234, -1234),
+        (-1234, 1234),
+        (0x1111_1111_1234_5678, 0x0000_0000_1234_5678),
+        (0x1234_5678_9ABC_DEF0, 0x1234_5678_9ABC_DEF0),
+        (0x7FFF_FFFF_FFFF_FFFF, 0x8000_0000_0000_0000u64 as i64),
+        (0x8000_0000_0000_0000u64 as i64, 0x7FFF_FFFF_FFFF_FFFF),
+        (0x1234_5678_9ABC_DEF0, 0xFEDC_BA98_7654_3210u64 as i64),
+        (0x5555_5555_5555_5555, 0xAAAA_AAAA_AAAA_AAAAu64 as i64),
+    ] {
+        let lhsu = lhs as u64;
+        let rhsu = rhs as u64;
+
+        memory.fill(0xCC);
+        let result = instance
+            .function("test_bin_i64")
+            .unwrap()
+            .invoke(&[lhs.into(), rhs.into()])
+            .unwrap()
+            .unwrap()
+            .get_i32()
+            .unwrap();
+        assert_eq!(result, 168);
+
+        assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
+        assert_eq!(memory.read_u64(8), 0xCCCC_CCCC_CCCC_CCCC);
+
+        assert_eq!(memory.read_u32(0x10), (lhs == rhs) as u32);
+        assert_eq!(memory.read_u32(0x14), (lhs != rhs) as u32);
+        assert_eq!(memory.read_u32(0x18), (lhs < rhs) as u32);
+        assert_eq!(memory.read_u32(0x1c), (lhsu < rhsu) as u32);
+        assert_eq!(memory.read_u32(0x20), (lhs > rhs) as u32);
+        assert_eq!(memory.read_u32(0x24), (lhsu > rhsu) as u32);
+        assert_eq!(memory.read_u32(0x28), (lhs <= rhs) as u32);
+        assert_eq!(memory.read_u32(0x2c), (lhsu <= rhsu) as u32);
+        assert_eq!(memory.read_u32(0x30), (lhs >= rhs) as u32);
+        assert_eq!(memory.read_u32(0x34), (lhsu >= rhsu) as u32);
+
+        assert_eq!(memory.read_u64(0x38) as i64, lhs.wrapping_add(rhs));
+        assert_eq!(memory.read_u64(0x40) as i64, lhs.wrapping_sub(rhs));
+        assert_eq!(memory.read_u64(0x48) as i64, lhs.wrapping_mul(rhs));
+        assert_eq!(memory.read_u64(0x50) as i64, lhs.wrapping_div(rhs));
+        assert_eq!(memory.read_u64(0x58), lhsu.wrapping_div(rhsu));
+        assert_eq!(memory.read_u64(0x60) as i64, lhs.wrapping_rem(rhs));
+        assert_eq!(memory.read_u64(0x68), lhsu.wrapping_rem(rhsu));
+
+        assert_eq!(memory.read_u64(0x70) as i64, lhs & rhs);
+        assert_eq!(memory.read_u64(0x78) as i64, lhs | rhs);
+        assert_eq!(memory.read_u64(0x80) as i64, lhs ^ rhs);
+
+        assert_eq!(memory.read_u64(0x88) as i64, lhs.wrapping_shl(rhs as u32));
+        assert_eq!(memory.read_u64(0x90) as i64, lhs.wrapping_shr(rhs as u32));
+        assert_eq!(memory.read_u64(0x98), lhsu.wrapping_shr(rhs as u32));
+        assert_eq!(memory.read_u64(0xA0), lhsu.rotate_left(rhs as u32));
+        assert_eq!(memory.read_u64(0xA8), lhsu.rotate_right(rhs as u32));
+
+        assert_eq!(memory.read_u64(0xB0), 0xCCCC_CCCC_CCCC_CCCC);
+
+        memory.fill(0xCC);
+        let result = instance
+            .function("test_fusion_binary_i64")
+            .unwrap()
+            .invoke(&[lhs.into(), rhs.into()])
+            .unwrap()
+            .unwrap()
+            .get_i32()
+            .unwrap();
+        assert_eq!(result, 0x34);
+
+        assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
+        assert_eq!(memory.read_u64(8), 0xCCCC_CCCC_CCCC_CCCC);
+
+        assert_eq!(memory.read_u32(0x10), if lhs == rhs { 123 } else { 456 });
+        assert_eq!(memory.read_u32(0x14), if lhs != rhs { 123 } else { 456 });
+        assert_eq!(memory.read_u32(0x18), if lhs < rhs { 123 } else { 456 });
+        assert_eq!(memory.read_u32(0x1c), if lhsu < rhsu { 123 } else { 456 });
+        assert_eq!(memory.read_u32(0x20), if lhs > rhs { 123 } else { 456 });
+        assert_eq!(memory.read_u32(0x24), if lhsu > rhsu { 123 } else { 456 });
+        assert_eq!(memory.read_u32(0x28), if lhs <= rhs { 123 } else { 456 });
+        assert_eq!(memory.read_u32(0x2c), if lhsu <= rhsu { 123 } else { 456 });
+        assert_eq!(memory.read_u32(0x30), if lhs >= rhs { 123 } else { 456 });
+        assert_eq!(memory.read_u32(0x34), if lhsu >= rhsu { 123 } else { 456 });
+
+        assert_eq!(memory.read_u64(0x38), 0xCCCC_CCCC_CCCC_CCCC);
+        assert_eq!(memory.read_u64(0x40), 0xCCCC_CCCC_CCCC_CCCC);
     }
 }
 

@@ -98,25 +98,23 @@ impl WasmMemory {
 
     /// Write slice to memory
     pub fn write_slice(&self, offset: usize, src: &[u8]) -> Result<(), WasmRuntimeErrorKind> {
-        self.borrowing(|memory| {
-            let count = src.len();
-            let limit = memory.len();
-            let Some(end) = offset.checked_add(count) else {
-                return Err(WasmRuntimeErrorKind::OutOfBounds);
-            };
-            if offset < limit && end <= limit {
-                unsafe {
-                    memory
-                        .as_mut_ptr()
-                        .add(offset)
-                        .copy_from_nonoverlapping(src.as_ptr(), count);
-                }
-                Ok(())
-            } else {
-                Err(WasmRuntimeErrorKind::OutOfBounds)
+        let memory = self.try_borrow()?;
+        let count = src.len();
+        let limit = memory.len();
+        let Some(end) = offset.checked_add(count) else {
+            return Err(WasmRuntimeErrorKind::OutOfBounds);
+        };
+        if offset < limit && end <= limit {
+            unsafe {
+                memory
+                    .as_mut_ptr()
+                    .add(offset)
+                    .copy_from_nonoverlapping(src.as_ptr(), count);
             }
-        })
-        .and_then(|v| v)
+            Ok(())
+        } else {
+            Err(WasmRuntimeErrorKind::OutOfBounds)
+        }
     }
 
     #[inline]

@@ -1387,6 +1387,70 @@ impl WasmInterpreter<'_> {
                         codes.set_position(target)?;
                     }
                 }
+                WasmImInstruction::FusedI64BrLtS(target) => {
+                    let stack_level = code.base_stack_level();
+                    let rhs = unsafe { *value_stack.get(stack_level.succ(1)) };
+                    let lhs = *value_stack.get(stack_level);
+                    if unsafe { lhs.get_i64() < rhs.get_i64() } {
+                        codes.set_position(target)?;
+                    }
+                }
+                WasmImInstruction::FusedI64BrLtU(target) => {
+                    let stack_level = code.base_stack_level();
+                    let rhs = unsafe { *value_stack.get(stack_level.succ(1)) };
+                    let lhs = *value_stack.get(stack_level);
+                    if unsafe { lhs.get_u64() < rhs.get_u64() } {
+                        codes.set_position(target)?;
+                    }
+                }
+                WasmImInstruction::FusedI64BrGtS(target) => {
+                    let stack_level = code.base_stack_level();
+                    let rhs = unsafe { *value_stack.get(stack_level.succ(1)) };
+                    let lhs = *value_stack.get(stack_level);
+                    if unsafe { lhs.get_i64() > rhs.get_i64() } {
+                        codes.set_position(target)?;
+                    }
+                }
+                WasmImInstruction::FusedI64BrGtU(target) => {
+                    let stack_level = code.base_stack_level();
+                    let rhs = unsafe { *value_stack.get(stack_level.succ(1)) };
+                    let lhs = *value_stack.get(stack_level);
+                    if unsafe { lhs.get_u64() > rhs.get_u64() } {
+                        codes.set_position(target)?;
+                    }
+                }
+                WasmImInstruction::FusedI64BrLeS(target) => {
+                    let stack_level = code.base_stack_level();
+                    let rhs = unsafe { *value_stack.get(stack_level.succ(1)) };
+                    let lhs = *value_stack.get(stack_level);
+                    if unsafe { lhs.get_i64() <= rhs.get_i64() } {
+                        codes.set_position(target)?;
+                    }
+                }
+                WasmImInstruction::FusedI64BrLeU(target) => {
+                    let stack_level = code.base_stack_level();
+                    let rhs = unsafe { *value_stack.get(stack_level.succ(1)) };
+                    let lhs = *value_stack.get(stack_level);
+                    if unsafe { lhs.get_u64() <= rhs.get_u64() } {
+                        codes.set_position(target)?;
+                    }
+                }
+                WasmImInstruction::FusedI64BrGeS(target) => {
+                    let stack_level = code.base_stack_level();
+                    let rhs = unsafe { *value_stack.get(stack_level.succ(1)) };
+                    let lhs = *value_stack.get(stack_level);
+                    if unsafe { lhs.get_i64() >= rhs.get_i64() } {
+                        codes.set_position(target)?;
+                    }
+                }
+                WasmImInstruction::FusedI64BrGeU(target) => {
+                    let stack_level = code.base_stack_level();
+                    let rhs = unsafe { *value_stack.get(stack_level.succ(1)) };
+                    let lhs = *value_stack.get(stack_level);
+                    if unsafe { lhs.get_u64() >= rhs.get_u64() } {
+                        codes.set_position(target)?;
+                    }
+                }
             }
         }
         if let Some(result_type) = result_types.first() {

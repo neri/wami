@@ -1546,8 +1546,8 @@
     i32.add
   )
 
-  ;; fn test_fused_i32(a0: i32) -> i32
-  (func $test_fused_i32 (export "test_fused_i32") (param $a0 i32) (result i32)
+  ;; fn test_fusion_unary_i32(a0: i32) -> i32
+  (func $test_fusion_unary_i32 (export "test_fusion_unary_i32") (param $a0 i32) (result i32)
     (local $p i32)
     (local $i i32)
 
@@ -1703,6 +1703,241 @@
     i32.const 13
     i32.shr_u
     i32.store
+
+    ;; i32.eqz; br_if -> FusedI32BrZ
+    local.get $p
+    i32.const 4
+    i32.add
+    local.set $p
+    block
+      block
+        local.get $a0
+        i32.eqz
+        br_if 0
+        local.get $p
+        i32.const 5678
+        i32.store
+        br 1
+      end
+      local.get $p
+      i32.const 1234
+      i32.store
+    end
+
+    local.get $p
+  )
+
+  ;; fn test_fusion_binary_i32(lhs: i32, rhs: i32) -> i32
+  (func $test_fusion_binary_i32 (export "test_fusion_binary_i32") (param $lhs i32) (param $rhs i32) (result i32)
+    (local $p i32)
+
+    ;; i32.eq; br_if -> FusedI32BrEq
+    i32.const 0x10
+    local.set $p
+    block
+      block
+        local.get $lhs
+        local.get $rhs
+        i32.eq
+        br_if 0
+        local.get $p
+        i32.const 456
+        i32.store
+        br 1
+      end
+      local.get $p
+      i32.const 123
+      i32.store
+    end
+
+    ;; i32.ne; br_if -> FusedI32BrNe
+    local.get $p
+    i32.const 4
+    i32.add
+    local.set $p
+    block
+      block
+        local.get $lhs
+        local.get $rhs
+        i32.ne
+        br_if 0
+        local.get $p
+        i32.const 456
+        i32.store
+        br 1
+      end
+      local.get $p
+      i32.const 123
+      i32.store
+    end
+
+    ;; i32.lt_s; br_if -> FusedI32BrLtS
+    local.get $p
+    i32.const 4
+    i32.add
+    local.set $p
+    block
+      block
+        local.get $lhs
+        local.get $rhs
+        i32.lt_s
+        br_if 0
+        local.get $p
+        i32.const 456
+        i32.store
+        br 1
+      end
+      local.get $p
+      i32.const 123
+      i32.store
+    end
+
+    ;; i32.lt_u; br_if -> FusedI32BrLtU
+    local.get $p
+    i32.const 4
+    i32.add
+    local.set $p
+    block
+      block
+        local.get $lhs
+        local.get $rhs
+        i32.lt_u
+        br_if 0
+        local.get $p
+        i32.const 456
+        i32.store
+        br 1
+      end
+      local.get $p
+      i32.const 123
+      i32.store
+    end
+
+    ;; i32.gt_s; br_if -> FusedI32BrGtS
+    local.get $p
+    i32.const 4
+    i32.add
+    local.set $p
+    block
+      block
+        local.get $lhs
+        local.get $rhs
+        i32.gt_s
+        br_if 0
+        local.get $p
+        i32.const 456
+        i32.store
+        br 1
+      end
+      local.get $p
+      i32.const 123
+      i32.store
+    end
+
+    ;; i32.gt_u; br_if -> FusedI32BrGtU
+    local.get $p
+    i32.const 4
+    i32.add
+    local.set $p
+    block
+      block
+        local.get $lhs
+        local.get $rhs
+        i32.gt_u
+        br_if 0
+        local.get $p
+        i32.const 456
+        i32.store
+        br 1
+      end
+      local.get $p
+      i32.const 123
+      i32.store
+    end
+
+    ;; i32.le_s; br_if -> FusedI32BrLeS
+    local.get $p
+    i32.const 4
+    i32.add
+    local.set $p
+    block
+      block
+        local.get $lhs
+        local.get $rhs
+        i32.le_s
+        br_if 0
+        local.get $p
+        i32.const 456
+        i32.store
+        br 1
+      end
+      local.get $p
+      i32.const 123
+      i32.store
+    end
+
+    ;; i32.le_u; br_if -> FusedI32BrLeU
+    local.get $p
+    i32.const 4
+    i32.add
+    local.set $p
+    block
+      block
+        local.get $lhs
+        local.get $rhs
+        i32.le_u
+        br_if 0
+        local.get $p
+        i32.const 456
+        i32.store
+        br 1
+      end
+      local.get $p
+      i32.const 123
+      i32.store
+    end
+
+    ;; i32.ge_s; br_if -> FusedI32BrGeS
+    local.get $p
+    i32.const 4
+    i32.add
+    local.set $p
+    block
+      block
+        local.get $lhs
+        local.get $rhs
+        i32.ge_s
+        br_if 0
+        local.get $p
+        i32.const 456
+        i32.store
+        br 1
+      end
+      local.get $p
+      i32.const 123
+      i32.store
+    end
+
+    ;; i32.ge_u; br_if -> FusedI32BrGeU
+    local.get $p
+    i32.const 4
+    i32.add
+    local.set $p
+    block
+      block
+        local.get $lhs
+        local.get $rhs
+        i32.ge_u
+        br_if 0
+        local.get $p
+        i32.const 456
+        i32.store
+        br 1
+      end
+      local.get $p
+      i32.const 123
+      i32.store
+    end
 
     local.get $p
   )
@@ -1864,6 +2099,241 @@
     i64.const 13
     i64.shr_u
     i64.store
+
+    ;; i64.eqz; br_if -> FusedI64BrZ
+    local.get $p
+    i32.const 8
+    i32.add
+    local.set $p
+    block
+      block
+        local.get $a0
+        i64.eqz
+        br_if 0
+        local.get $p
+        i32.const 5678
+        i32.store
+        br 1
+      end
+      local.get $p
+      i32.const 1234
+      i32.store
+    end
+
+    local.get $p
+  )
+
+  ;; fn test_fusion_binary_i64(lhs: i64, rhs: i64) -> i32
+  (func $test_fusion_binary_i64 (export "test_fusion_binary_i64") (param $lhs i64) (param $rhs i64) (result i32)
+    (local $p i32)
+
+    ;; i64.eq; br_if -> FusedI64BrEq
+    i32.const 0x10
+    local.set $p
+    block
+      block
+        local.get $lhs
+        local.get $rhs
+        i64.eq
+        br_if 0
+        local.get $p
+        i32.const 456
+        i32.store
+        br 1
+      end
+      local.get $p
+      i32.const 123
+      i32.store
+    end
+
+    ;; i64.ne; br_if -> FusedI64BrNe
+    local.get $p
+    i32.const 4
+    i32.add
+    local.set $p
+    block
+      block
+        local.get $lhs
+        local.get $rhs
+        i64.ne
+        br_if 0
+        local.get $p
+        i32.const 456
+        i32.store
+        br 1
+      end
+      local.get $p
+      i32.const 123
+      i32.store
+    end
+
+    ;; i64.lt_s; br_if -> FusedI64BrLtS
+    local.get $p
+    i32.const 4
+    i32.add
+    local.set $p
+    block
+      block
+        local.get $lhs
+        local.get $rhs
+        i64.lt_s
+        br_if 0
+        local.get $p
+        i32.const 456
+        i32.store
+        br 1
+      end
+      local.get $p
+      i32.const 123
+      i32.store
+    end
+
+    ;; i64.lt_u; br_if -> FusedI64BrLtU
+    local.get $p
+    i32.const 4
+    i32.add
+    local.set $p
+    block
+      block
+        local.get $lhs
+        local.get $rhs
+        i64.lt_u
+        br_if 0
+        local.get $p
+        i32.const 456
+        i32.store
+        br 1
+      end
+      local.get $p
+      i32.const 123
+      i32.store
+    end
+
+    ;; i64.gt_s; br_if -> FusedI64BrGtS
+    local.get $p
+    i32.const 4
+    i32.add
+    local.set $p
+    block
+      block
+        local.get $lhs
+        local.get $rhs
+        i64.gt_s
+        br_if 0
+        local.get $p
+        i32.const 456
+        i32.store
+        br 1
+      end
+      local.get $p
+      i32.const 123
+      i32.store
+    end
+
+    ;; i64.gt_u; br_if -> FusedI64BrGtU
+    local.get $p
+    i32.const 4
+    i32.add
+    local.set $p
+    block
+      block
+        local.get $lhs
+        local.get $rhs
+        i64.gt_u
+        br_if 0
+        local.get $p
+        i32.const 456
+        i32.store
+        br 1
+      end
+      local.get $p
+      i32.const 123
+      i32.store
+    end
+
+    ;; i64.le_s; br_if -> FusedI64BrLeS
+    local.get $p
+    i32.const 4
+    i32.add
+    local.set $p
+    block
+      block
+        local.get $lhs
+        local.get $rhs
+        i64.le_s
+        br_if 0
+        local.get $p
+        i32.const 456
+        i32.store
+        br 1
+      end
+      local.get $p
+      i32.const 123
+      i32.store
+    end
+
+    ;; i64.le_u; br_if -> FusedI64BrLeU
+    local.get $p
+    i32.const 4
+    i32.add
+    local.set $p
+    block
+      block
+        local.get $lhs
+        local.get $rhs
+        i64.le_u
+        br_if 0
+        local.get $p
+        i32.const 456
+        i32.store
+        br 1
+      end
+      local.get $p
+      i32.const 123
+      i32.store
+    end
+
+    ;; i64.ge_s; br_if -> FusedI64BrGeS
+    local.get $p
+    i32.const 4
+    i32.add
+    local.set $p
+    block
+      block
+        local.get $lhs
+        local.get $rhs
+        i64.ge_s
+        br_if 0
+        local.get $p
+        i32.const 456
+        i32.store
+        br 1
+      end
+      local.get $p
+      i32.const 123
+      i32.store
+    end
+
+    ;; i64.ge_u; br_if -> FusedI64BrGeU
+    local.get $p
+    i32.const 4
+    i32.add
+    local.set $p
+    block
+      block
+        local.get $lhs
+        local.get $rhs
+        i64.ge_u
+        br_if 0
+        local.get $p
+        i32.const 456
+        i32.store
+        br 1
+      end
+      local.get $p
+      i32.const 123
+      i32.store
+    end
 
     local.get $p
   )

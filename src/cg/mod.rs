@@ -1513,6 +1513,30 @@ impl WasmCodeBlock {
                     (I64Ne, BrIf(target)) => {
                         fused2!(int_codes, i, FusedI64BrNe(*target));
                     }
+                    (I64LtS, BrIf(target)) => {
+                        fused2!(int_codes, i, FusedI64BrLtS(*target));
+                    }
+                    (I64LtU, BrIf(target)) => {
+                        fused2!(int_codes, i, FusedI64BrLtU(*target));
+                    }
+                    (I64GtS, BrIf(target)) => {
+                        fused2!(int_codes, i, FusedI64BrGtS(*target));
+                    }
+                    (I64GtU, BrIf(target)) => {
+                        fused2!(int_codes, i, FusedI64BrGtU(*target));
+                    }
+                    (I64LeS, BrIf(target)) => {
+                        fused2!(int_codes, i, FusedI64BrLeS(*target));
+                    }
+                    (I64LeU, BrIf(target)) => {
+                        fused2!(int_codes, i, FusedI64BrLeU(*target));
+                    }
+                    (I64GeS, BrIf(target)) => {
+                        fused2!(int_codes, i, FusedI64BrGeS(*target));
+                    }
+                    (I64GeU, BrIf(target)) => {
+                        fused2!(int_codes, i, FusedI64BrGeU(*target));
+                    }
 
                     _ => (),
                 }

@@ -222,14 +222,31 @@ pub enum WasmImInstruction {
     I64TruncSatF64S,
     I64TruncSatF64U,
 
-    //
-    // Fused Instructions
-    //
+    /// Fusion of the following 4 instructions
+    ///
+    /// ```plain
+    /// local.get $i
+    /// i32.const N
+    /// i32.add
+    /// local.set $i
+    /// ```
     FusedI32AddConst(LocalVarIndex, i32),
 
+    /// Fusion of the following 2 instructions
+    ///
+    /// ```plain
+    /// i32.const N
+    /// local.set $i
+    /// ```
     FusedI32SetConst(LocalVarIndex, i32),
     FusedI64SetConst(LocalVarIndex, i64),
 
+    /// Fusion of the following 2 instructions
+    ///
+    /// ```plain
+    /// iXX.const N
+    /// iXX.binop
+    /// ```
     FusedI32AddI(i32),
     FusedI32AndI(u32),
     FusedI32OrI(u32),
@@ -246,6 +263,12 @@ pub enum WasmImInstruction {
     FusedI64ShrSI(u32),
     FusedI64ShrUI(u32),
 
+    /// Fusion of the following 2 instructions
+    ///
+    /// ```plain
+    /// iXX.cmpop
+    /// br_if N
+    /// ```
     FusedI32BrZ(u32),
     FusedI32BrEq(u32),
     FusedI32BrNe(u32),
@@ -261,6 +284,14 @@ pub enum WasmImInstruction {
     FusedI64BrZ(u32),
     FusedI64BrEq(u32),
     FusedI64BrNe(u32),
+    FusedI64BrLtS(u32),
+    FusedI64BrLtU(u32),
+    FusedI64BrGtS(u32),
+    FusedI64BrGtU(u32),
+    FusedI64BrLeS(u32),
+    FusedI64BrLeU(u32),
+    FusedI64BrGeS(u32),
+    FusedI64BrGeU(u32),
 }
 
 impl WasmImInstruction {
@@ -399,6 +430,30 @@ impl WasmImc {
                 kernel(target, WasmMnemonic::BrIf)?;
             }
             FusedI64BrNe(target) => {
+                kernel(target, WasmMnemonic::BrIf)?;
+            }
+            FusedI64BrLtS(target) => {
+                kernel(target, WasmMnemonic::BrIf)?;
+            }
+            FusedI64BrLtU(target) => {
+                kernel(target, WasmMnemonic::BrIf)?;
+            }
+            FusedI64BrGtS(target) => {
+                kernel(target, WasmMnemonic::BrIf)?;
+            }
+            FusedI64BrGtU(target) => {
+                kernel(target, WasmMnemonic::BrIf)?;
+            }
+            FusedI64BrLeS(target) => {
+                kernel(target, WasmMnemonic::BrIf)?;
+            }
+            FusedI64BrLeU(target) => {
+                kernel(target, WasmMnemonic::BrIf)?;
+            }
+            FusedI64BrGeS(target) => {
+                kernel(target, WasmMnemonic::BrIf)?;
+            }
+            FusedI64BrGeU(target) => {
                 kernel(target, WasmMnemonic::BrIf)?;
             }
 

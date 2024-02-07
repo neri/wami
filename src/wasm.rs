@@ -536,11 +536,14 @@ impl WasmModule {
 
     #[inline]
     pub(crate) fn global_get(&self, index: GlobalVarIndex) -> &WasmGlobal {
+        #[cfg(test)]
+        let _ = self.globals[index.as_usize()];
+
         unsafe { self.globals.get_unchecked(index.as_usize()) }
     }
 
     #[inline]
-    pub fn global(&self, name: &str) -> Result<&WasmGlobal, WasmRuntimeErrorKind> {
+    pub(crate) fn global(&self, name: &str) -> Result<&WasmGlobal, WasmRuntimeErrorKind> {
         for export in &self.exports {
             if let WasmExportDesc::Global(index) = export.desc {
                 if export.name == name {
@@ -2408,6 +2411,7 @@ impl GlobalVarIndex {
     }
 }
 
+#[repr(transparent)]
 pub struct BrTableVec {
     inner: *mut u32,
 }
