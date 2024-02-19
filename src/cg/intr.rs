@@ -8,6 +8,7 @@ use crate::wasm::*;
 use alloc::borrow::ToOwned;
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::error::Error;
 use core::fmt;
 use core::iter;
 use core::mem::{size_of, transmute};
@@ -39,7 +40,7 @@ impl WasmInterpreter<'_> {
         kind: WasmRuntimeErrorKind,
         mnemonic: WasmMnemonic,
         ex_position: ExceptionPosition,
-    ) -> WasmRuntimeError {
+    ) -> Box<dyn Error> {
         let function_name = self
             .instance
             .module()
@@ -53,14 +54,14 @@ impl WasmInterpreter<'_> {
             .unwrap_or(0)
             + ex_position.position();
 
-        WasmRuntimeError {
+        Box::new(WasmRuntimeError {
             kind,
             file_position,
             function: self.func_index,
             function_name,
             position: ex_position.position(),
             mnemonic,
-        }
+        })
     }
 
     #[inline]
@@ -70,7 +71,7 @@ impl WasmInterpreter<'_> {
         code_block: &WasmCodeBlock,
         locals: &[WasmUnionValue],
         result_types: &[WasmValType],
-    ) -> Result<Option<WasmValue>, WasmRuntimeError> {
+    ) -> Result<Option<WasmValue>, Box<dyn Error>> {
         if locals.len() < code_block.local_types().len() {
             return Err(WasmRuntimeErrorKind::InvalidParameter.into());
         }
@@ -93,7 +94,7 @@ impl WasmInterpreter<'_> {
         mut locals: LocalVariables,
         result_types: &[WasmValType],
         heap: &mut StackHeap,
-    ) -> Result<Option<WasmValue>, WasmRuntimeError> {
+    ) -> Result<Option<WasmValue>, Box<dyn Error>> {
         macro_rules! GET_MEMORY {
             ($self:ident) => {
                 $self
@@ -1490,7 +1491,7 @@ impl WasmInterpreter<'_> {
         target: &WasmFunction,
         value_stack: &mut StackFrame,
         heap: &mut StackHeap,
-    ) -> Result<(), WasmRuntimeError> {
+    ) -> Result<(), Box<dyn Error>> {
         let current_function = self.func_index;
         let result_types = target.result_types();
 
@@ -1608,11 +1609,11 @@ impl WasmIntermediateCodeStream<'_> {
 }
 
 pub trait WasmInvocation {
-    fn invoke(&self, params: &[WasmValue]) -> Result<Option<WasmValue>, WasmRuntimeError>;
+    fn invoke(&self, params: &[WasmValue]) -> Result<Option<WasmValue>, Box<dyn Error>>;
 }
 
 impl WasmInvocation for WasmRunnable<'_> {
-    fn invoke(&self, params: &[WasmValue]) -> Result<Option<WasmValue>, WasmRuntimeError> {
+    fn invoke(&self, params: &[WasmValue]) -> Result<Option<WasmValue>, Box<dyn Error>> {
         let function = self.function();
 
         let code_block = match function.content() {
@@ -1648,7 +1649,6 @@ impl WasmInvocation for WasmRunnable<'_> {
     }
 }
 
-#[derive(Debug)]
 pub struct WasmRuntimeError {
     kind: WasmRuntimeErrorKind,
     file_position: usize,
@@ -1704,6 +1704,13 @@ impl From<WasmRuntimeErrorKind> for WasmRuntimeError {
     }
 }
 
+impl From<WasmRuntimeErrorKind> for Box<dyn Error> {
+    #[inline]
+    fn from(value: WasmRuntimeErrorKind) -> Self {
+        Box::new(WasmRuntimeError::from(value))
+    }
+}
+
 impl fmt::Display for WasmRuntimeError {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -1722,6 +1729,12 @@ impl fmt::Display for WasmRuntimeError {
         }
 
         write!(f, ", 0x{:x}: {:?}", self.file_position(), mnemonic)
+    }
+}
+
+impl fmt::Debug for WasmRuntimeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        (self as &dyn fmt::Display).fmt(f)
     }
 }
 

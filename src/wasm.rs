@@ -20,15 +20,6 @@ use core::str;
 use core::sync::atomic::{AtomicU64, Ordering};
 use smallvec::SmallVec;
 
-pub type WasmDynFunc =
-    fn(&WasmInstance, &[WasmUnionValue]) -> Result<WasmValue, WasmRuntimeErrorKind>;
-
-pub enum ImportResult<T> {
-    Ok(T),
-    NoModule,
-    NoMethod,
-}
-
 pub struct WebAssembly;
 
 impl WebAssembly {
@@ -70,6 +61,22 @@ impl WebAssembly {
     pub fn validate(bytes: &[u8]) -> bool {
         Self::compile(bytes).is_ok()
     }
+}
+
+pub type WasmDynFunc =
+    fn(&WasmInstance, &[WasmUnionValue]) -> Result<WasmValue, WasmRuntimeErrorKind>;
+
+// pub enum WasmDynFuncResult {
+//     Val(WasmValue),
+//     Void,
+//     Exit,
+//     Abort(&'static dyn Error),
+// }
+
+pub enum ImportResult<T> {
+    Ok(T),
+    NoModule,
+    NoMethod,
 }
 
 /// WebAssembly module
@@ -1650,7 +1657,7 @@ impl fmt::Display for LinkError {
 
 impl Error for LinkError {}
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum WasmRuntimeErrorKind {
     /// (not an error) Exit the application
     Exit,
@@ -1668,7 +1675,7 @@ pub enum WasmRuntimeErrorKind {
     OutOfBounds,
     /// (unrecoverable) The specified function cannot be found.
     NoMethod,
-    /// (unrecoverable) Device by zero
+    /// (unrecoverable) Devide by zero
     DivideByZero,
     /// (unrecoverable) The type of call instructions do not match.
     TypeMismatch,
@@ -1676,6 +1683,8 @@ pub enum WasmRuntimeErrorKind {
     InternalInconsistency,
     /// (unrecoverable) Out of Memory
     OutOfMemory,
+
+    Wrapped(Box<dyn Error>),
 }
 
 /// A type that holds a WebAssembly primitive value with a type information tag.

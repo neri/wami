@@ -191,6 +191,16 @@ impl SharedDataStore {
         Ok(unsafe { transmute(slice.as_ptr().add(offset as usize)) })
     }
 
+    pub unsafe fn transmute_mut<'a, T: Sized>(
+        &self,
+        offset: u64,
+    ) -> Result<&'a mut T, WasmRuntimeErrorKind> {
+        let slice = self.as_mut_slice();
+        let limit = slice.len();
+        WasmMemory::check_bound(offset, size_of::<T>(), limit)?;
+        Ok(unsafe { transmute(slice.as_mut_ptr().add(offset as usize)) })
+    }
+
     #[inline]
     pub fn as_ptr(&self) -> *const u8 {
         unsafe { (&*self.0.get()).as_ptr() }

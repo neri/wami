@@ -1,5 +1,5 @@
 use crate::cg::{
-    intr::{WasmInterpreter, WasmInvocation},
+    intr::{WasmInterpreter, WasmInvocation, WasmRuntimeError},
     WasmCodeBlock,
 };
 use crate::leb128::*;
@@ -145,7 +145,7 @@ fn i32_const_type_mismatch() {
         .unwrap()
         .unwrap()
         .get_i64();
-    assert_eq!(result2, Err(WasmRuntimeErrorKind::TypeMismatch));
+    assert_matches!(result2, Err(WasmRuntimeErrorKind::TypeMismatch));
 }
 
 #[test]
@@ -406,9 +406,10 @@ fn div32_s() {
     let result = interp
         .invoke(0, &info, &mut locals, &result_types)
         .unwrap_err();
-    assert_eq!(*result.kind(), WasmRuntimeErrorKind::DivideByZero);
-    assert_eq!(result.mnemonic(), WasmMnemonic::I32DivS);
-    assert_eq!(result.position(), 5);
+    let err: Box<WasmRuntimeError> = result.downcast().unwrap();
+    assert_matches!(*err.kind(), WasmRuntimeErrorKind::DivideByZero);
+    assert_eq!(err.mnemonic(), WasmMnemonic::I32DivS);
+    assert_eq!(err.position(), 5);
 }
 
 #[test]
@@ -460,9 +461,10 @@ fn div32_u() {
     let result = interp
         .invoke(0, &info, &mut locals, &result_types)
         .unwrap_err();
-    assert_eq!(*result.kind(), WasmRuntimeErrorKind::DivideByZero);
-    assert_eq!(result.mnemonic(), WasmMnemonic::I32DivU);
-    assert_eq!(result.position(), 5);
+    let err: Box<WasmRuntimeError> = result.downcast().unwrap();
+    assert_matches!(*err.kind(), WasmRuntimeErrorKind::DivideByZero);
+    assert_eq!(err.mnemonic(), WasmMnemonic::I32DivU);
+    assert_eq!(err.position(), 5);
 }
 
 #[test]
@@ -523,9 +525,10 @@ fn div64_s() {
     let result = interp
         .invoke(0, &info, &mut locals, &result_types)
         .unwrap_err();
-    assert_eq!(*result.kind(), WasmRuntimeErrorKind::DivideByZero);
-    assert_eq!(result.mnemonic(), WasmMnemonic::I64DivS);
-    assert_eq!(result.position(), 5);
+    let err: Box<WasmRuntimeError> = result.downcast().unwrap();
+    assert_matches!(*err.kind(), WasmRuntimeErrorKind::DivideByZero);
+    assert_eq!(err.mnemonic(), WasmMnemonic::I64DivS);
+    assert_eq!(err.position(), 5);
 }
 
 #[test]
@@ -577,9 +580,10 @@ fn div64_u() {
     let result = interp
         .invoke(0, &info, &mut locals, &result_types)
         .unwrap_err();
-    assert_eq!(*result.kind(), WasmRuntimeErrorKind::DivideByZero);
-    assert_eq!(result.mnemonic(), WasmMnemonic::I64DivU);
-    assert_eq!(result.position(), 5);
+    let err: Box<WasmRuntimeError> = result.downcast().unwrap();
+    assert_matches!(*err.kind(), WasmRuntimeErrorKind::DivideByZero);
+    assert_eq!(err.mnemonic(), WasmMnemonic::I64DivU);
+    assert_eq!(err.position(), 5);
 }
 
 #[test]
@@ -1337,19 +1341,23 @@ fn call_indirect_test() {
             assert_eq!(result, a1.wrapping_add(base));
         }
 
-        let e = instance
+        let err: Box<WasmRuntimeError> = instance
             .function("call_indirect_test")
             .unwrap()
             .invoke(&[4.into(), a1.into()])
-            .unwrap_err();
-        assert_matches!(e.kind(), WasmRuntimeErrorKind::TypeMismatch);
+            .unwrap_err()
+            .downcast()
+            .unwrap();
+        assert_matches!(err.kind(), WasmRuntimeErrorKind::TypeMismatch);
 
-        let e = instance
+        let err: Box<WasmRuntimeError> = instance
             .function("call_indirect_test")
             .unwrap()
             .invoke(&[100.into(), a1.into()])
-            .unwrap_err();
-        assert_matches!(e.kind(), WasmRuntimeErrorKind::NoMethod);
+            .unwrap_err()
+            .downcast()
+            .unwrap();
+        assert_matches!(err.kind(), WasmRuntimeErrorKind::NoMethod);
     }
 }
 
@@ -1806,8 +1814,13 @@ fn global() {
     let runnable = instance.function("global_add").unwrap();
 
     assert_eq!(
-        instance.global("global1").unwrap().value().get_i32(),
-        Ok(123)
+        instance
+            .global("global1")
+            .unwrap()
+            .value()
+            .get_i32()
+            .unwrap(),
+        123
     );
 
     let result = runnable
@@ -1819,8 +1832,13 @@ fn global() {
     assert_eq!(result, 579);
 
     assert_eq!(
-        instance.global("global1").unwrap().value().get_i32(),
-        Ok(579)
+        instance
+            .global("global1")
+            .unwrap()
+            .value()
+            .get_i32()
+            .unwrap(),
+        579
     );
 
     let result = runnable
@@ -1832,8 +1850,13 @@ fn global() {
     assert_eq!(result, 1368);
 
     assert_eq!(
-        instance.global("global1").unwrap().value().get_i32(),
-        Ok(1368)
+        instance
+            .global("global1")
+            .unwrap()
+            .value()
+            .get_i32()
+            .unwrap(),
+        1368
     );
 }
 
