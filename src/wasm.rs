@@ -1,14 +1,12 @@
 //! WebAssembly Interpreter
 use crate::cg::WasmCodeBlock;
-use crate::leb128::{self, *};
+use crate::leb128::*;
 use crate::memory::WasmMemory;
 use crate::opcode::{WasmMnemonic, WasmOpcode};
-use alloc::borrow::ToOwned;
-use alloc::boxed::Box;
+use crate::*;
 use alloc::collections::BTreeMap;
 use alloc::format;
 use alloc::string::*;
-use alloc::vec::Vec;
 use core::error::Error;
 use core::fmt;
 use core::mem::{size_of, transmute, ManuallyDrop};

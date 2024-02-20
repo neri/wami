@@ -1,6 +1,5 @@
 use crate::sync::rwlock_nb::*;
 use crate::*;
-use alloc::vec::Vec;
 use core::cell::UnsafeCell;
 use core::mem::{size_of, transmute};
 use core::ops::{Deref, DerefMut};

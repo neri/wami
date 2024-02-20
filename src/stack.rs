@@ -1,5 +1,5 @@
 //! Stack structure for the Webassembly Runtime
-use alloc::vec::Vec;
+use crate::*;
 use core::cell::UnsafeCell;
 use core::mem::align_of;
 use core::mem::size_of;

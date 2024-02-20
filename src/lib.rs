@@ -2,14 +2,15 @@
 
 #![cfg_attr(not(test), no_std)]
 #![deny(unsafe_op_in_unsafe_fn)]
+//
 #![feature(slice_split_at_unchecked)]
 #![feature(float_minimum_maximum)]
 #![feature(negative_impls)]
 #![feature(error_in_core)]
-//
-#![feature(core_intrinsics)]
-#![allow(internal_features)]
 #![feature(assert_matches)]
+//
+#![allow(internal_features)]
+#![feature(core_intrinsics)]
 
 extern crate alloc;
 extern crate libm;
@@ -28,3 +29,13 @@ pub mod opcode;
 
 #[cfg(test)]
 mod tests;
+
+#[allow(unused_imports)]
+pub use crate::prelude::*;
+
+pub(crate) mod prelude {
+    pub use alloc::borrow::ToOwned;
+    pub use alloc::boxed::Box;
+    pub use alloc::string::{String, ToString};
+    pub use alloc::vec::Vec;
+}

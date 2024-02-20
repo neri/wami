@@ -2,10 +2,15 @@ pub mod intcode;
 pub mod intr;
 
 use self::intcode::{WasmImInstruction, WasmImc};
-use crate::{cg::intcode::MarkerKind, leb128::*, opcode::*, *};
-use alloc::{boxed::Box, string::ToString, vec::Vec};
+use crate::cg::intcode::MarkerKind;
+use crate::leb128::*;
+use crate::opcode::*;
+use crate::*;
+use alloc::boxed::Box;
+use alloc::vec::Vec;
 use bitflags::*;
-use core::{cell::RefCell, fmt};
+use core::cell::RefCell;
+use core::fmt;
 use smallvec::SmallVec;
 
 #[cfg(test)]

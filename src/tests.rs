@@ -4,9 +4,7 @@ use crate::cg::{
 };
 use crate::leb128::*;
 use crate::opcode::WasmMnemonic;
-use crate::WasmValType;
 use crate::*;
-use alloc::borrow::ToOwned;
 use core::f64::consts::PI;
 use num_traits::Zero;
 use std::assert_matches::assert_matches;
@@ -1367,7 +1365,7 @@ fn mem_load_store() {
         WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
 
     let mut src = Vec::new();
-    for i in 0..256 {
+    for i in 0..65536 {
         src.push(0xFF ^ i as u8);
     }
     let src = src.as_slice();
@@ -1379,7 +1377,7 @@ fn mem_load_store() {
             .memory(0)
             .unwrap()
             .borrowing(|memory| {
-                memory[0..256].copy_from_slice(src);
+                memory[0..65536].copy_from_slice(src);
             })
             .unwrap();
     }
@@ -1391,7 +1389,7 @@ fn mem_load_store() {
                 .unwrap()
                 .borrowing(|memory| {
                     let mut vec = Vec::new();
-                    for index in 0..256 {
+                    for index in 0..65536 {
                         let lhs = memory[index];
                         let rhs = $expected[index];
                         if lhs != rhs {
@@ -1406,7 +1404,7 @@ fn mem_load_store() {
         };
     }
 
-    for (a1, a2) in [(0x12u32, 0x34u32), (0x78, 0x90), (0xCD, 0xAB), (0xEF, 0x56)] {
+    for (a1, a2) in [(0x12u32, 0x34u32), (0x87, 0x65), (0xAA, 0x55), (0x55, 0xAA)] {
         // u32u8
         reset_memory(&instance, src);
         let expected = 0xFF ^ a1;
@@ -1441,64 +1439,6 @@ fn mem_load_store() {
         let mut expected = Vec::new();
         expected.extend_from_slice(src);
         expected[a2 as usize] = expected[a1 as usize];
-        test_memory!(instance, &expected);
-
-        // u32u16
-        reset_memory(&instance, src);
-        let expected = 0xFFFF ^ (a1 + (a1 + 1) * 0x100);
-        let result = instance
-            .function("mem_test_u32u16")
-            .unwrap()
-            .invoke(&[a1.into(), a2.into()])
-            .unwrap()
-            .unwrap()
-            .get_u32()
-            .unwrap();
-        assert_eq!(result, expected);
-
-        let mut expected = Vec::new();
-        expected.extend_from_slice(src);
-        expected[a2 as usize] = expected[a1 as usize];
-        expected[a2 as usize + 1] = expected[a1 as usize + 1];
-        test_memory!(instance, &expected);
-
-        // i32i16
-        reset_memory(&instance, src);
-        let expected = -1 ^ ((a1 + (a1 + 1) * 0x100) as i16) as i32;
-        let result = instance
-            .function("mem_test_i32i16")
-            .unwrap()
-            .invoke(&[a1.into(), a2.into()])
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
-        assert_eq!(result, expected);
-
-        let mut expected = Vec::new();
-        expected.extend_from_slice(src);
-        expected[a2 as usize] = expected[a1 as usize];
-        expected[a2 as usize + 1] = expected[a1 as usize + 1];
-        test_memory!(instance, &expected);
-
-        // u32
-        reset_memory(&instance, src);
-        let expected = 0xFFFFFFFF ^ ((a1 * 0x1_01_01_01) + 0x03_02_01_00);
-        let result = instance
-            .function("mem_test_u32")
-            .unwrap()
-            .invoke(&[a1.into(), a2.into()])
-            .unwrap()
-            .unwrap()
-            .get_u32()
-            .unwrap();
-        assert_eq!(result, expected);
-
-        let mut expected = Vec::new();
-        expected.extend_from_slice(src);
-        for i in 0..4 {
-            expected[a2 as usize + i] = expected[a1 as usize + i];
-        }
         test_memory!(instance, &expected);
 
         // u64u8
@@ -1537,9 +1477,51 @@ fn mem_load_store() {
         expected[a2 as usize] = expected[a1 as usize];
         test_memory!(instance, &expected);
 
+        let a1 = a1 * 2;
+        let a2 = a2 * 2;
+        let a1b = a1 & 0xFF;
+
+        // u32u16
+        reset_memory(&instance, src);
+        let expected = 0xFFFF ^ (a1b + (a1b + 1) * 0x100);
+        let result = instance
+            .function("mem_test_u32u16")
+            .unwrap()
+            .invoke(&[a1.into(), a2.into()])
+            .unwrap()
+            .unwrap()
+            .get_u32()
+            .unwrap();
+        assert_eq!(result, expected);
+
+        let mut expected = Vec::new();
+        expected.extend_from_slice(src);
+        expected[a2 as usize] = expected[a1 as usize];
+        expected[a2 as usize + 1] = expected[a1 as usize + 1];
+        test_memory!(instance, &expected);
+
+        // i32i16
+        reset_memory(&instance, src);
+        let expected = -1 ^ ((a1b + (a1b + 1) * 0x100) as i16) as i32;
+        let result = instance
+            .function("mem_test_i32i16")
+            .unwrap()
+            .invoke(&[a1.into(), a2.into()])
+            .unwrap()
+            .unwrap()
+            .get_i32()
+            .unwrap();
+        assert_eq!(result, expected);
+
+        let mut expected = Vec::new();
+        expected.extend_from_slice(src);
+        expected[a2 as usize] = expected[a1 as usize];
+        expected[a2 as usize + 1] = expected[a1 as usize + 1];
+        test_memory!(instance, &expected);
+
         // u64u16
         reset_memory(&instance, src);
-        let expected = 0xFFFF ^ (a1 as u64 + (a1 as u64 + 1) * 0x100);
+        let expected = 0xFFFF ^ (a1b as u64 + (a1b as u64 + 1) * 0x100);
         let result = instance
             .function("mem_test_u64u16")
             .unwrap()
@@ -1558,7 +1540,7 @@ fn mem_load_store() {
 
         // i64i16
         reset_memory(&instance, src);
-        let expected = -1 ^ ((a1 as u64 + (a1 as u64 + 1) * 0x100) as i16) as i64;
+        let expected = -1 ^ ((a1b as u64 + (a1b as u64 + 1) * 0x100) as i16) as i64;
         let result = instance
             .function("mem_test_i64i16")
             .unwrap()
@@ -1575,9 +1557,33 @@ fn mem_load_store() {
         expected[a2 as usize + 1] = expected[a1 as usize + 1];
         test_memory!(instance, &expected);
 
+        let a1 = a1 * 2;
+        let a2 = a2 * 2;
+        let a1b = a1 & 0xFF;
+
+        // u32
+        reset_memory(&instance, src);
+        let expected = 0xFFFFFFFF ^ ((a1b * 0x1_01_01_01) + 0x03_02_01_00);
+        let result = instance
+            .function("mem_test_u32")
+            .unwrap()
+            .invoke(&[a1.into(), a2.into()])
+            .unwrap()
+            .unwrap()
+            .get_u32()
+            .unwrap();
+        assert_eq!(result, expected);
+
+        let mut expected = Vec::new();
+        expected.extend_from_slice(src);
+        for i in 0..4 {
+            expected[a2 as usize + i] = expected[a1 as usize + i];
+        }
+        test_memory!(instance, &expected);
+
         // u64u32
         reset_memory(&instance, src);
-        let expected = 0xFFFFFFFF ^ ((a1 * 0x1_01_01_01) + 0x03_02_01_00) as u64;
+        let expected = 0xFFFFFFFF ^ ((a1b * 0x1_01_01_01) + 0x03_02_01_00) as u64;
         let result = instance
             .function("mem_test_u64u32")
             .unwrap()
@@ -1597,7 +1603,7 @@ fn mem_load_store() {
 
         // i64i32
         reset_memory(&instance, src);
-        let expected = -1 ^ (((a1 * 0x1_01_01_01) + 0x03_02_01_00) as i32) as i64;
+        let expected = -1 ^ (((a1b * 0x1_01_01_01) + 0x03_02_01_00) as i32) as i64;
         let result = instance
             .function("mem_test_i64i32")
             .unwrap()
@@ -1615,10 +1621,14 @@ fn mem_load_store() {
         }
         test_memory!(instance, &expected);
 
+        let a1 = a1 * 2;
+        let a2 = a2 * 2;
+        let a1b = a1 & 0xFF;
+
         // u64
         reset_memory(&instance, src);
         let expected = 0xFFFF_FFFF_FFFF_FFFF
-            ^ ((a1 as u64 * 0x1_01_01_01_01_01_01_01) + 0x07_06_05_04_03_02_01_00);
+            ^ ((a1b as u64 * 0x1_01_01_01_01_01_01_01) + 0x07_06_05_04_03_02_01_00);
         let result = instance
             .function("mem_test_u64")
             .unwrap()

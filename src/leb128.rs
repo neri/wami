@@ -1,7 +1,5 @@
 //! Little Endian Base 128
-use alloc::borrow::ToOwned;
-use alloc::string::String;
-use alloc::vec::Vec;
+use crate::*;
 use core::mem::size_of_val;
 use core::str;
 
