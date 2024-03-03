@@ -1,5 +1,5 @@
 use crate::cg::{
-    intr::{WasmInterpreter, WasmInvocation, WasmRuntimeError},
+    intr::{WasmInterpreter, WasmInvocation},
     WasmCodeBlock,
 };
 use crate::leb128::*;
@@ -9,65 +9,46 @@ use core::f64::consts::PI;
 use num_traits::Zero;
 use std::assert_matches::assert_matches;
 
-fn imports_resolver(mod_name: &str, name: &str, type_: &WasmType) -> ImportResult<WasmDynFunc> {
-    fn env_add(
-        _instance: &WasmInstance,
-        args: &[WasmUnionValue],
-    ) -> Result<WasmValue, WasmRuntimeErrorKind> {
-        unsafe { Ok(args[0].get_i32().wrapping_add(args[1].get_i32()).into()) }
+struct Env;
+
+#[wasm_env]
+impl Env {
+    pub fn add(a: i32, b: i32) -> i32 {
+        a.wrapping_add(b)
     }
 
-    fn env_sub(
-        _instance: &WasmInstance,
-        args: &[WasmUnionValue],
-    ) -> Result<WasmValue, WasmRuntimeErrorKind> {
-        unsafe { Ok(args[0].get_i32().wrapping_sub(args[1].get_i32()).into()) }
-    }
-
-    match mod_name {
-        "env" => match (name, type_.signature().as_str()) {
-            ("add", "iii") => ImportResult::Ok(env_add),
-            ("sub", "iii") => ImportResult::Ok(env_sub),
-            _ => ImportResult::NoMethod,
-        },
-        _ => ImportResult::NoModule,
+    pub fn sub(a: i32, b: i32) -> i32 {
+        a.wrapping_sub(b)
     }
 }
 
 #[test]
 fn instantiate() {
     let data = [0, 97, 115, 109, 1, 0, 0, 0];
-    WebAssembly::instantiate(&data, imports_resolver).unwrap();
+    WebAssembly::instantiate(&data, Env {}).unwrap();
 
     let data = [0, 97, 115, 109, 1, 0, 0];
     assert_matches!(
-        CompileErrorKind::downcast_ref(
-            &WebAssembly::instantiate(&data, imports_resolver).unwrap_err()
-        )
-        .unwrap(),
+        CompileErrorKind::downcast_ref(&WebAssembly::instantiate(&data, Env {}).unwrap_err())
+            .unwrap(),
         CompileErrorKind::BadExecutable
     );
 
     let data = [0, 97, 115, 109, 2, 0, 0, 0];
     assert_matches!(
-        CompileErrorKind::downcast_ref(
-            &WebAssembly::instantiate(&data, imports_resolver).unwrap_err()
-        )
-        .unwrap(),
+        CompileErrorKind::downcast_ref(&WebAssembly::instantiate(&data, Env {}).unwrap_err())
+            .unwrap(),
         CompileErrorKind::BadExecutable
     );
 
     let data = [0, 97, 115, 109, 1, 0, 0, 0, 1];
     assert_matches!(
-        CompileErrorKind::downcast_ref(
-            &WebAssembly::instantiate(&data, imports_resolver).unwrap_err()
-        )
-        .unwrap(),
+        CompileErrorKind::downcast_ref(&WebAssembly::instantiate(&data, Env {}).unwrap_err())
+            .unwrap(),
         CompileErrorKind::UnexpectedEof
     );
 
-    let instance =
-        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
+    let instance = WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), Env {}).unwrap();
     let _ = instance.function("fib").unwrap();
 }
 
@@ -76,16 +57,14 @@ fn section_order() {
     let data = [
         0, 97, 115, 109, 1, 0, 0, 0, 1, 1, 0, 2, 1, 0, 2, 1, 0, 3, 1, 0, 4, 1, 0, 5, 1, 0,
     ];
-    WebAssembly::instantiate(&data, imports_resolver).unwrap();
+    WebAssembly::instantiate(&data, Env {}).unwrap();
 
     let data = [
         0, 97, 115, 109, 1, 0, 0, 0, 1, 1, 0, 2, 1, 0, 2, 1, 0, 3, 1, 0, 4, 1, 0, 3, 1, 0,
     ];
     assert_matches!(
-        CompileErrorKind::downcast_ref(
-            &WebAssembly::instantiate(&data, imports_resolver).unwrap_err()
-        )
-        .unwrap(),
+        CompileErrorKind::downcast_ref(&WebAssembly::instantiate(&data, Env {}).unwrap_err())
+            .unwrap(),
         CompileErrorKind::InvalidSectionOrder(WasmSectionId::Function)
     );
 }
@@ -812,8 +791,7 @@ fn br_table() {
 
 #[test]
 fn app_fact() {
-    let instance =
-        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
+    let instance = WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), Env {}).unwrap();
     let runnable = instance.function("fact").unwrap();
 
     let result = runnable
@@ -835,8 +813,7 @@ fn app_fact() {
 
 #[test]
 fn app_fib() {
-    let instance =
-        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
+    let instance = WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), Env {}).unwrap();
     let runnable = instance.function("fib").unwrap();
 
     let result = runnable
@@ -866,8 +843,7 @@ fn app_fib() {
 
 #[test]
 fn opr_test_i32() {
-    let instance =
-        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
+    let instance = WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), Env {}).unwrap();
 
     let memory = instance.memory(0).unwrap().try_borrow().unwrap();
 
@@ -1040,8 +1016,7 @@ fn opr_test_i32() {
 
 #[test]
 fn opr_test_i64() {
-    let instance =
-        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
+    let instance = WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), Env {}).unwrap();
 
     let memory = instance.memory(0).unwrap().try_borrow().unwrap();
 
@@ -1218,8 +1193,7 @@ fn opr_test_i64() {
 
 #[test]
 fn call_test() {
-    let instance =
-        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
+    let instance = WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), Env {}).unwrap();
 
     let memory = instance.memory(0).unwrap().try_borrow().unwrap();
 
@@ -1320,8 +1294,7 @@ fn call_test() {
 
 #[test]
 fn call_indirect_test() {
-    let instance =
-        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
+    let instance = WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), Env {}).unwrap();
 
     // let memory = instance.memory(0).unwrap().try_borrow().unwrap();
 
@@ -1361,8 +1334,7 @@ fn call_indirect_test() {
 
 #[test]
 fn mem_load_store() {
-    let instance =
-        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
+    let instance = WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), Env {}).unwrap();
 
     let mut src = Vec::new();
     for i in 0..65536 {
@@ -1650,8 +1622,7 @@ fn mem_load_store() {
 
 #[test]
 fn memory() {
-    let instance =
-        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
+    let instance = WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), Env {}).unwrap();
 
     let mut src = Vec::new();
     for i in 0..256 {
@@ -1819,8 +1790,7 @@ fn memory() {
 
 #[test]
 fn global() {
-    let instance =
-        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
+    let instance = WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), Env {}).unwrap();
     let runnable = instance.function("global_add").unwrap();
 
     assert_eq!(
@@ -1877,7 +1847,7 @@ fn name() {
         0x61, 0x6D, 0x65, 0x00, 0x06, 0x05, 0x48, 0x65, 0x6C, 0x6C, 0x6F, 0x01, 0x0E, 0x02, 0x01,
         0x04, 0x77, 0x61, 0x73, 0x6D, 0xB4, 0x24, 0x04, 0x74, 0x65, 0x73, 0x74, 0x7F, 0x00,
     ];
-    let instance = WebAssembly::instantiate(&slice, imports_resolver).unwrap();
+    let instance = WebAssembly::instantiate(&slice, Env {}).unwrap();
     let names = instance.module().names().unwrap();
 
     assert_eq!(names.module().unwrap(), "Hello");
@@ -1979,8 +1949,7 @@ fn float32() {
 
 #[test]
 fn float32_opr() {
-    let instance =
-        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
+    let instance = WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), Env {}).unwrap();
 
     let memory = instance.memory(0).unwrap().try_borrow().unwrap();
 
@@ -2677,8 +2646,7 @@ fn float64() {
 
 #[test]
 fn float64_opr() {
-    let instance =
-        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
+    let instance = WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), Env {}).unwrap();
 
     let memory = instance.memory(0).unwrap().try_borrow().unwrap();
 
@@ -3451,8 +3419,7 @@ fn block_nest() {
 
 #[test]
 fn block_test() {
-    let instance =
-        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
+    let instance = WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), Env {}).unwrap();
     let runnable = instance.function("block_test").unwrap();
 
     let result = runnable
@@ -3515,8 +3482,7 @@ fn loop_nest() {
 
 #[test]
 fn loop_test() {
-    let instance =
-        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
+    let instance = WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), Env {}).unwrap();
     let runnable = instance.function("loop_test").unwrap();
 
     let result = runnable
@@ -3578,8 +3544,7 @@ fn if_nest() {
 
 #[test]
 fn if_test() {
-    let instance =
-        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
+    let instance = WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), Env {}).unwrap();
     let runnable = instance.function("if_test1").unwrap();
 
     let result = runnable
@@ -3635,8 +3600,7 @@ fn if_test() {
 
 #[test]
 fn import_test() {
-    let instance =
-        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), imports_resolver).unwrap();
+    let instance = WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), Env {}).unwrap();
     let runnable = instance.function("import_test1").unwrap();
 
     let result = runnable

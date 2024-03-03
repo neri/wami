@@ -1,4 +1,5 @@
 //! WebAssembly Interpreter
+pub use self::cg::intr::WasmRuntimeError;
 use crate::cg::WasmCodeBlock;
 use crate::leb128::*;
 use crate::memory::WasmMemory;
@@ -41,11 +42,11 @@ impl WebAssembly {
     }
 
     /// Instantiate wasm module
-    pub fn instantiate<F>(bytes: &[u8], imports_resolver: F) -> Result<WasmInstance, Box<dyn Error>>
-    where
-        F: FnMut(&str, &str, &WasmType) -> ImportResult<WasmDynFunc> + Copy,
-    {
-        Self::compile(bytes)?.instantiate(imports_resolver)
+    pub fn instantiate<Env: WasmEnv>(
+        bytes: &[u8],
+        env: Env,
+    ) -> Result<WasmInstance, Box<dyn Error>> {
+        Self::compile(bytes)?.instantiate(env)
     }
 
     /// Compile wasm module
@@ -61,18 +62,61 @@ impl WebAssembly {
     }
 }
 
-pub type WasmDynFunc =
-    fn(&WasmInstance, &[WasmUnionValue]) -> Result<WasmValue, WasmRuntimeErrorKind>;
+pub type WasmDynFunc = fn(&WasmInstance, WasmArgs) -> WasmResult;
 
-// pub enum WasmDynFuncResult {
-//     Val(WasmValue),
-//     Void,
-//     Exit,
-//     Abort(&'static dyn Error),
-// }
+pub enum WasmResult {
+    Val(Option<WasmValue>),
+    Exit,
+    Err(Box<dyn Error>),
+}
 
-pub enum ImportResult<T> {
-    Ok(T),
+impl From<()> for WasmResult {
+    #[inline]
+    fn from(_value: ()) -> Self {
+        Self::Val(None)
+    }
+}
+
+impl<T: Into<WasmValue>> From<T> for WasmResult {
+    #[inline]
+    fn from(value: T) -> Self {
+        Self::Val(Some(value.into()))
+    }
+}
+
+impl From<Box<dyn Error>> for WasmResult {
+    #[inline]
+    fn from(value: Box<dyn Error>) -> Self {
+        Self::Err(value)
+    }
+}
+
+impl<E: Into<Box<dyn Error>>> From<Result<(), E>> for WasmResult {
+    #[inline]
+    fn from(value: Result<(), E>) -> Self {
+        match value {
+            Ok(_) => Self::Val(None),
+            Err(err) => Self::Err(err.into()),
+        }
+    }
+}
+
+impl<T: Into<WasmValue>, E: Into<Box<dyn Error>>> From<Result<T, E>> for WasmResult {
+    #[inline]
+    fn from(value: Result<T, E>) -> Self {
+        match value {
+            Ok(v) => Self::Val(Some(v.into())),
+            Err(err) => Self::Err(err.into()),
+        }
+    }
+}
+
+pub trait WasmEnv {
+    fn imports_resolver(&self, mod_name: &str, name: &str, type_: &WasmType) -> ImportResult;
+}
+
+pub enum ImportResult {
+    Ok(WasmDynFunc),
     NoModule,
     NoMethod,
 }
@@ -164,9 +208,8 @@ impl WasmModule {
             if section.section_id.depends_on_order() {
                 if last_section_id > section.section_id {
                     return Err(CompileErrorKind::InvalidSectionOrder(section.section_id).into());
-                } else {
-                    last_section_id = section.section_id;
                 }
+                last_section_id = section.section_id;
             }
             match section.section_id {
                 WasmSectionId::Custom => (),
@@ -196,15 +239,12 @@ impl WasmModule {
         Ok(module)
     }
 
-    pub fn instantiate<F>(mut self, mut imports_resolver: F) -> Result<WasmInstance, Box<dyn Error>>
-    where
-        F: FnMut(&str, &str, &WasmType) -> ImportResult<WasmDynFunc> + Copy,
-    {
+    pub fn instantiate<Env: WasmEnv>(mut self, env: Env) -> Result<WasmInstance, Box<dyn Error>> {
         let mut func_idx = 0;
         for import in &self.imports {
             match import.desc {
                 WasmImportDescriptor::Function(type_index) => {
-                    match imports_resolver(
+                    match env.imports_resolver(
                         &import.mod_name,
                         &import.name,
                         self.type_by_index(type_index),
@@ -1851,8 +1891,8 @@ impl fmt::Display for WasmValue {
         match *self {
             Self::I32(v) => write!(f, "{}", v),
             Self::I64(v) => write!(f, "{}", v),
-            Self::F32(_) => write!(f, "(#!F32)"),
-            Self::F64(_) => write!(f, "(#!F64)"),
+            Self::F32(v) => write!(f, "{}", v),
+            Self::F64(v) => write!(f, "{}", v),
         }
     }
 }
@@ -2196,6 +2236,29 @@ unsafe impl UnsafeInto<f64> for WasmUnionValue {
     #[inline]
     unsafe fn unsafe_into(self) -> f64 {
         unsafe { self.get_f64() }
+    }
+}
+
+pub struct WasmArgs<'a> {
+    iter: core::slice::Iter<'a, WasmUnionValue>,
+}
+
+impl<'a> WasmArgs<'a> {
+    #[inline]
+    pub fn new(slice: &'a [WasmUnionValue]) -> Self {
+        Self { iter: slice.iter() }
+    }
+}
+
+impl WasmArgs<'_> {
+    #[inline]
+    pub fn next<U>(&mut self) -> Option<U>
+    where
+        WasmUnionValue: UnsafeInto<U>,
+    {
+        self.iter
+            .next()
+            .map(|v| unsafe { UnsafeInto::unsafe_into(*v) })
     }
 }
 

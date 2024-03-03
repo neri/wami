@@ -1540,28 +1540,32 @@ impl WasmInterpreter<'_> {
                     Ok(())
                 })
             }),
-            WasmFunctionContent::Dynamic(function) => {
+            WasmFunctionContent::Dynamic(func) => {
                 let locals = unsafe { value_stack.get_range(stack_under, param_len) };
-                let result = match function(self.instance, locals) {
-                    Ok(v) => v,
-                    Err(e) => return Err(self.error(e, opcode, ex_position)),
-                };
-
-                if let Some(t) = result_types.first() {
-                    if result.is_valid_type(*t) {
-                        let var = value_stack.get_mut(stack_under);
-                        *var = WasmUnionValue::from(result);
-                    } else {
-                        return Err(self.error(
-                            WasmRuntimeErrorKind::TypeMismatch,
-                            opcode,
-                            ex_position,
-                        ));
-                    }
+                match func(self.instance, WasmArgs::new(&locals)) {
+                    WasmResult::Val(val) => match (val, result_types.first()) {
+                        (None, None) => Ok(()),
+                        (Some(val), Some(t)) => {
+                            if val.is_valid_type(*t) {
+                                let var = value_stack.get_mut(stack_under);
+                                *var = val.into();
+                                Ok(())
+                            } else {
+                                Err(self.error(
+                                    WasmRuntimeErrorKind::TypeMismatch,
+                                    opcode,
+                                    ex_position,
+                                ))
+                            }
+                        }
+                        _ => {
+                            Err(self.error(WasmRuntimeErrorKind::TypeMismatch, opcode, ex_position))
+                        }
+                    },
+                    WasmResult::Exit => Err(WasmRuntimeErrorKind::Exit.into()),
+                    WasmResult::Err(err) => Err(err),
                 }
-                Ok(())
             }
-
             WasmFunctionContent::Unresolved => {
                 Err(self.error(WasmRuntimeErrorKind::NoMethod, opcode, ex_position))
             }

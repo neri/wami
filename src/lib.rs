@@ -27,6 +27,8 @@ pub mod sync;
 #[path = "_generated/opcode.rs"]
 pub mod opcode;
 
+pub use wami_macro::*;
+
 #[cfg(test)]
 mod tests;
 

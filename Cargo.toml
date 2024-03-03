@@ -12,12 +12,14 @@ default = []
 # float = []
 
 [dependencies]
+wami_macro = {path="./lib/wami_macro"}
 bitflags = {version = "2.4.2", default-features = false}
-libm = {}
-num-traits = {version = "0.2.17", default-features = false}
-smallvec = {version = "1.10.0", default-features = false}
+libm = {version="0.2.8"}
+num-traits = {version = "0.2.18", default-features = false}
+smallvec = {version = "1.13.1", default-features = false}
 
 [workspace]
 members = [
   "cli",
+  "temp/test",
 ]
