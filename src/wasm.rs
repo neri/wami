@@ -44,7 +44,7 @@ impl WebAssembly {
     /// Instantiate wasm module
     pub fn instantiate<Env: WasmEnv>(
         bytes: &[u8],
-        env: Env,
+        env: &Env,
     ) -> Result<WasmInstance, Box<dyn Error>> {
         Self::compile(bytes)?.instantiate(env)
     }
@@ -239,7 +239,7 @@ impl WasmModule {
         Ok(module)
     }
 
-    pub fn instantiate<Env: WasmEnv>(mut self, env: Env) -> Result<WasmInstance, Box<dyn Error>> {
+    pub fn instantiate<Env: WasmEnv>(mut self, env: &Env) -> Result<WasmInstance, Box<dyn Error>> {
         let mut func_idx = 0;
         for import in &self.imports {
             match import.desc {
