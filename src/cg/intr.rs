@@ -1543,7 +1543,7 @@ impl WasmInterpreter<'_> {
             WasmFunctionContent::Dynamic(func) => {
                 let locals = unsafe { value_stack.get_range(stack_under, param_len) };
                 match func(self.instance, WasmArgs::new(&locals)) {
-                    WasmResult::Val(val) => match (val, result_types.first()) {
+                    WasmDynResult::Val(val) => match (val, result_types.first()) {
                         (None, None) => Ok(()),
                         (Some(val), Some(t)) => {
                             if val.is_valid_type(*t) {
@@ -1562,8 +1562,8 @@ impl WasmInterpreter<'_> {
                             Err(self.error(WasmRuntimeErrorKind::TypeMismatch, opcode, ex_position))
                         }
                     },
-                    WasmResult::Exit => Err(WasmRuntimeErrorKind::Exit.into()),
-                    WasmResult::Err(err) => Err(err),
+                    WasmDynResult::Exit => Err(WasmRuntimeErrorKind::Exit.into()),
+                    WasmDynResult::Err(err) => Err(err),
                 }
             }
             WasmFunctionContent::Unresolved => {
@@ -1607,10 +1607,6 @@ impl WasmIntermediateCodeStream<'_> {
             Err(WasmRuntimeErrorKind::InternalInconsistency)
         }
     }
-}
-
-pub trait WasmInvocation {
-    fn invoke(&self, params: &[WasmValue]) -> Result<Option<WasmValue>, Box<dyn Error>>;
 }
 
 impl WasmInvocation for WasmRunnable<'_> {

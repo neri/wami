@@ -27,17 +27,28 @@ pub mod sync;
 #[path = "_generated/opcode.rs"]
 pub mod opcode;
 
-pub use wami_macro::*;
-
 #[cfg(test)]
 mod tests;
 
-#[allow(unused_imports)]
-pub use crate::prelude::*;
+pub mod prelude {
+    pub use crate::cg::intr::WasmRuntimeError;
+    pub use crate::memory::{WasmPtr, WasmPtrMut};
+    pub use crate::{
+        WasmArgs, WasmCompileError, WasmCompileErrorKind, WasmDynResult, WasmEnv, WasmExports,
+        WasmImportResult, WasmInstance, WasmInvocation, WasmLinkError, WasmModule, WasmResult,
+        WasmRuntimeErrorKind, WasmType, WasmValType, WasmValue, WebAssembly,
+    };
+    pub use wami_macro::*;
+}
 
-pub(crate) mod prelude {
+#[allow(unused_imports)]
+pub use crate::_prelude_::*;
+
+pub(crate) mod _prelude_ {
     pub use alloc::borrow::ToOwned;
     pub use alloc::boxed::Box;
+    pub use alloc::collections::BTreeMap;
     pub use alloc::string::{String, ToString};
+    pub use alloc::sync::Arc;
     pub use alloc::vec::Vec;
 }

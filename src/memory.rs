@@ -1,6 +1,7 @@
 use crate::sync::rwlock_nb::*;
 use crate::*;
 use core::cell::UnsafeCell;
+use core::marker::PhantomData;
 use core::mem::{size_of, transmute};
 use core::ops::{Deref, DerefMut};
 use core::slice;
@@ -26,7 +27,7 @@ impl WasmMemory {
     }
 
     #[inline]
-    pub fn new(limit: WasmLimit) -> Result<Self, CompileErrorKind> {
+    pub fn new(limit: WasmLimit) -> Result<Self, WasmCompileErrorKind> {
         let memory = Self {
             data: RwLockNb::new(SharedDataStore::new()),
             size: AtomicU32::new(0),
@@ -40,7 +41,7 @@ impl WasmMemory {
         memory
             .grow(limit.min())
             .map(|_| memory)
-            .map_err(|_| CompileErrorKind::OutOfMemory)
+            .map_err(|_| WasmCompileErrorKind::OutOfMemory)
     }
 
     #[inline]
@@ -289,5 +290,73 @@ impl DerefMut for SharedDataStore {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.as_mut_slice()
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct WasmPtr<T> {
+    repr: u32,
+    _phantom: PhantomData<T>,
+}
+
+impl<T> WasmPtr<T> {
+    #[inline]
+    pub const fn from_usize(value: usize) -> Self {
+        Self {
+            repr: value as u32,
+            _phantom: PhantomData,
+        }
+    }
+
+    #[inline]
+    pub const fn as_usize(&self) -> usize {
+        self.repr as usize
+    }
+}
+
+impl<T> From<WasmPtr<T>> for WasmValue {
+    #[inline]
+    fn from(value: WasmPtr<T>) -> Self {
+        WasmValue::I32(value.repr as i32)
+    }
+}
+
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct WasmPtrMut<T> {
+    repr: u32,
+    _phantom: PhantomData<T>,
+}
+
+impl<T> WasmPtrMut<T> {
+    #[inline]
+    pub const fn from_usize(value: usize) -> Self {
+        Self {
+            repr: value as u32,
+            _phantom: PhantomData,
+        }
+    }
+
+    #[inline]
+    pub const fn as_usize(&self) -> usize {
+        self.repr as usize
+    }
+}
+
+impl<T> From<WasmPtrMut<T>> for WasmPtr<T> {
+    #[inline]
+    fn from(value: WasmPtrMut<T>) -> Self {
+        Self {
+            repr: value.repr,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<T> From<WasmPtrMut<T>> for WasmValue {
+    #[inline]
+    fn from(value: WasmPtrMut<T>) -> Self {
+        WasmValue::I32(value.repr as i32)
     }
 }

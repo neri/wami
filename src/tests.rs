@@ -1,10 +1,8 @@
-use crate::cg::{
-    intr::{WasmInterpreter, WasmInvocation},
-    WasmCodeBlock,
-};
-use crate::leb128::*;
+use crate::cg::intr::WasmInterpreter;
+use crate::cg::WasmCodeBlock;
 use crate::opcode::WasmMnemonic;
-use crate::*;
+use crate::prelude::*;
+use crate::{leb128::*, WasmSectionId};
 use core::f64::consts::PI;
 use num_traits::Zero;
 use std::assert_matches::assert_matches;
@@ -20,6 +18,66 @@ impl Env {
     pub fn sub(a: i32, b: i32) -> i32 {
         a.wrapping_sub(b)
     }
+
+    pub fn signature_test(_a: i32, _b: i64, _c: f32, _d: f64) -> f32 {
+        todo!()
+    }
+}
+
+#[wasm_exports]
+trait TestTask {
+    fn fact(v: i32) -> i32;
+
+    fn fib(v: i32) -> i32;
+
+    fn global_add(v: i32) -> i32;
+
+    fn import_test1(a0: i32, a1: i32) -> i32;
+    fn import_test2(a0: i32, a1: i32) -> i32;
+    fn call_indirect_test(sel: i32, a1: i32) -> i32;
+
+    fn block_test(cc: i32, a1: i32, a2: i32, a3: i32) -> i32;
+    fn loop_test(a1: i32) -> i32;
+    fn if_test1(lhs: i32, rhs: i32, cc: bool) -> i32;
+    fn if_test2(lhs: i32, rhs: i32, cc: bool) -> i32;
+
+    fn test_unary_i32(v: i32) -> i32;
+    fn test_fusion_unary_i32(v: i32) -> i32;
+    fn test_bin_i32(lhs: i32, rhs: i32) -> i32;
+    fn test_fusion_binary_i32(lhs: i32, rhs: i32) -> i32;
+
+    fn test_unary_i64(v: i64) -> i32;
+    fn test_fused_i64(v: i64) -> i32;
+    fn test_bin_i64(lhs: i64, rhs: i64) -> i32;
+    fn test_fusion_binary_i64(lhs: i64, rhs: i64) -> i32;
+
+    fn test_unary_f32(fval: f32, i32val: i32, u32val: u32, i64val: i64, u64val: u64) -> i32;
+    fn test_bin_f32(lhs: f32, rhs: f32) -> i32;
+    fn test_unary_f64(fval: f64, i32val: i32, u32val: u32, i64val: i64, u64val: u64) -> i32;
+    fn test_bin_f64(lhs: f64, rhs: f64) -> i32;
+
+    fn call_test1(a1: u32, a2: u32, a3: u64, a4: u64) -> u32;
+    fn call_test2(a1: u32, a2: u32, a3: u64, a4: u64) -> u32;
+    fn call_test3(a1: u32, a2: u32, a3: u64, a4: u64) -> u64;
+    fn call_test4(a1: u32, a2: u32, a3: u64, a4: u64) -> u64;
+
+    fn mem_test_size() -> i32;
+    fn mem_test_grow(v: i32) -> i32;
+    // fn mem_test_fill(d: *mut c_void, v: u8, n: usize);
+    // fn mem_test_copy(d: *mut c_void, s: *const c_void, n: usize);
+
+    // fn mem_test_u32u8(a1: &u8, a2: &mut u8) -> &mut u8;
+    // mem_test_i32i8
+    // mem_test_u64u8
+    // mem_test_i64i8
+    // mem_test_u32u16
+    // mem_test_i32i16
+    // mem_test_u64u16
+    // mem_test_i64i16
+    // mem_test_u32
+    // mem_test_u64u32
+    // mem_test_i64i32
+    // mem_test_u64
 }
 
 #[test]
@@ -29,28 +87,28 @@ fn instantiate() {
 
     let data = [0, 97, 115, 109, 1, 0, 0];
     assert_matches!(
-        CompileErrorKind::downcast_ref(&WebAssembly::instantiate(&data, &Env {}).unwrap_err())
+        WasmCompileErrorKind::downcast_ref(&WebAssembly::instantiate(&data, &Env {}).unwrap_err())
             .unwrap(),
-        CompileErrorKind::BadExecutable
+        WasmCompileErrorKind::BadExecutable
     );
 
     let data = [0, 97, 115, 109, 2, 0, 0, 0];
     assert_matches!(
-        CompileErrorKind::downcast_ref(&WebAssembly::instantiate(&data, &Env {}).unwrap_err())
+        WasmCompileErrorKind::downcast_ref(&WebAssembly::instantiate(&data, &Env {}).unwrap_err())
             .unwrap(),
-        CompileErrorKind::BadExecutable
+        WasmCompileErrorKind::BadExecutable
     );
 
     let data = [0, 97, 115, 109, 1, 0, 0, 0, 1];
     assert_matches!(
-        CompileErrorKind::downcast_ref(&WebAssembly::instantiate(&data, &Env {}).unwrap_err())
+        WasmCompileErrorKind::downcast_ref(&WebAssembly::instantiate(&data, &Env {}).unwrap_err())
             .unwrap(),
-        CompileErrorKind::UnexpectedEof
+        WasmCompileErrorKind::UnexpectedEof
     );
 
     let instance =
         WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), &Env {}).unwrap();
-    let _ = instance.function("fib").unwrap();
+    let _ = instance.exports().get("fib").unwrap();
 }
 
 #[test]
@@ -64,9 +122,9 @@ fn section_order() {
         0, 97, 115, 109, 1, 0, 0, 0, 1, 1, 0, 2, 1, 0, 2, 1, 0, 3, 1, 0, 4, 1, 0, 3, 1, 0,
     ];
     assert_matches!(
-        CompileErrorKind::downcast_ref(&WebAssembly::instantiate(&data, &Env {}).unwrap_err())
+        WasmCompileErrorKind::downcast_ref(&WebAssembly::instantiate(&data, &Env {}).unwrap_err())
             .unwrap(),
-        CompileErrorKind::InvalidSectionOrder(WasmSectionId::Function)
+        WasmCompileErrorKind::InvalidSectionOrder(WasmSectionId::Function)
     );
 }
 
@@ -99,7 +157,7 @@ fn i32_const_type_mismatch() {
         WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, instance.module())
             .unwrap_err()
             .kind(),
-        CompileErrorKind::TypeMismatch
+        WasmCompileErrorKind::TypeMismatch
     );
 
     let slice = [0, 0x41, 0x00, 0x01, 0x0B];
@@ -157,7 +215,7 @@ fn i64_const_type_mismatch() {
         WasmCodeBlock::generate(0, 0, &mut stream, &[], &result_types, instance.module())
             .unwrap_err()
             .kind(),
-        CompileErrorKind::TypeMismatch
+        WasmCompileErrorKind::TypeMismatch
     );
 }
 
@@ -794,22 +852,11 @@ fn br_table() {
 fn app_fact() {
     let instance =
         WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), &Env {}).unwrap();
-    let runnable = instance.function("fact").unwrap();
 
-    let result = runnable
-        .invoke(&[7.into()])
-        .unwrap()
-        .unwrap()
-        .get_i32()
-        .unwrap();
+    let result = instance.exports().fact(7).unwrap();
     assert_eq!(result, 5040);
 
-    let result = runnable
-        .invoke(&[10.into()])
-        .unwrap()
-        .unwrap()
-        .get_i32()
-        .unwrap();
+    let result = instance.exports().fact(10).unwrap();
     assert_eq!(result, 3628800);
 }
 
@@ -817,30 +864,14 @@ fn app_fact() {
 fn app_fib() {
     let instance =
         WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), &Env {}).unwrap();
-    let runnable = instance.function("fib").unwrap();
 
-    let result = runnable
-        .invoke(&[5.into()])
-        .unwrap()
-        .unwrap()
-        .get_i32()
-        .unwrap();
+    let result = instance.exports().fib(5).unwrap();
     assert_eq!(result, 5);
 
-    let result = runnable
-        .invoke(&[10.into()])
-        .unwrap()
-        .unwrap()
-        .get_i32()
-        .unwrap();
+    let result = instance.exports().fib(10).unwrap();
     assert_eq!(result, 55);
 
-    let result = runnable
-        .invoke(&[20.into()])
-        .unwrap()
-        .unwrap()
-        .get_i32()
-        .unwrap();
+    let result = instance.exports().fib(20).unwrap();
     assert_eq!(result, 6765);
 }
 
@@ -862,14 +893,7 @@ fn opr_test_i32() {
         0xFFFF_0000u32 as i32,
     ] {
         memory.fill(0xCC);
-        let result = instance
-            .function("test_unary_i32")
-            .unwrap()
-            .invoke(&[val.into()])
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
+        let result = instance.exports().test_unary_i32(val).unwrap();
         assert_eq!(result, 0x24);
 
         assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
@@ -885,14 +909,7 @@ fn opr_test_i32() {
         assert_eq!(memory.read_u64(0x28), 0xCCCC_CCCC_CCCC_CCCC);
 
         memory.fill(0xCC);
-        let result = instance
-            .function("test_fusion_unary_i32")
-            .unwrap()
-            .invoke(&[val.into()])
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
+        let result = instance.exports().test_fusion_unary_i32(val).unwrap();
         assert_eq!(result, 0x50);
 
         assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
@@ -943,14 +960,7 @@ fn opr_test_i32() {
         let rhsu = rhs as u32;
 
         memory.fill(0xCC);
-        let result = instance
-            .function("test_bin_i32")
-            .unwrap()
-            .invoke(&[lhs.into(), rhs.into()])
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
+        let result = instance.exports().test_bin_i32(lhs, rhs).unwrap();
         assert_eq!(result, 112);
 
         assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
@@ -989,14 +999,7 @@ fn opr_test_i32() {
         assert_eq!(memory.read_u64(0x78), 0xCCCC_CCCC_CCCC_CCCC);
 
         memory.fill(0xCC);
-        let result = instance
-            .function("test_fusion_binary_i32")
-            .unwrap()
-            .invoke(&[lhs.into(), rhs.into()])
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
+        let result = instance.exports().test_fusion_binary_i32(lhs, rhs).unwrap();
         assert_eq!(result, 0x34);
 
         assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
@@ -1036,14 +1039,7 @@ fn opr_test_i64() {
         0xFFFF_FFFF_0000_0000u64 as i64,
     ] {
         memory.fill(0xCC);
-        let result = instance
-            .function("test_unary_i64")
-            .unwrap()
-            .invoke(&[val.into()])
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
+        let result = instance.exports().test_unary_i64(val).unwrap();
         assert_eq!(result, 0x48);
 
         assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
@@ -1063,14 +1059,7 @@ fn opr_test_i64() {
         assert_eq!(memory.read_u64(0x50), 0xCCCC_CCCC_CCCC_CCCC);
 
         memory.fill(0xCC);
-        let result = instance
-            .function("test_fused_i64")
-            .unwrap()
-            .invoke(&[val.into()])
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
+        let result = instance.exports().test_fused_i64(val).unwrap();
         assert_eq!(result, 0x90);
 
         assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
@@ -1122,14 +1111,7 @@ fn opr_test_i64() {
         let rhsu = rhs as u64;
 
         memory.fill(0xCC);
-        let result = instance
-            .function("test_bin_i64")
-            .unwrap()
-            .invoke(&[lhs.into(), rhs.into()])
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
+        let result = instance.exports().test_bin_i64(lhs, rhs).unwrap();
         assert_eq!(result, 168);
 
         assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
@@ -1167,14 +1149,7 @@ fn opr_test_i64() {
         assert_eq!(memory.read_u64(0xB0), 0xCCCC_CCCC_CCCC_CCCC);
 
         memory.fill(0xCC);
-        let result = instance
-            .function("test_fusion_binary_i64")
-            .unwrap()
-            .invoke(&[lhs.into(), rhs.into()])
-            .unwrap()
-            .unwrap()
-            .get_i32()
-            .unwrap();
+        let result = instance.exports().test_fusion_binary_i64(lhs, rhs).unwrap();
         assert_eq!(result, 0x34);
 
         assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
@@ -1213,14 +1188,7 @@ fn call_test() {
         ),
     ] {
         memory.fill(0xCC);
-        let result = instance
-            .function("call_test1")
-            .unwrap()
-            .invoke(&[a1.into(), a2.into(), a3.into(), a4.into()])
-            .unwrap()
-            .unwrap()
-            .get_u32()
-            .unwrap();
+        let result = instance.exports().call_test1(a1, a2, a3, a4).unwrap();
         assert_eq!(result, a1);
 
         assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
@@ -1234,14 +1202,7 @@ fn call_test() {
         assert_eq!(memory.read_u64(0x28), 0xCCCC_CCCC_CCCC_CCCC);
 
         memory.fill(0xCC);
-        let result = instance
-            .function("call_test2")
-            .unwrap()
-            .invoke(&[a1.into(), a2.into(), a3.into(), a4.into()])
-            .unwrap()
-            .unwrap()
-            .get_u32()
-            .unwrap();
+        let result = instance.exports().call_test2(a1, a2, a3, a4).unwrap();
         assert_eq!(result, a1.wrapping_add(a2));
 
         assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
@@ -1255,14 +1216,7 @@ fn call_test() {
         assert_eq!(memory.read_u64(0x28), 0xCCCC_CCCC_CCCC_CCCC);
 
         memory.fill(0xCC);
-        let result = instance
-            .function("call_test3")
-            .unwrap()
-            .invoke(&[a1.into(), a2.into(), a3.into(), a4.into()])
-            .unwrap()
-            .unwrap()
-            .get_u64()
-            .unwrap();
+        let result = instance.exports().call_test3(a1, a2, a3, a4).unwrap();
         assert_eq!(result, a3);
 
         assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
@@ -1276,14 +1230,7 @@ fn call_test() {
         assert_eq!(memory.read_u64(0x28), 0xCCCC_CCCC_CCCC_CCCC);
 
         memory.fill(0xCC);
-        let result = instance
-            .function("call_test4")
-            .unwrap()
-            .invoke(&[a1.into(), a2.into(), a3.into(), a4.into()])
-            .unwrap()
-            .unwrap()
-            .get_u64()
-            .unwrap();
+        let result = instance.exports().call_test4(a1, a2, a3, a4).unwrap();
         assert_eq!(result, a4);
 
         assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
@@ -1309,7 +1256,8 @@ fn call_indirect_test() {
         for i in 1..=3 {
             let base = [0i32, 123, -456, 789][i as usize];
             let result = instance
-                .function("call_indirect_test")
+                .exports()
+                .get("call_indirect_test")
                 .unwrap()
                 .invoke(&[(i as i32).into(), a1.into()])
                 .unwrap()
@@ -1320,7 +1268,8 @@ fn call_indirect_test() {
         }
 
         let err: Box<WasmRuntimeError> = instance
-            .function("call_indirect_test")
+            .exports()
+            .get("call_indirect_test")
             .unwrap()
             .invoke(&[4.into(), a1.into()])
             .unwrap_err()
@@ -1329,7 +1278,8 @@ fn call_indirect_test() {
         assert_matches!(err.kind(), WasmRuntimeErrorKind::TypeMismatch);
 
         let err: Box<WasmRuntimeError> = instance
-            .function("call_indirect_test")
+            .exports()
+            .get("call_indirect_test")
             .unwrap()
             .invoke(&[100.into(), a1.into()])
             .unwrap_err()
@@ -1389,7 +1339,8 @@ fn mem_load_store() {
         reset_memory(&instance, src);
         let expected = 0xFF ^ a1;
         let result = instance
-            .function("mem_test_u32u8")
+            .exports()
+            .get("mem_test_u32u8")
             .unwrap()
             .invoke(&[a1.into(), a2.into()])
             .unwrap()
@@ -1407,7 +1358,8 @@ fn mem_load_store() {
         reset_memory(&instance, src);
         let expected = (-1 ^ a1 as i8) as i32;
         let result = instance
-            .function("mem_test_i32i8")
+            .exports()
+            .get("mem_test_i32i8")
             .unwrap()
             .invoke(&[a1.into(), a2.into()])
             .unwrap()
@@ -1425,7 +1377,8 @@ fn mem_load_store() {
         reset_memory(&instance, src);
         let expected = 0xFF ^ a1 as u64;
         let result = instance
-            .function("mem_test_u64u8")
+            .exports()
+            .get("mem_test_u64u8")
             .unwrap()
             .invoke(&[a1.into(), a2.into()])
             .unwrap()
@@ -1443,7 +1396,8 @@ fn mem_load_store() {
         reset_memory(&instance, src);
         let expected = (-1 ^ a1 as i8) as i64;
         let result = instance
-            .function("mem_test_i64i8")
+            .exports()
+            .get("mem_test_i64i8")
             .unwrap()
             .invoke(&[a1.into(), a2.into()])
             .unwrap()
@@ -1465,7 +1419,8 @@ fn mem_load_store() {
         reset_memory(&instance, src);
         let expected = 0xFFFF ^ (a1b + (a1b + 1) * 0x100);
         let result = instance
-            .function("mem_test_u32u16")
+            .exports()
+            .get("mem_test_u32u16")
             .unwrap()
             .invoke(&[a1.into(), a2.into()])
             .unwrap()
@@ -1484,7 +1439,8 @@ fn mem_load_store() {
         reset_memory(&instance, src);
         let expected = -1 ^ ((a1b + (a1b + 1) * 0x100) as i16) as i32;
         let result = instance
-            .function("mem_test_i32i16")
+            .exports()
+            .get("mem_test_i32i16")
             .unwrap()
             .invoke(&[a1.into(), a2.into()])
             .unwrap()
@@ -1503,7 +1459,8 @@ fn mem_load_store() {
         reset_memory(&instance, src);
         let expected = 0xFFFF ^ (a1b as u64 + (a1b as u64 + 1) * 0x100);
         let result = instance
-            .function("mem_test_u64u16")
+            .exports()
+            .get("mem_test_u64u16")
             .unwrap()
             .invoke(&[a1.into(), a2.into()])
             .unwrap()
@@ -1522,7 +1479,8 @@ fn mem_load_store() {
         reset_memory(&instance, src);
         let expected = -1 ^ ((a1b as u64 + (a1b as u64 + 1) * 0x100) as i16) as i64;
         let result = instance
-            .function("mem_test_i64i16")
+            .exports()
+            .get("mem_test_i64i16")
             .unwrap()
             .invoke(&[a1.into(), a2.into()])
             .unwrap()
@@ -1545,7 +1503,8 @@ fn mem_load_store() {
         reset_memory(&instance, src);
         let expected = 0xFFFFFFFF ^ ((a1b * 0x1_01_01_01) + 0x03_02_01_00);
         let result = instance
-            .function("mem_test_u32")
+            .exports()
+            .get("mem_test_u32")
             .unwrap()
             .invoke(&[a1.into(), a2.into()])
             .unwrap()
@@ -1565,7 +1524,8 @@ fn mem_load_store() {
         reset_memory(&instance, src);
         let expected = 0xFFFFFFFF ^ ((a1b * 0x1_01_01_01) + 0x03_02_01_00) as u64;
         let result = instance
-            .function("mem_test_u64u32")
+            .exports()
+            .get("mem_test_u64u32")
             .unwrap()
             .invoke(&[a1.into(), a2.into()])
             .unwrap()
@@ -1585,7 +1545,8 @@ fn mem_load_store() {
         reset_memory(&instance, src);
         let expected = -1 ^ (((a1b * 0x1_01_01_01) + 0x03_02_01_00) as i32) as i64;
         let result = instance
-            .function("mem_test_i64i32")
+            .exports()
+            .get("mem_test_i64i32")
             .unwrap()
             .invoke(&[a1.into(), a2.into()])
             .unwrap()
@@ -1610,7 +1571,8 @@ fn mem_load_store() {
         let expected = 0xFFFF_FFFF_FFFF_FFFF
             ^ ((a1b as u64 * 0x1_01_01_01_01_01_01_01) + 0x07_06_05_04_03_02_01_00);
         let result = instance
-            .function("mem_test_u64")
+            .exports()
+            .get("mem_test_u64")
             .unwrap()
             .invoke(&[a1.into(), a2.into()])
             .unwrap()
@@ -1695,74 +1657,25 @@ fn memory() {
         }
     }
 
-    let mem_size = instance
-        .function("mem_test_size")
-        .unwrap()
-        .invoke(&[])
-        .unwrap()
-        .unwrap()
-        .get_i32()
-        .unwrap();
+    let mem_size = instance.exports().mem_test_size().unwrap();
     assert_eq!(mem_size, 1);
 
-    let mem_size = instance
-        .function("mem_test_grow")
-        .unwrap()
-        .invoke(&[0.into()])
-        .unwrap()
-        .unwrap()
-        .get_i32()
-        .unwrap();
+    let mem_size = instance.exports().mem_test_grow(0).unwrap();
     assert_eq!(mem_size, 1);
 
-    let mem_size = instance
-        .function("mem_test_size")
-        .unwrap()
-        .invoke(&[])
-        .unwrap()
-        .unwrap()
-        .get_i32()
-        .unwrap();
+    let mem_size = instance.exports().mem_test_size().unwrap();
     assert_eq!(mem_size, 1);
 
-    let mem_size = instance
-        .function("mem_test_grow")
-        .unwrap()
-        .invoke(&[10.into()])
-        .unwrap()
-        .unwrap()
-        .get_i32()
-        .unwrap();
+    let mem_size = instance.exports().mem_test_grow(10).unwrap();
     assert_eq!(mem_size, 1);
 
-    let mem_size = instance
-        .function("mem_test_size")
-        .unwrap()
-        .invoke(&[])
-        .unwrap()
-        .unwrap()
-        .get_i32()
-        .unwrap();
+    let mem_size = instance.exports().mem_test_size().unwrap();
     assert_eq!(mem_size, 11);
 
-    let mem_size = instance
-        .function("mem_test_grow")
-        .unwrap()
-        .invoke(&[0x1_0000.into()])
-        .unwrap()
-        .unwrap()
-        .get_i32()
-        .unwrap();
+    let mem_size = instance.exports().mem_test_grow(0x1_0000).unwrap();
     assert_eq!(mem_size, -1);
 
-    let mem_size = instance
-        .function("mem_test_size")
-        .unwrap()
-        .invoke(&[])
-        .unwrap()
-        .unwrap()
-        .get_i32()
-        .unwrap();
+    let mem_size = instance.exports().mem_test_size().unwrap();
     assert_eq!(mem_size, 11);
 
     // memmory fill
@@ -1770,7 +1683,8 @@ fn memory() {
     reset_memory(&instance, src);
 
     assert!(instance
-        .function("mem_test_fill")
+        .exports()
+        .get("mem_test_fill")
         .unwrap()
         .invoke(&[p_dest.into(), p_src.into(), count.into()])
         .unwrap()
@@ -1785,7 +1699,8 @@ fn memory() {
     reset_memory(&instance, src);
 
     assert!(instance
-        .function("mem_test_copy")
+        .exports()
+        .get("mem_test_copy")
         .unwrap()
         .invoke(&[p_dest.into(), p_src.into(), count.into()])
         .unwrap()
@@ -1801,7 +1716,6 @@ fn memory() {
 fn global() {
     let instance =
         WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), &Env {}).unwrap();
-    let runnable = instance.function("global_add").unwrap();
 
     assert_eq!(
         instance
@@ -1813,12 +1727,7 @@ fn global() {
         123
     );
 
-    let result = runnable
-        .invoke(&[456.into()])
-        .unwrap()
-        .unwrap()
-        .get_i32()
-        .unwrap();
+    let result = instance.exports().global_add(456).unwrap();
     assert_eq!(result, 579);
 
     assert_eq!(
@@ -1831,12 +1740,7 @@ fn global() {
         579
     );
 
-    let result = runnable
-        .invoke(&[789.into()])
-        .unwrap()
-        .unwrap()
-        .get_i32()
-        .unwrap();
+    let result = instance.exports().global_add(789).unwrap();
     assert_eq!(result, 1368);
 
     assert_eq!(
@@ -2019,18 +1923,8 @@ fn float32_opr() {
 
         memory.fill(0xCC);
         let result = instance
-            .function("test_unary_f32")
-            .unwrap()
-            .invoke(&[
-                fval.into(),
-                i32val.into(),
-                u32val.into(),
-                i64val.into(),
-                u64val.into(),
-            ])
-            .unwrap()
-            .unwrap()
-            .get_i32()
+            .exports()
+            .test_unary_f32(fval, i32val, u32val, i64val, u64val)
             .unwrap();
         assert_eq!(result, 0x98);
 
@@ -2273,14 +2167,7 @@ fn float32_opr() {
             let rhs = *rhs;
 
             memory.fill(0xCC);
-            let result = instance
-                .function("test_bin_f32")
-                .unwrap()
-                .invoke(&[lhs.into(), rhs.into()])
-                .unwrap()
-                .unwrap()
-                .get_i32()
-                .unwrap();
+            let result = instance.exports().test_bin_f32(lhs, rhs).unwrap();
             assert_eq!(result, 0x40);
 
             assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
@@ -2717,18 +2604,8 @@ fn float64_opr() {
 
         memory.fill(0xCC);
         let result = instance
-            .function("test_unary_f64")
-            .unwrap()
-            .invoke(&[
-                fval.into(),
-                i32val.into(),
-                u32val.into(),
-                i64val.into(),
-                u64val.into(),
-            ])
-            .unwrap()
-            .unwrap()
-            .get_i32()
+            .exports()
+            .test_unary_f64(fval, i32val, u32val, i64val, u64val)
             .unwrap();
         assert_eq!(result, 0xB0);
 
@@ -2970,14 +2847,7 @@ fn float64_opr() {
             let rhs = *rhs;
 
             memory.fill(0xCC);
-            let result = instance
-                .function("test_bin_f64")
-                .unwrap()
-                .invoke(&[lhs.into(), rhs.into()])
-                .unwrap()
-                .unwrap()
-                .get_i32()
-                .unwrap();
+            let result = instance.exports().test_bin_f64(lhs, rhs).unwrap();
             assert_eq!(result, 0x58);
 
             assert_eq!(memory.read_u64(0), 0xCCCC_CCCC_CCCC_CCCC);
@@ -3285,7 +3155,7 @@ fn block_nest() {
         WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], instance.module())
             .unwrap_err()
             .kind(),
-        CompileErrorKind::UnexpectedEof
+        WasmCompileErrorKind::UnexpectedEof
     );
 
     let slice = [0, 0x02, 0x7F, 0x02, 0x7F, 0x41, 0x01, 0x0B, 0x0B, 0x0B];
@@ -3308,7 +3178,7 @@ fn block_nest() {
         WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], instance.module())
             .unwrap_err()
             .kind(),
-        CompileErrorKind::OutOfStack
+        WasmCompileErrorKind::OutOfStack
     );
 
     let slice = [0, 0x02, 0x7F, 0x02, 0x7F, 0x41, 0x01, 0x0B, 0x0B, 0x0B];
@@ -3318,7 +3188,7 @@ fn block_nest() {
         WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], instance.module())
             .unwrap_err()
             .kind(),
-        CompileErrorKind::InvalidStackLevel
+        WasmCompileErrorKind::InvalidStackLevel
     );
 
     let slice = [0, 0x02, 0x7F, 0x02, 0x7F, 0x41, 0x01, 0x0B, 0x0B, 0x0B];
@@ -3335,7 +3205,7 @@ fn block_nest() {
         )
         .unwrap_err()
         .kind(),
-        CompileErrorKind::TypeMismatch
+        WasmCompileErrorKind::TypeMismatch
     );
 
     let slice = [0, 0x02, 0x7F, 0x02, 0x7F, 0x42, 0x01, 0x0B, 0x0B, 0x0B];
@@ -3352,7 +3222,7 @@ fn block_nest() {
         )
         .unwrap_err()
         .kind(),
-        CompileErrorKind::TypeMismatch
+        WasmCompileErrorKind::TypeMismatch
     );
 
     let slice = [0, 0x02, 0x7F, 0x02, 0x7E, 0x41, 0x01, 0x0B, 0x0B, 0x0B];
@@ -3369,7 +3239,7 @@ fn block_nest() {
         )
         .unwrap_err()
         .kind(),
-        CompileErrorKind::TypeMismatch
+        WasmCompileErrorKind::TypeMismatch
     );
 
     let slice = [0, 0x02, 0x7E, 0x02, 0x7F, 0x41, 0x01, 0x0B, 0x0B, 0x0B];
@@ -3386,7 +3256,7 @@ fn block_nest() {
         )
         .unwrap_err()
         .kind(),
-        CompileErrorKind::TypeMismatch
+        WasmCompileErrorKind::TypeMismatch
     );
 
     let slice = [0, 0x02, 0x7E, 0x02, 0x7F, 0x41, 0x01, 0x0B, 0x0B, 0x0B];
@@ -3403,7 +3273,7 @@ fn block_nest() {
         )
         .unwrap_err()
         .kind(),
-        CompileErrorKind::TypeMismatch
+        WasmCompileErrorKind::TypeMismatch
     );
 
     let slice = [0, 0x02, 0x7F, 0x02, 0x7F, 0x20, 0x00, 0x0B, 0x0B, 0x0B];
@@ -3433,22 +3303,11 @@ fn block_nest() {
 fn block_test() {
     let instance =
         WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), &Env {}).unwrap();
-    let runnable = instance.function("block_test").unwrap();
 
-    let result = runnable
-        .invoke(&[1.into(), 123.into(), 456.into(), 789.into()])
-        .unwrap()
-        .unwrap()
-        .get_i32()
-        .unwrap();
+    let result = instance.exports().block_test(1, 123, 456, 789).unwrap();
     assert_eq!(result, 456);
 
-    let result = runnable
-        .invoke(&[2.into(), 123.into(), 456.into(), 789.into()])
-        .unwrap()
-        .unwrap()
-        .get_i32()
-        .unwrap();
+    let result = instance.exports().block_test(2, 123, 456, 789).unwrap();
     assert_eq!(result, 789);
 }
 
@@ -3466,7 +3325,7 @@ fn loop_nest() {
         WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], instance.module())
             .unwrap_err()
             .kind(),
-        CompileErrorKind::UnexpectedEof
+        WasmCompileErrorKind::UnexpectedEof
     );
 
     let slice = [0, 0x02, 0x7F, 0x03, 0x7F, 0x41, 0x01, 0x0B, 0x0B, 0x0B];
@@ -3489,7 +3348,7 @@ fn loop_nest() {
         WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], instance.module())
             .unwrap_err()
             .kind(),
-        CompileErrorKind::OutOfStack
+        WasmCompileErrorKind::OutOfStack
     );
 }
 
@@ -3497,22 +3356,11 @@ fn loop_nest() {
 fn loop_test() {
     let instance =
         WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), &Env {}).unwrap();
-    let runnable = instance.function("loop_test").unwrap();
 
-    let result = runnable
-        .invoke(&[10.into()])
-        .unwrap()
-        .unwrap()
-        .get_i32()
-        .unwrap();
+    let result = instance.exports().loop_test(10).unwrap();
     assert_eq!(result, 55);
 
-    let result = runnable
-        .invoke(&[100.into()])
-        .unwrap()
-        .unwrap()
-        .get_i32()
-        .unwrap();
+    let result = instance.exports().loop_test(100).unwrap();
     assert_eq!(result, 5050);
 }
 
@@ -3542,7 +3390,7 @@ fn if_nest() {
         WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], instance.module())
             .unwrap_err()
             .kind(),
-        CompileErrorKind::ElseNotExists
+        WasmCompileErrorKind::ElseNotExists
     );
 
     let slice = [0, 0x05, 0x01, 0x0B];
@@ -3552,7 +3400,7 @@ fn if_nest() {
         WasmCodeBlock::generate(0, 0, &mut stream, &[], &[], instance.module())
             .unwrap_err()
             .kind(),
-        CompileErrorKind::ElseWithoutIf
+        WasmCompileErrorKind::ElseWithoutIf
     );
 }
 
@@ -3560,17 +3408,14 @@ fn if_nest() {
 fn if_test() {
     let instance =
         WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), &Env {}).unwrap();
-    let runnable = instance.function("if_test1").unwrap();
 
-    let result = runnable
-        .invoke(&[123.into(), 456.into(), 1.into()])
-        .unwrap()
-        .unwrap()
-        .get_i32()
-        .unwrap();
+    let result = instance.exports().if_test1(123, 456, true).unwrap();
     assert_eq!(result, 123);
 
-    let result = runnable
+    let result = instance
+        .exports()
+        .get("if_test1")
+        .unwrap()
         .invoke(&[123.into(), 456.into(), 2.into()])
         .unwrap()
         .unwrap()
@@ -3578,25 +3423,16 @@ fn if_test() {
         .unwrap();
     assert_eq!(result, 123);
 
-    let result = runnable
-        .invoke(&[123.into(), 456.into(), 0.into()])
-        .unwrap()
-        .unwrap()
-        .get_i32()
-        .unwrap();
+    let result = instance.exports().if_test1(123, 456, false).unwrap();
     assert_eq!(result, 456);
 
-    let runnable = instance.function("if_test2").unwrap();
-
-    let result = runnable
-        .invoke(&[123.into(), 456.into(), 1.into()])
-        .unwrap()
-        .unwrap()
-        .get_i32()
-        .unwrap();
+    let result = instance.exports().if_test2(123, 456, true).unwrap();
     assert_eq!(result, 123);
 
-    let result = runnable
+    let result = instance
+        .exports()
+        .get("if_test2")
+        .unwrap()
         .invoke(&[123.into(), 456.into(), 2.into()])
         .unwrap()
         .unwrap()
@@ -3604,12 +3440,7 @@ fn if_test() {
         .unwrap();
     assert_eq!(result, 123);
 
-    let result = runnable
-        .invoke(&[123.into(), 456.into(), 0.into()])
-        .unwrap()
-        .unwrap()
-        .get_i32()
-        .unwrap();
+    let result = instance.exports().if_test1(123, 456, false).unwrap();
     assert_eq!(result, 456);
 }
 
@@ -3617,23 +3448,10 @@ fn if_test() {
 fn import_test() {
     let instance =
         WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), &Env {}).unwrap();
-    let runnable = instance.function("import_test1").unwrap();
 
-    let result = runnable
-        .invoke(&[123.into(), 456.into()])
-        .unwrap()
-        .unwrap()
-        .get_i32()
-        .unwrap();
+    let result = instance.exports().import_test1(123, 456).unwrap();
     assert_eq!(result, 123 + 456);
 
-    let runnable = instance.function("import_test2").unwrap();
-
-    let result = runnable
-        .invoke(&[987.into(), 654.into()])
-        .unwrap()
-        .unwrap()
-        .get_i32()
-        .unwrap();
+    let result = instance.exports().import_test2(987, 654).unwrap();
     assert_eq!(result, 987 - 654);
 }

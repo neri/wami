@@ -2,6 +2,7 @@
   ;; test cases
   (import "env" "add" (func $env_add (param i32) (param i32) (result i32)))
   (import "env" "sub" (func $env_sub (param i32) (param i32) (result i32)))
+  (import "env" "signature_test" (func (param i32) (param i64) (param f32) (param f64) (result f32)))
 
   (memory 1)
 
@@ -138,7 +139,7 @@
     local.get $p
   )
 
-  ;; fn test_unary_i64(v: i64) -> i64
+  ;; fn test_unary_i64(v: i64) -> i32
   (func $test_unary_i64 (export "test_unary_i64") (param i64) (result i32)
     (local $p i32)
 
@@ -688,7 +689,7 @@
     local.get $a1
   )
 
-  ;; fn call_test2(a1: i32, a2: i32, a2: i64, a4: i64) -> i32
+  ;; fn call_test2(a1: i32, a2: i32, a3: i64, a4: i64) -> i32
   (func $call_test2 (export "call_test2") (param $a1 i32) (param $a2 i32) (param $a3 i64) (param $a4 i64) (result i32)
     (local $i i32)
 
