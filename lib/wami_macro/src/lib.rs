@@ -22,8 +22,7 @@ macro_rules! unexpected_token {
 
 fn is_primitive(value: &str) -> bool {
     let primitive_types = [
-        "bool", "isize", "usize", "i8", "u8", "i16", "u16", "i32", "u32", "i64", "u64", "f32",
-        "f64",
+        "bool", "i8", "u8", "i16", "u16", "i32", "u32", "i64", "u64", "f32", "f64",
     ];
 
     primitive_types.contains(&value)
@@ -141,7 +140,7 @@ fn reduce_path(path: &Path) -> String {
 fn type_to_signature(ident: &str) -> &str {
     match ident {
         "void" => "v",
-        "bool" | "i8" | "u8" | "i16" | "u16" | "isize" | "usize" | "i32" | "u32" => "i",
+        "bool" | "i8" | "u8" | "i16" | "u16" | "i32" | "u32" => "i",
         "u64" | "i64" => "l",
         "f32" => "f",
         "f64" => "d",

@@ -297,21 +297,21 @@ impl DerefMut for SharedDataStore {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct WasmPtr<T> {
     repr: u32,
-    _phantom: PhantomData<T>,
+    _phantom: PhantomData<*const T>,
 }
 
 impl<T> WasmPtr<T> {
     #[inline]
-    pub const fn from_usize(value: usize) -> Self {
+    pub const fn from_u32(value: u32) -> Self {
         Self {
-            repr: value as u32,
+            repr: value,
             _phantom: PhantomData,
         }
     }
 
     #[inline]
-    pub const fn as_usize(&self) -> usize {
-        self.repr as usize
+    pub const fn as_u32(&self) -> u32 {
+        self.repr
     }
 }
 
@@ -326,21 +326,21 @@ impl<T> From<WasmPtr<T>> for WasmValue {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct WasmPtrMut<T> {
     repr: u32,
-    _phantom: PhantomData<T>,
+    _phantom: PhantomData<*mut T>,
 }
 
 impl<T> WasmPtrMut<T> {
     #[inline]
-    pub const fn from_usize(value: usize) -> Self {
+    pub const fn from_u32(value: u32) -> Self {
         Self {
-            repr: value as u32,
+            repr: value,
             _phantom: PhantomData,
         }
     }
 
     #[inline]
-    pub const fn as_usize(&self) -> usize {
-        self.repr as usize
+    pub const fn as_u32(&self) -> u32 {
+        self.repr
     }
 }
 

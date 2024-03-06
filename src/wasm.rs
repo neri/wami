@@ -426,7 +426,9 @@ impl WasmModule {
                 .memories
                 .get_mut(memidx)
                 .ok_or(WasmCompileErrorKind::InvalidData)?;
-            memory.write_slice(offset, src).unwrap();
+            memory
+                .write_slice(offset, src)
+                .map_err(|_| WasmCompileErrorKind::InvalidData)?
         }
         Ok(())
     }

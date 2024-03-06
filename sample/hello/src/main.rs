@@ -3,8 +3,7 @@
 use wami::prelude::*;
 
 fn main() {
-    let bin = include_bytes!("../hello.wasm");
-    let instance = WebAssembly::instantiate(bin, &Env {}).unwrap();
+    let instance = WebAssembly::instantiate(include_bytes!("../hello.wasm"), &Env {}).unwrap();
 
     assert_eq!(instance.exports().add(123, 456).unwrap(), 123 + 456);
 }

@@ -1863,7 +1863,7 @@ impl WasmOpcode {
                     // 0xFB 0x1E `i31.get_u` (Gc)
                     0x1e => Ok(Self::I31GetU),
 
-                    _ => Err(WasmCompileErrorKind::InvalidBytecode2(leading, trailing)),
+                    _ => Err(WasmCompileErrorKind::InvalidBytecode2(leading, trailing))
                 }
             }
             0xFC => {
@@ -1931,7 +1931,7 @@ impl WasmOpcode {
                     // 0xFC 0x11 `table.fill` u32 (ReferenceTypes)
                     0x11 => Ok(Self::TableFill(reader.read()?)),
 
-                    _ => Err(WasmCompileErrorKind::InvalidBytecode2(leading, trailing)),
+                    _ => Err(WasmCompileErrorKind::InvalidBytecode2(leading, trailing))
                 }
             }
             0xFD => {
@@ -2708,7 +2708,7 @@ impl WasmOpcode {
                     // 0xFD 0x114 `f32x4.relaxed_dot_bf16x8_add_f32x4` (RelaxedSimd)
                     0x114 => Ok(Self::F32x4RelaxedDotBf16x8AddF32x4),
 
-                    _ => Err(WasmCompileErrorKind::InvalidBytecode2(leading, trailing)),
+                    _ => Err(WasmCompileErrorKind::InvalidBytecode2(leading, trailing))
                 }
             }
             0xFE => {
@@ -2915,10 +2915,10 @@ impl WasmOpcode {
                     // 0xFE 0x4E `i64.atomic.rmw32.cmpxchg_u` (Threads)
                     0x4e => Ok(Self::I64AtomicRmw32CmpxchgU),
 
-                    _ => Err(WasmCompileErrorKind::InvalidBytecode2(leading, trailing)),
+                    _ => Err(WasmCompileErrorKind::InvalidBytecode2(leading, trailing))
                 }
             }
-            _ => Err(WasmCompileErrorKind::InvalidBytecode(leading)),
+            _ => Err(WasmCompileErrorKind::InvalidBytecode(leading))
         }
     }
 
@@ -3493,14 +3493,16 @@ impl WasmOpcode {
             Self::V128Xor => WasmMnemonic::V128Xor,
             Self::Zi32x4RelaxedTruncF32x4S => WasmMnemonic::Zi32x4RelaxedTruncF32x4S,
             Self::Zi8x16RelaxedSwizzle => WasmMnemonic::Zi8x16RelaxedSwizzle,
+
         }
     }
+
 }
 
 impl fmt::Display for WasmOpcode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            _ => f.write_str(self.as_str()),
+            _ => f.write_str(self.as_str())
         }
     }
 }
@@ -3508,7 +3510,7 @@ impl fmt::Display for WasmOpcode {
 impl fmt::Debug for WasmOpcode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            _ => f.write_str(self.as_str()),
+            _ => f.write_str(self.as_str())
         }
     }
 }
@@ -5215,7 +5217,7 @@ impl WasmMnemonic {
             Self::Zi8x16RelaxedSwizzle => "Zi8x16.relaxed_swizzle",
         }
     }
-
+    
     pub const fn proposal(&self) -> WasmProposal {
         match self {
             Self::AnyConvertExtern => WasmProposal::Gc,
