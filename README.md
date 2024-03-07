@@ -1,12 +1,12 @@
 # WAMI
 
-A WebAssembly Interpreter used in [Maystorm](https://github.com/neri/maystorm)
+A WebAssembly Interpreter used in my os (https://github.com/neri/maystorm)
 
 ## features
 
 - Support for `no_std`
-- A subset of WebAssembly MVP v2.0
-  - SIMD and reference instructions and some basic functions are not supported.
+- A subset of WebAssembly 2.0
+  - It can be used for most applications, but it does not support SIMD, reference, and some basic instructions.
 
 ## requirements
 

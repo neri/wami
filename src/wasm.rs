@@ -17,6 +17,8 @@ use core::str;
 use core::sync::atomic::{AtomicU64, Ordering};
 use smallvec::SmallVec;
 
+use self::memory::{WasmPtr, WasmPtrMut};
+
 pub struct WebAssembly;
 
 impl WebAssembly {
@@ -112,7 +114,7 @@ impl<T: Into<WasmValue>, E: Into<Box<dyn Error>>> From<Result<T, E>> for WasmDyn
 }
 
 pub trait WasmEnv {
-    fn imports_resolver(&self, mod_name: &str, name: &str, type_: &WasmType) -> WasmImportResult;
+    fn resolve_imports(&self, mod_name: &str, name: &str, type_: &WasmType) -> WasmImportResult;
 }
 
 pub enum WasmImportResult {
@@ -246,7 +248,7 @@ impl WasmModule {
         for import in &self.imports {
             match import.desc {
                 WasmImportDescriptor::Function(type_index) => {
-                    match env.imports_resolver(
+                    match env.resolve_imports(
                         &import.mod_name,
                         &import.name,
                         self.type_by_index(type_index),
@@ -1864,6 +1866,34 @@ impl WasmValue {
     }
 }
 
+impl From<i8> for WasmValue {
+    #[inline]
+    fn from(v: i8) -> Self {
+        Self::I32(v as i32)
+    }
+}
+
+impl From<u8> for WasmValue {
+    #[inline]
+    fn from(v: u8) -> Self {
+        Self::I32(v as i32)
+    }
+}
+
+impl From<i16> for WasmValue {
+    #[inline]
+    fn from(v: i16) -> Self {
+        Self::I32(v as i32)
+    }
+}
+
+impl From<u16> for WasmValue {
+    #[inline]
+    fn from(v: u16) -> Self {
+        Self::I32(v as i32)
+    }
+}
+
 impl From<i32> for WasmValue {
     #[inline]
     fn from(v: i32) -> Self {
@@ -2291,6 +2321,20 @@ unsafe impl UnsafeInto<f64> for WasmUnionValue {
     #[inline]
     unsafe fn unsafe_into(self) -> f64 {
         unsafe { self.get_f64() }
+    }
+}
+
+unsafe impl<T> UnsafeInto<WasmPtr<T>> for WasmUnionValue {
+    #[inline]
+    unsafe fn unsafe_into(self) -> WasmPtr<T> {
+        WasmPtr::from_u32(unsafe { self.get_u32() })
+    }
+}
+
+unsafe impl<T> UnsafeInto<WasmPtrMut<T>> for WasmUnionValue {
+    #[inline]
+    unsafe fn unsafe_into(self) -> WasmPtrMut<T> {
+        WasmPtrMut::from_u32(unsafe { self.get_u32() })
     }
 }
 

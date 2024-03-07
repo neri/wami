@@ -63,8 +63,8 @@ trait TestTask {
 
     fn mem_test_size() -> i32;
     fn mem_test_grow(v: i32) -> i32;
-    // fn mem_test_fill(d: *mut c_void, v: u8, n: usize);
-    // fn mem_test_copy(d: *mut c_void, s: *const c_void, n: usize);
+    fn mem_test_fill(d: WasmPtrMut<u8>, v: u8, n: u32);
+    fn mem_test_copy(d: WasmPtrMut<u8>, s: WasmPtr<u8>, n: u32);
 
     // fn mem_test_u32u8(a1: &u8, a2: &mut u8) -> &mut u8;
     // mem_test_i32i8
@@ -1637,8 +1637,8 @@ fn memory() {
 
     #[inline]
     #[track_caller]
-    fn memset(memory: &mut [u8], d: i32, v: u8, n: i32) {
-        let d = d as usize;
+    fn memset(memory: &mut [u8], d: WasmPtrMut<u8>, v: u8, n: u32) {
+        let d = d.as_u32() as usize;
         let n = n as usize;
         for i in 0..n {
             memory[d + i] = v;
@@ -1647,9 +1647,9 @@ fn memory() {
 
     #[inline]
     #[track_caller]
-    fn memcpy(memory: &mut [u8], d: i32, s: i32, n: i32) {
-        let d = d as usize;
-        let s = s as usize;
+    fn memcpy(memory: &mut [u8], d: WasmPtrMut<u8>, s: WasmPtr<u8>, n: u32) {
+        let d = d.as_u32() as usize;
+        let s = s.as_u32() as usize;
         let n = n as usize;
         for i in 0..n {
             let v = memory[s + i];
@@ -1679,32 +1679,28 @@ fn memory() {
     assert_eq!(mem_size, 11);
 
     // memmory fill
-    let (p_dest, p_src, count) = (12, 34, 5);
+    let (p_dest, p_src, val, count) = (12, 34, 56, 7);
+    let p_dest = WasmPtrMut::from_u32(p_dest);
+    let p_src = WasmPtr::from_u32(p_src);
     reset_memory(&instance, src);
 
-    assert!(instance
+    instance
         .exports()
-        .get("mem_test_fill")
-        .unwrap()
-        .invoke(&[p_dest.into(), p_src.into(), count.into()])
-        .unwrap()
-        .is_none());
+        .mem_test_fill(p_dest, val, count)
+        .unwrap();
 
     let mut expected = Vec::new();
     expected.extend_from_slice(src);
-    memset(&mut expected, p_dest, p_src as u8, count);
+    memset(&mut expected, p_dest, val, count);
     test_memory!(instance, &expected);
 
     // memmory copy
     reset_memory(&instance, src);
 
-    assert!(instance
+    instance
         .exports()
-        .get("mem_test_copy")
-        .unwrap()
-        .invoke(&[p_dest.into(), p_src.into(), count.into()])
-        .unwrap()
-        .is_none());
+        .mem_test_copy(p_dest, p_src, count)
+        .unwrap();
 
     let mut expected = Vec::new();
     expected.extend_from_slice(src);
