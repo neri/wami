@@ -3,7 +3,6 @@
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
-// use quote::ToTokens;
 use std::borrow::Cow;
 use syn::{parse_macro_input, spanned::Spanned, ItemImpl, ItemTrait};
 
@@ -81,6 +80,8 @@ pub fn wasm_env(attr: TokenStream, input: TokenStream) -> TokenStream {
         };
 
         let var_instance = "instance";
+        let var_memory = "memory";
+
         let signature = ParsedType::function_signature(
             &result_type,
             params
@@ -97,59 +98,53 @@ pub fn wasm_env(attr: TokenStream, input: TokenStream) -> TokenStream {
         let mut call_params = Vec::new();
         func_body.push(format!(
             "fn {bridge_fn_name}({var_instance}: {}, mut args: WasmArgs) -> WasmDynResult {{",
-            IntrinsicType::WasmInstance.as_str()
+            IntrinsicType::WasmInstance.to_string()
         ));
 
         for param in params.iter() {
-            match param.1 {
+            match &param.1 {
                 ParsedType::IntrinsicType(intrinsics) => match intrinsics {
                     IntrinsicType::WasmInstance => {
                         call_params.push(var_instance.to_string());
                     }
                     IntrinsicType::Str => {
                         call_params.push(param.0.clone());
-                        func_body.push(format!("
-let memory = match {var_instance}.memory(0).unwrap().try_borrow() {{
-    Ok(v) => v,
-    Err(e) => return WasmDynResult::Err(e.into())
-}};
+                        func_body.push(format!("let {var_memory} = {var_instance}.memory(0).unwrap().try_borrow()?;
 let {} = {{
-    let Some(base) = args.next::<WasmPtr<u8>>() else {{return WasmDynResult::Err(WasmRuntimeErrorKind::InvalidParameter.into())}};
-    let Some(len) = args.next::<u32>() else {{return WasmDynResult::Err(WasmRuntimeErrorKind::InvalidParameter.into())}};
-    match memory.slice(base, len as usize).and_then(|v| core::str::from_utf8(v).map_err(|_| WasmRuntimeErrorKind::InvalidParameter.into())) {{
-        Ok(v) => v,
-        Err(e) => return WasmDynResult::Err(e.into())
-    }}
-}};
-                        ",
+    let base = args.next::<WasmPtr<u8>>()?;
+    let len = args.next::<u32>().map(|v| v as usize)?;
+    {var_memory}.slice(base, len).and_then(|v| core::str::from_utf8(v).map_err(|_| WasmRuntimeErrorKind::InvalidParameter.into()))?
+}};",
                         param.0))
                     }
                 },
                 _ => {
                     call_params.push(param.0.clone());
                     func_body.push(format!(
-                        "let Some({}) = args.next::<{}>() else {{return WasmDynResult::Err(WasmRuntimeErrorKind::InvalidParameter.into())}};",
-                        param.0, param.1.to_string()
+                        "let {} = args.next::<{}>()?;",
+                        param.0,
+                        param.1.to_string()
                     ));
                 }
             }
         }
 
+        let call_method = format!("Self::{}({})", func_name, call_params.join(", "),);
         match result_type.as_ref() {
             None => {
-                func_body.push(format!(
-                    "Self::{}({}); WasmDynResult::Val(None)",
-                    func_name,
-                    call_params.join(", "),
-                ));
+                func_body.push(format!("{call_method}; Ok(None)",));
             }
-            Some(_) => {
-                func_body.push(format!(
-                    "let r = Self::{}({}); WasmDynResult::Val(Some(r.into()))",
-                    func_name,
-                    call_params.join(", "),
-                ));
-            }
+            Some(v) => match v {
+                ParsedType::Result(v) => match v {
+                    Some(_) => {
+                        func_body.push(format!("{call_method}.map(|v| Some(v.into()))"));
+                    }
+                    None => func_body.push(format!("{call_method}.map(|_| None)")),
+                },
+                _ => {
+                    func_body.push(format!("let r = {call_method}; Ok(Some(r.into()))",));
+                }
+            },
         }
         func_body.push("}".to_string());
 
@@ -239,7 +234,7 @@ pub fn wasm_exports(_attr: TokenStream, input: TokenStream) -> TokenStream {
             "fn {func_name}(&self, {}) -> WasmResult<{}>",
             func_sig.join(", "),
             result_type
-                .clone()
+                .as_ref()
                 .map(|v| v.to_string())
                 .unwrap_or(Cow::Borrowed("()")),
         );
@@ -281,7 +276,7 @@ pub fn wasm_exports(_attr: TokenStream, input: TokenStream) -> TokenStream {
     output.parse().unwrap()
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Debug)]
 enum ParsedType {
     Primitive(Primitive),
     IntrinsicType(IntrinsicType),
@@ -290,6 +285,7 @@ enum ParsedType {
     RefMut(Box<Self>),
     Ptr(Box<Self>),
     PtrMut(Box<Self>),
+    Result(Option<Box<Self>>),
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -341,6 +337,11 @@ impl ParseOption {
 
 impl ParsedType {
     fn new(ty: &syn::Type, options: ParseOption) -> Option<ParsedType> {
+        if options.allow_intrinsics {
+            if let Some(intrinsics) = IntrinsicType::new(ty, options) {
+                return Some(ParsedType::IntrinsicType(intrinsics));
+            }
+        }
         match ty {
             syn::Type::Path(path) => {
                 let Some(path) = ParsedType::parse_path(&path.path, options) else {
@@ -349,16 +350,6 @@ impl ParsedType {
                 Some(path)
             }
             syn::Type::Reference(reference) => {
-                if options.allow_intrinsics {
-                    if let Some(intrinsics) = ty
-                        .span()
-                        .source_text()
-                        .and_then(|v| IntrinsicType::from_str(v.as_str()))
-                    {
-                        return Some(ParsedType::IntrinsicType(intrinsics));
-                    }
-                }
-
                 if options.allow_reference {
                     Self::new(
                         reference.elem.as_ref(),
@@ -429,6 +420,25 @@ impl ParsedType {
                 },
                 _ => unexpected_token!(path.span(), "simple type"),
             },
+            "WasmResult" => match &first_elem.arguments {
+                syn::PathArguments::AngleBracketed(v) => match v.args.first().unwrap() {
+                    syn::GenericArgument::Type(ty) => {
+                        match ParsedType::new(ty, options)
+                            .map(|v| ParsedType::Result(Some(Box::new(v))))
+                        {
+                            Some(v) => return Some(v),
+                            None => {
+                                if options.allow_nil {
+                                    return Some(ParsedType::Result(None));
+                                }
+                                unexpected_token!(path.span(), "simple type")
+                            }
+                        }
+                    }
+                    _ => unexpected_token!(path.span(), "simple type"),
+                },
+                _ => unexpected_token!(path.span(), "simple type"),
+            },
             _ => {
                 if let Some(primitive) = Primitive::from_str(first_type) {
                     return Some(ParsedType::Primitive(primitive));
@@ -472,20 +482,26 @@ impl ParsedType {
     fn to_string(&self) -> Cow<'static, str> {
         match self {
             Self::Primitive(v) => Cow::Borrowed(v.as_str()),
-            Self::IntrinsicType(v) => Cow::Borrowed(v.as_str()),
+            Self::IntrinsicType(v) => v.to_string(),
             Self::NonPrimitive(v) => Cow::Owned(v.clone()),
             Self::Ref(v) => Cow::Owned(format!("&{}", v.to_string())),
             Self::RefMut(v) => Cow::Owned(format!("&mut{}", v.to_string())),
             Self::Ptr(v) => Cow::Owned(format!("WasmPtr<{}>", v.to_string())),
             Self::PtrMut(v) => Cow::Owned(format!("WasmPtrMut<{}>", v.to_string())),
+            Self::Result(v) => match v {
+                Some(v) => Cow::Owned(format!("WasmResult<{}>", v.to_string())),
+                None => Cow::Borrowed("WasmResult<()>"),
+            },
         }
     }
 
-    fn signature(&self) -> &'static str {
-        match self {
+    fn signature<T: AsRef<Self>>(_self: Option<&T>) -> &'static str {
+        let Some(_self) = _self else { return "v" };
+        match _self.as_ref() {
             Self::Primitive(v) => v.signature(),
             Self::IntrinsicType(v) => v.signature(),
             Self::NonPrimitive(_) => "_",
+            Self::Result(v) => Self::signature(v.as_ref()),
             _ => Primitive::POINTER_TYPE.signature(),
         }
     }
@@ -494,19 +510,27 @@ impl ParsedType {
         result_type: &Option<Self>,
         param_types: impl Iterator<Item = &'a Self>,
     ) -> String {
-        let result_type = match result_type {
-            Some(v) => v.signature(),
-            None => "v",
+        let result_type = Self::signature(result_type.as_ref());
+        let param = param_types
+            .map(|v| Self::signature(Some(v)))
+            .collect::<String>();
+        let param = if param.is_empty() {
+            Self::signature::<Self>(None).to_string()
+        } else {
+            param
         };
 
-        ([result_type])
-            .into_iter()
-            .chain(param_types.map(|v| v.signature()))
-            .collect::<String>()
+        format!("{}{}", result_type, param)
     }
 
     fn is_wasm_instance(&self) -> bool {
         matches!(self, ParsedType::IntrinsicType(IntrinsicType::WasmInstance))
+    }
+}
+
+impl AsRef<Self> for ParsedType {
+    fn as_ref(&self) -> &Self {
+        self
     }
 }
 
@@ -572,26 +596,29 @@ impl Primitive {
     }
 }
 
-#[allow(unused)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug)]
 enum IntrinsicType {
     WasmInstance,
     Str,
 }
 
 impl IntrinsicType {
-    pub fn from_str(v: &str) -> Option<Self> {
-        match v {
+    pub fn new(ty: &syn::Type, options: ParseOption) -> Option<Self> {
+        let Some(v) = ty.span().source_text() else {
+            return None;
+        };
+        let _ = options;
+        match v.as_str() {
             "&WasmInstance" => Some(Self::WasmInstance),
             "&str" => Some(Self::Str),
             _ => None,
         }
     }
 
-    pub fn as_str(&self) -> &'static str {
+    pub fn to_string(&self) -> Cow<'static, str> {
         match self {
-            Self::WasmInstance => "&WasmInstance",
-            Self::Str => "&str",
+            Self::WasmInstance => Cow::Borrowed("&WasmInstance"),
+            Self::Str => Cow::Borrowed("&str"),
         }
     }
 

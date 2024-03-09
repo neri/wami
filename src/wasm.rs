@@ -63,58 +63,31 @@ impl WebAssembly {
 }
 
 pub type WasmResult<T> = Result<T, Box<dyn Error>>;
-
+pub type WasmDynResult = WasmResult<Option<WasmValue>>;
 pub type WasmDynFunc = fn(&WasmInstance, WasmArgs) -> WasmDynResult;
-
-pub enum WasmDynResult {
-    Val(Option<WasmValue>),
-    Exit,
-    Err(Box<dyn Error>),
-}
-
-impl From<()> for WasmDynResult {
-    #[inline]
-    fn from(_value: ()) -> Self {
-        Self::Val(None)
-    }
-}
-
-impl<T: Into<WasmValue>> From<T> for WasmDynResult {
-    #[inline]
-    fn from(value: T) -> Self {
-        Self::Val(Some(value.into()))
-    }
-}
-
-impl From<Box<dyn Error>> for WasmDynResult {
-    #[inline]
-    fn from(value: Box<dyn Error>) -> Self {
-        Self::Err(value)
-    }
-}
-
-impl<E: Into<Box<dyn Error>>> From<Result<(), E>> for WasmDynResult {
-    #[inline]
-    fn from(value: Result<(), E>) -> Self {
-        match value {
-            Ok(_) => Self::Val(None),
-            Err(err) => Self::Err(err.into()),
-        }
-    }
-}
-
-impl<T: Into<WasmValue>, E: Into<Box<dyn Error>>> From<Result<T, E>> for WasmDynResult {
-    #[inline]
-    fn from(value: Result<T, E>) -> Self {
-        match value {
-            Ok(v) => Self::Val(Some(v.into())),
-            Err(err) => Self::Err(err.into()),
-        }
-    }
-}
 
 pub trait WasmEnv {
     fn resolve_imports(&self, mod_name: &str, name: &str, type_: &WasmType) -> WasmImportResult;
+
+    /// Run the first resolver, and if none is found, run the next one.
+    #[inline]
+    fn chain<'a, T: WasmEnv>(&'a self, next: &'a T) -> WasmEnvChain<'a, Self, T> {
+        WasmEnvChain { a: self, b: next }
+    }
+}
+
+pub struct WasmEnvChain<'a, A: ?Sized, B> {
+    a: &'a A,
+    b: &'a B,
+}
+
+impl<A: WasmEnv, B: WasmEnv> WasmEnv for WasmEnvChain<'_, A, B> {
+    fn resolve_imports(&self, mod_name: &str, name: &str, type_: &WasmType) -> WasmImportResult {
+        match self.a.resolve_imports(mod_name, name, type_) {
+            WasmImportResult::Ok(v) => WasmImportResult::Ok(v),
+            _ => self.b.resolve_imports(mod_name, name, type_),
+        }
+    }
 }
 
 pub enum WasmImportResult {
@@ -2351,13 +2324,14 @@ impl<'a> WasmArgs<'a> {
 
 impl WasmArgs<'_> {
     #[inline]
-    pub fn next<U>(&mut self) -> Option<U>
+    pub fn next<U>(&mut self) -> WasmResult<U>
     where
         WasmUnionValue: UnsafeInto<U>,
     {
         self.iter
             .next()
             .map(|v| unsafe { UnsafeInto::unsafe_into(*v) })
+            .ok_or(WasmRuntimeErrorKind::InvalidParameter.into())
     }
 }
 

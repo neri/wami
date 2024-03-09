@@ -19,8 +19,18 @@ impl Env {
         a.wrapping_sub(b)
     }
 
-    pub fn signature_test(_a: i32, _b: i64, _c: f32, _d: f64) -> f32 {
-        todo!()
+    pub fn exit() -> WasmResult<()> {
+        WasmResult::Err(WasmRuntimeErrorKind::Exit.into())
+    }
+
+    pub fn signature_test1(_a: i32, _b: i64, _c: f32, _d: f64) -> f32 {
+        unreachable!()
+    }
+
+    pub fn signature_test2() -> () {}
+
+    pub fn signature_test3() -> WasmResult<i32> {
+        unreachable!()
     }
 }
 
@@ -66,18 +76,20 @@ trait TestTask {
     fn mem_test_fill(d: WasmPtrMut<u8>, v: u8, n: u32);
     fn mem_test_copy(d: WasmPtrMut<u8>, s: WasmPtr<u8>, n: u32);
 
-    // fn mem_test_u32u8(a1: &u8, a2: &mut u8) -> &mut u8;
-    // mem_test_i32i8
-    // mem_test_u64u8
-    // mem_test_i64i8
-    // mem_test_u32u16
-    // mem_test_i32i16
-    // mem_test_u64u16
-    // mem_test_i64i16
-    // mem_test_u32
-    // mem_test_u64u32
-    // mem_test_i64i32
-    // mem_test_u64
+    fn mem_test_u32u8(a1: WasmPtr<u8>, a2: WasmPtrMut<u8>) -> u32;
+    fn mem_test_i32i8(a1: WasmPtr<i8>, a2: WasmPtrMut<i8>) -> i32;
+    fn mem_test_u64u8(a1: WasmPtr<u8>, a2: WasmPtrMut<u8>) -> u64;
+    fn mem_test_i64i8(a1: WasmPtr<i8>, a2: WasmPtrMut<i8>) -> i64;
+    fn mem_test_u32u16(a1: WasmPtr<u16>, a2: WasmPtrMut<u16>) -> u32;
+    fn mem_test_i32i16(a1: WasmPtr<i16>, a2: WasmPtrMut<i16>) -> i32;
+    fn mem_test_u64u16(a1: WasmPtr<u16>, a2: WasmPtrMut<u16>) -> u64;
+    fn mem_test_i64i16(a1: WasmPtr<i16>, a2: WasmPtrMut<i16>) -> i64;
+    fn mem_test_u32(a1: WasmPtr<u32>, a2: WasmPtrMut<u32>) -> u32;
+    fn mem_test_u64u32(a1: WasmPtr<u32>, a2: WasmPtrMut<u32>) -> u64;
+    fn mem_test_i64i32(a1: WasmPtr<i32>, a2: WasmPtrMut<i32>) -> i64;
+    fn mem_test_u64(a1: WasmPtr<u64>, a2: WasmPtrMut<u64>) -> u64;
+
+    fn exit_test();
 }
 
 #[test]
@@ -1340,12 +1352,7 @@ fn mem_load_store() {
         let expected = 0xFF ^ a1;
         let result = instance
             .exports()
-            .get("mem_test_u32u8")
-            .unwrap()
-            .invoke(&[a1.into(), a2.into()])
-            .unwrap()
-            .unwrap()
-            .get_u32()
+            .mem_test_u32u8(WasmPtr::from_u32(a1), WasmPtrMut::from_u32(a2))
             .unwrap();
         assert_eq!(result, expected);
 
@@ -1359,12 +1366,7 @@ fn mem_load_store() {
         let expected = (-1 ^ a1 as i8) as i32;
         let result = instance
             .exports()
-            .get("mem_test_i32i8")
-            .unwrap()
-            .invoke(&[a1.into(), a2.into()])
-            .unwrap()
-            .unwrap()
-            .get_i32()
+            .mem_test_i32i8(WasmPtr::from_u32(a1), WasmPtrMut::from_u32(a2))
             .unwrap();
         assert_eq!(result, expected);
 
@@ -1378,12 +1380,7 @@ fn mem_load_store() {
         let expected = 0xFF ^ a1 as u64;
         let result = instance
             .exports()
-            .get("mem_test_u64u8")
-            .unwrap()
-            .invoke(&[a1.into(), a2.into()])
-            .unwrap()
-            .unwrap()
-            .get_u64()
+            .mem_test_u64u8(WasmPtr::from_u32(a1), WasmPtrMut::from_u32(a2))
             .unwrap();
         assert_eq!(result, expected);
 
@@ -1397,12 +1394,7 @@ fn mem_load_store() {
         let expected = (-1 ^ a1 as i8) as i64;
         let result = instance
             .exports()
-            .get("mem_test_i64i8")
-            .unwrap()
-            .invoke(&[a1.into(), a2.into()])
-            .unwrap()
-            .unwrap()
-            .get_i64()
+            .mem_test_i64i8(WasmPtr::from_u32(a1), WasmPtrMut::from_u32(a2))
             .unwrap();
         assert_eq!(result, expected);
 
@@ -1420,12 +1412,7 @@ fn mem_load_store() {
         let expected = 0xFFFF ^ (a1b + (a1b + 1) * 0x100);
         let result = instance
             .exports()
-            .get("mem_test_u32u16")
-            .unwrap()
-            .invoke(&[a1.into(), a2.into()])
-            .unwrap()
-            .unwrap()
-            .get_u32()
+            .mem_test_u32u16(WasmPtr::from_u32(a1), WasmPtrMut::from_u32(a2))
             .unwrap();
         assert_eq!(result, expected);
 
@@ -1440,12 +1427,7 @@ fn mem_load_store() {
         let expected = -1 ^ ((a1b + (a1b + 1) * 0x100) as i16) as i32;
         let result = instance
             .exports()
-            .get("mem_test_i32i16")
-            .unwrap()
-            .invoke(&[a1.into(), a2.into()])
-            .unwrap()
-            .unwrap()
-            .get_i32()
+            .mem_test_i32i16(WasmPtr::from_u32(a1), WasmPtrMut::from_u32(a2))
             .unwrap();
         assert_eq!(result, expected);
 
@@ -1460,12 +1442,7 @@ fn mem_load_store() {
         let expected = 0xFFFF ^ (a1b as u64 + (a1b as u64 + 1) * 0x100);
         let result = instance
             .exports()
-            .get("mem_test_u64u16")
-            .unwrap()
-            .invoke(&[a1.into(), a2.into()])
-            .unwrap()
-            .unwrap()
-            .get_u64()
+            .mem_test_u64u16(WasmPtr::from_u32(a1), WasmPtrMut::from_u32(a2))
             .unwrap();
         assert_eq!(result, expected);
 
@@ -1480,12 +1457,7 @@ fn mem_load_store() {
         let expected = -1 ^ ((a1b as u64 + (a1b as u64 + 1) * 0x100) as i16) as i64;
         let result = instance
             .exports()
-            .get("mem_test_i64i16")
-            .unwrap()
-            .invoke(&[a1.into(), a2.into()])
-            .unwrap()
-            .unwrap()
-            .get_i64()
+            .mem_test_i64i16(WasmPtr::from_u32(a1), WasmPtrMut::from_u32(a2))
             .unwrap();
         assert_eq!(result, expected);
 
@@ -1504,12 +1476,7 @@ fn mem_load_store() {
         let expected = 0xFFFFFFFF ^ ((a1b * 0x1_01_01_01) + 0x03_02_01_00);
         let result = instance
             .exports()
-            .get("mem_test_u32")
-            .unwrap()
-            .invoke(&[a1.into(), a2.into()])
-            .unwrap()
-            .unwrap()
-            .get_u32()
+            .mem_test_u32(WasmPtr::from_u32(a1), WasmPtrMut::from_u32(a2))
             .unwrap();
         assert_eq!(result, expected);
 
@@ -1525,12 +1492,7 @@ fn mem_load_store() {
         let expected = 0xFFFFFFFF ^ ((a1b * 0x1_01_01_01) + 0x03_02_01_00) as u64;
         let result = instance
             .exports()
-            .get("mem_test_u64u32")
-            .unwrap()
-            .invoke(&[a1.into(), a2.into()])
-            .unwrap()
-            .unwrap()
-            .get_u64()
+            .mem_test_u64u32(WasmPtr::from_u32(a1), WasmPtrMut::from_u32(a2))
             .unwrap();
         assert_eq!(result, expected);
 
@@ -1546,12 +1508,7 @@ fn mem_load_store() {
         let expected = -1 ^ (((a1b * 0x1_01_01_01) + 0x03_02_01_00) as i32) as i64;
         let result = instance
             .exports()
-            .get("mem_test_i64i32")
-            .unwrap()
-            .invoke(&[a1.into(), a2.into()])
-            .unwrap()
-            .unwrap()
-            .get_i64()
+            .mem_test_i64i32(WasmPtr::from_u32(a1), WasmPtrMut::from_u32(a2))
             .unwrap();
         assert_eq!(result, expected);
 
@@ -1572,12 +1529,7 @@ fn mem_load_store() {
             ^ ((a1b as u64 * 0x1_01_01_01_01_01_01_01) + 0x07_06_05_04_03_02_01_00);
         let result = instance
             .exports()
-            .get("mem_test_u64")
-            .unwrap()
-            .invoke(&[a1.into(), a2.into()])
-            .unwrap()
-            .unwrap()
-            .get_u64()
+            .mem_test_u64(WasmPtr::from_u32(a1), WasmPtrMut::from_u32(a2))
             .unwrap();
         assert_eq!(result, expected);
 
@@ -3450,4 +3402,13 @@ fn import_test() {
 
     let result = instance.exports().import_test2(987, 654).unwrap();
     assert_eq!(result, 987 - 654);
+}
+
+#[test]
+fn exit_test() {
+    let instance =
+        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), &Env {}).unwrap();
+    let err = instance.exports().exit_test().unwrap_err();
+    let err = WasmRuntimeError::try_from_error(err).unwrap();
+    assert_matches!(err.kind(), WasmRuntimeErrorKind::Exit)
 }

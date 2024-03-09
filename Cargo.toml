@@ -20,6 +20,6 @@ smallvec = {version = "1.13.1", default-features = false}
 
 [workspace]
 members = [
-  "sample/cli",
-  "sample/hello",
+  "example/cli",
+  "example/hello",
 ]

@@ -2,7 +2,8 @@
   ;; test cases
   (import "env" "add" (func $env_add (param i32) (param i32) (result i32)))
   (import "env" "sub" (func $env_sub (param i32) (param i32) (result i32)))
-  (import "env" "signature_test" (func (param i32) (param i64) (param f32) (param f64) (result f32)))
+  (import "env" "signature_test1" (func (param i32) (param i64) (param f32) (param f64) (result f32)))
+  (import "env" "exit" (func $exit))
 
   (memory 1)
 
@@ -2337,6 +2338,15 @@
     end
 
     local.get $p
+  )
+
+
+  ;; fn exit_test() -> !
+  (func $exit_test (export "exit_test")
+    loop
+      call $exit
+      br 0
+    end
   )
 
 )

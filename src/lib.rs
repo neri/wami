@@ -32,7 +32,7 @@ mod tests;
 
 pub mod prelude {
     pub use crate::cg::intr::WasmRuntimeError;
-    pub use crate::memory::{WasmPtr, WasmPtrMut};
+    pub use crate::memory::{WasmMemory, WasmPtr, WasmPtrMut};
     pub use crate::{
         WasmArgs, WasmCompileError, WasmCompileErrorKind, WasmDynResult, WasmEnv, WasmExports,
         WasmImportResult, WasmInstance, WasmInvocation, WasmLinkError, WasmModule, WasmResult,

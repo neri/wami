@@ -5,7 +5,7 @@ use wami::prelude::*;
 fn main() {
     let instance = WebAssembly::instantiate(include_bytes!("../hello.wasm"), &Env {}).unwrap();
 
-    assert_eq!(instance.exports().main().unwrap(), 42);
+    instance.exports().main().unwrap();
 }
 
 struct Env;
@@ -19,5 +19,5 @@ impl Env {
 
 #[wasm_exports]
 trait Hello {
-    fn main() -> i32;
+    fn main();
 }

@@ -165,13 +165,12 @@ impl SharedDataStore {
         let slice = self.as_slice();
         let limit = slice.len();
         let size_of_t = size_of::<T>();
-        WasmMemory::check_bound(base.as_u32() as u64, count * size_of_t, limit)?;
-        Ok(unsafe {
-            slice::from_raw_parts(
-                slice.as_ptr().add(base.as_u32() as usize) as *const T,
-                count,
-            )
-        })
+        WasmMemory::check_bound(base.as_usize() as u64, count * size_of_t, limit)?;
+        Ok(
+            unsafe {
+                slice::from_raw_parts(slice.as_ptr().add(base.as_usize()) as *const T, count)
+            },
+        )
     }
 
     pub fn slice_mut<'a, T: Sized + Copy>(
@@ -182,33 +181,30 @@ impl SharedDataStore {
         let slice = self.as_mut_slice();
         let limit = slice.len();
         let size_of_t = size_of::<T>();
-        WasmMemory::check_bound(base.as_u32() as u64, count * size_of_t, limit)?;
+        WasmMemory::check_bound(base.as_usize() as u64, count * size_of_t, limit)?;
         Ok(unsafe {
-            slice::from_raw_parts_mut(
-                slice.as_mut_ptr().add(base.as_u32() as usize) as *mut T,
-                count,
-            )
+            slice::from_raw_parts_mut(slice.as_mut_ptr().add(base.as_usize()) as *mut T, count)
         })
     }
 
     pub unsafe fn transmute<'a, T: Sized>(
         &self,
-        offset: u64,
+        offset: WasmPtr<T>,
     ) -> Result<&'a T, WasmRuntimeErrorKind> {
         let slice = self.as_slice();
         let limit = slice.len();
-        WasmMemory::check_bound(offset, size_of::<T>(), limit)?;
-        Ok(unsafe { transmute(slice.as_ptr().add(offset as usize)) })
+        WasmMemory::check_bound(offset.as_usize() as u64, size_of::<T>(), limit)?;
+        Ok(unsafe { transmute(slice.as_ptr().add(offset.as_usize())) })
     }
 
     pub unsafe fn transmute_mut<'a, T: Sized>(
         &self,
-        offset: u64,
+        offset: WasmPtrMut<T>,
     ) -> Result<&'a mut T, WasmRuntimeErrorKind> {
         let slice = self.as_mut_slice();
         let limit = slice.len();
-        WasmMemory::check_bound(offset, size_of::<T>(), limit)?;
-        Ok(unsafe { transmute(slice.as_mut_ptr().add(offset as usize)) })
+        WasmMemory::check_bound(offset.as_usize() as u64, size_of::<T>(), limit)?;
+        Ok(unsafe { transmute(slice.as_mut_ptr().add(offset.as_usize())) })
     }
 
     #[inline]
@@ -323,6 +319,11 @@ impl<T> WasmPtr<T> {
     pub const fn as_u32(&self) -> u32 {
         self.repr
     }
+
+    #[inline]
+    pub const fn as_usize(&self) -> usize {
+        self.repr as usize
+    }
 }
 
 impl<T> From<WasmPtr<T>> for WasmValue {
@@ -351,6 +352,11 @@ impl<T> WasmPtrMut<T> {
     #[inline]
     pub const fn as_u32(&self) -> u32 {
         self.repr
+    }
+
+    #[inline]
+    pub const fn as_usize(&self) -> usize {
+        self.repr as usize
     }
 }
 

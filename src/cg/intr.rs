@@ -112,9 +112,7 @@ impl WasmInterpreter<'_> {
         self.func_index = func_index;
 
         let mut codes = WasmIntermediateCodeStream::from_codes(code_block.intermediate_codes())
-            .ok_or(WasmRuntimeError::from(
-                WasmRuntimeErrorKind::InternalInconsistency,
-            ))?;
+            .ok_or(WasmRuntimeErrorKind::InternalInconsistency)?;
 
         let mut value_stack = StackFrame::new(heap.alloc_slice(
             code_block.max_value_stack().as_usize(),
@@ -1542,8 +1540,8 @@ impl WasmInterpreter<'_> {
             }),
             WasmFunctionContent::Dynamic(func) => {
                 let locals = unsafe { value_stack.get_range(stack_under, param_len) };
-                match func(self.instance, WasmArgs::new(&locals)) {
-                    WasmDynResult::Val(val) => match (val, result_types.first()) {
+                func(self.instance, WasmArgs::new(&locals)).and_then(|val| {
+                    match (val, result_types.first()) {
                         (None, None) => Ok(()),
                         (Some(val), Some(t)) => {
                             if val.is_valid_type(*t) {
@@ -1561,10 +1559,8 @@ impl WasmInterpreter<'_> {
                         _ => {
                             Err(self.error(WasmRuntimeErrorKind::TypeMismatch, opcode, ex_position))
                         }
-                    },
-                    WasmDynResult::Exit => Err(WasmRuntimeErrorKind::Exit.into()),
-                    WasmDynResult::Err(err) => Err(err),
-                }
+                    }
+                })
             }
             WasmFunctionContent::Unresolved => {
                 Err(self.error(WasmRuntimeErrorKind::NoMethod, opcode, ex_position))
@@ -1623,9 +1619,9 @@ impl WasmInvocation for WasmRunnable<'_> {
             Vec::with_capacity(function.param_types().len() + code_block.local_types().len());
 
         for (index, param_type) in function.param_types().iter().enumerate() {
-            let param = params.get(index).ok_or(WasmRuntimeError::from(
-                WasmRuntimeErrorKind::InvalidParameter,
-            ))?;
+            let param = params
+                .get(index)
+                .ok_or(WasmRuntimeErrorKind::InvalidParameter)?;
             if !param.is_valid_type(*param_type) {
                 return Err(WasmRuntimeErrorKind::InvalidParameter.into());
             }
@@ -1657,6 +1653,11 @@ pub struct WasmRuntimeError {
 
 impl WasmRuntimeError {
     #[inline]
+    pub fn try_from_error(e: Box<dyn Error>) -> Option<Box<Self>> {
+        e.downcast::<Self>().ok()
+    }
+
+    #[inline]
     pub const fn kind(&self) -> &WasmRuntimeErrorKind {
         &self.kind
     }
@@ -1687,24 +1688,31 @@ impl WasmRuntimeError {
     }
 }
 
-impl From<WasmRuntimeErrorKind> for WasmRuntimeError {
+// impl From<WasmRuntimeErrorKind> for WasmRuntimeError {
+//     #[inline]
+//     fn from(kind: WasmRuntimeErrorKind) -> Self {
+//         Self {
+//             kind,
+//             file_position: 0,
+//             function: 0,
+//             function_name: None,
+//             position: 0,
+//             mnemonic: WasmMnemonic::Unreachable,
+//         }
+//     }
+// }
+
+impl From<WasmRuntimeErrorKind> for Box<dyn Error> {
     #[inline]
-    fn from(kind: WasmRuntimeErrorKind) -> Self {
-        Self {
-            kind,
+    fn from(value: WasmRuntimeErrorKind) -> Self {
+        Box::new(WasmRuntimeError {
+            kind: value,
             file_position: 0,
             function: 0,
             function_name: None,
             position: 0,
             mnemonic: WasmMnemonic::Unreachable,
-        }
-    }
-}
-
-impl From<WasmRuntimeErrorKind> for Box<dyn Error> {
-    #[inline]
-    fn from(value: WasmRuntimeErrorKind) -> Self {
-        Box::new(WasmRuntimeError::from(value))
+        })
     }
 }
 
