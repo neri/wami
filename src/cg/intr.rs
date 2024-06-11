@@ -963,30 +963,12 @@ impl WasmInterpreter<'_> {
                 }
                 WasmImInstruction::F32Min => {
                     Self::binary_op(code, &mut value_stack, |lhs, rhs| unsafe {
-                        lhs.map_f32(|lhs| {
-                            let rhs = rhs.get_f32();
-                            if lhs.is_nan() {
-                                lhs
-                            } else if rhs.is_nan() {
-                                rhs
-                            } else {
-                                lhs.min(rhs)
-                            }
-                        });
+                        lhs.map_f32(|lhs| lhs.minimum(rhs.get_f32()));
                     });
                 }
                 WasmImInstruction::F32Max => {
                     Self::binary_op(code, &mut value_stack, |lhs, rhs| unsafe {
-                        lhs.map_f32(|lhs| {
-                            let rhs = rhs.get_f32();
-                            if lhs.is_nan() {
-                                lhs
-                            } else if rhs.is_nan() {
-                                rhs
-                            } else {
-                                lhs.max(rhs)
-                            }
-                        });
+                        lhs.map_f32(|lhs| lhs.maximum(rhs.get_f32()));
                     });
                 }
                 WasmImInstruction::F32Copysign => {
@@ -1084,30 +1066,12 @@ impl WasmInterpreter<'_> {
                 }
                 WasmImInstruction::F64Min => {
                     Self::binary_op(code, &mut value_stack, |lhs, rhs| unsafe {
-                        lhs.map_f64(|lhs| {
-                            let rhs = rhs.get_f64();
-                            if lhs.is_nan() {
-                                lhs
-                            } else if rhs.is_nan() {
-                                rhs
-                            } else {
-                                lhs.min(rhs)
-                            }
-                        });
+                        lhs.map_f64(|lhs| lhs.minimum(rhs.get_f64()));
                     });
                 }
                 WasmImInstruction::F64Max => {
                     Self::binary_op(code, &mut value_stack, |lhs, rhs| unsafe {
-                        lhs.map_f64(|lhs| {
-                            let rhs = rhs.get_f64();
-                            if lhs.is_nan() {
-                                lhs
-                            } else if rhs.is_nan() {
-                                rhs
-                            } else {
-                                lhs.max(rhs)
-                            }
-                        });
+                        lhs.map_f64(|lhs| lhs.maximum(rhs.get_f64()));
                     });
                 }
                 WasmImInstruction::F64Copysign => {

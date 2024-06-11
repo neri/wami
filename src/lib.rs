@@ -3,6 +3,7 @@
 #![cfg_attr(not(test), no_std)]
 #![deny(unsafe_op_in_unsafe_fn)]
 //
+#![feature(float_minimum_maximum)]
 #![feature(negative_impls)]
 #![feature(assert_matches)]
 //
