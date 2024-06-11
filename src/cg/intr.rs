@@ -10,6 +10,7 @@ use core::error::Error;
 use core::iter;
 use core::mem::{size_of, transmute};
 use core::ops::Neg;
+use global::GetMut;
 use libm::{ceil, ceilf, floor, floorf, rint, rintf, trunc, truncf};
 
 const INITIAL_VALUE_STACK_SIZE: usize = 512;
@@ -318,17 +319,66 @@ impl WasmInterpreter<'_> {
                     *local = *ref_a;
                 }
 
-                WasmImInstruction::GlobalGetI(global_ref)
-                | WasmImInstruction::GlobalGetF(global_ref) => {
-                    let global = self.instance.module().global_get(global_ref);
+                WasmImInstruction::GlobalGetI32(global_ref) => {
+                    let global = self.instance.module().global_get(global_ref).get_i32()?;
                     let ref_a = value_stack.get_mut(code.base_stack_level());
-                    *ref_a = global.raw_value();
+                    *ref_a = global.into();
                 }
-                WasmImInstruction::GlobalSetI(global_ref)
-                | WasmImInstruction::GlobalSetF(global_ref) => {
-                    let global = self.instance.module().global_get(global_ref);
+                WasmImInstruction::GlobalGetI64(global_ref) => {
+                    let global = self.instance.module().global_get(global_ref).get_i64()?;
+                    let ref_a = value_stack.get_mut(code.base_stack_level());
+                    *ref_a = global.into();
+                }
+                WasmImInstruction::GlobalGetF32(global_ref) => {
+                    let global = self.instance.module().global_get(global_ref).get_f32()?;
+                    let ref_a = value_stack.get_mut(code.base_stack_level());
+                    *ref_a = global.into();
+                }
+                WasmImInstruction::GlobalGetF64(global_ref) => {
+                    let global = self.instance.module().global_get(global_ref).get_f64()?;
+                    let ref_a = value_stack.get_mut(code.base_stack_level());
+                    *ref_a = global.into();
+                }
+
+                WasmImInstruction::GlobalSetI32(global_ref) => {
+                    let global = self
+                        .instance
+                        .module()
+                        .global_get(global_ref)
+                        .get_mut()
+                        .unwrap();
                     let ref_a = value_stack.get(code.base_stack_level());
-                    global.set_raw_value(*ref_a);
+                    global.set(unsafe { ref_a.get_i32() })?;
+                }
+                WasmImInstruction::GlobalSetI64(global_ref) => {
+                    let global = self
+                        .instance
+                        .module()
+                        .global_get(global_ref)
+                        .get_mut()
+                        .unwrap();
+                    let ref_a = value_stack.get(code.base_stack_level());
+                    global.set(unsafe { ref_a.get_i64() })?;
+                }
+                WasmImInstruction::GlobalSetF32(global_ref) => {
+                    let global = self
+                        .instance
+                        .module()
+                        .global_get(global_ref)
+                        .get_mut()
+                        .unwrap();
+                    let ref_a = value_stack.get(code.base_stack_level());
+                    global.set(unsafe { ref_a.get_f32() })?;
+                }
+                WasmImInstruction::GlobalSetF64(global_ref) => {
+                    let global = self
+                        .instance
+                        .module()
+                        .global_get(global_ref)
+                        .get_mut()
+                        .unwrap();
+                    let ref_a = value_stack.get(code.base_stack_level());
+                    global.set(unsafe { ref_a.get_f64() })?;
                 }
 
                 WasmImInstruction::I32Load(offset, ex_position) => {
@@ -913,12 +963,30 @@ impl WasmInterpreter<'_> {
                 }
                 WasmImInstruction::F32Min => {
                     Self::binary_op(code, &mut value_stack, |lhs, rhs| unsafe {
-                        lhs.map_f32(|lhs| lhs.minimum(rhs.get_f32()));
+                        lhs.map_f32(|lhs| {
+                            let rhs = rhs.get_f32();
+                            if lhs.is_nan() {
+                                lhs
+                            } else if rhs.is_nan() {
+                                rhs
+                            } else {
+                                lhs.min(rhs)
+                            }
+                        });
                     });
                 }
                 WasmImInstruction::F32Max => {
                     Self::binary_op(code, &mut value_stack, |lhs, rhs| unsafe {
-                        lhs.map_f32(|lhs| lhs.maximum(rhs.get_f32()));
+                        lhs.map_f32(|lhs| {
+                            let rhs = rhs.get_f32();
+                            if lhs.is_nan() {
+                                lhs
+                            } else if rhs.is_nan() {
+                                rhs
+                            } else {
+                                lhs.max(rhs)
+                            }
+                        });
                     });
                 }
                 WasmImInstruction::F32Copysign => {
@@ -1016,12 +1084,30 @@ impl WasmInterpreter<'_> {
                 }
                 WasmImInstruction::F64Min => {
                     Self::binary_op(code, &mut value_stack, |lhs, rhs| unsafe {
-                        lhs.map_f64(|lhs| lhs.minimum(rhs.get_f64()));
+                        lhs.map_f64(|lhs| {
+                            let rhs = rhs.get_f64();
+                            if lhs.is_nan() {
+                                lhs
+                            } else if rhs.is_nan() {
+                                rhs
+                            } else {
+                                lhs.min(rhs)
+                            }
+                        });
                     });
                 }
                 WasmImInstruction::F64Max => {
                     Self::binary_op(code, &mut value_stack, |lhs, rhs| unsafe {
-                        lhs.map_f64(|lhs| lhs.maximum(rhs.get_f64()));
+                        lhs.map_f64(|lhs| {
+                            let rhs = rhs.get_f64();
+                            if lhs.is_nan() {
+                                lhs
+                            } else if rhs.is_nan() {
+                                rhs
+                            } else {
+                                lhs.max(rhs)
+                            }
+                        });
                     });
                 }
                 WasmImInstruction::F64Copysign => {

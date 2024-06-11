@@ -1665,41 +1665,17 @@ fn global() {
     let instance =
         WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), &Env {}).unwrap();
 
-    assert_eq!(
-        instance
-            .global("global1")
-            .unwrap()
-            .value()
-            .get_i32()
-            .unwrap(),
-        123
-    );
+    assert_eq!(instance.global("global1").unwrap().get_i32().unwrap(), 123);
 
     let result = instance.exports().global_add(456).unwrap();
     assert_eq!(result, 579);
 
-    assert_eq!(
-        instance
-            .global("global1")
-            .unwrap()
-            .value()
-            .get_i32()
-            .unwrap(),
-        579
-    );
+    assert_eq!(instance.global("global1").unwrap().get_i32().unwrap(), 579);
 
     let result = instance.exports().global_add(789).unwrap();
     assert_eq!(result, 1368);
 
-    assert_eq!(
-        instance
-            .global("global1")
-            .unwrap()
-            .value()
-            .get_i32()
-            .unwrap(),
-        1368
-    );
+    assert_eq!(instance.global("global1").unwrap().get_i32().unwrap(), 1368);
 }
 
 #[test]

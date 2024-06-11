@@ -650,10 +650,23 @@ impl WasmCodeBlock {
                         .get(global_index as usize)
                         .map(|v| v.val_type())
                         .ok_or(WasmCompileErrorKind::InvalidGlobal)?;
-                    int_codes.push(WasmImc::new(
-                        WasmImInstruction::GlobalGetI(unsafe { GlobalVarIndex::new(global_index) }),
-                        value_stack.stack_level(),
-                    ));
+
+                    let im = match val_type {
+                        WasmValType::I32 => WasmImInstruction::GlobalGetI32(unsafe {
+                            GlobalVarIndex::new(global_index)
+                        }),
+                        WasmValType::I64 => WasmImInstruction::GlobalGetI64(unsafe {
+                            GlobalVarIndex::new(global_index)
+                        }),
+                        WasmValType::F32 => WasmImInstruction::GlobalGetF32(unsafe {
+                            GlobalVarIndex::new(global_index)
+                        }),
+                        WasmValType::F64 => WasmImInstruction::GlobalGetF64(unsafe {
+                            GlobalVarIndex::new(global_index)
+                        }),
+                    };
+                    int_codes.push(WasmImc::new(im, value_stack.stack_level()));
+
                     value_stack.push(val_type);
                 }
                 WasmOpcode::GlobalSet(global_index) => {
@@ -670,10 +683,22 @@ impl WasmCodeBlock {
                     if stack != val_type {
                         return Err(WasmCompileErrorKind::TypeMismatch.into());
                     }
-                    int_codes.push(WasmImc::new(
-                        WasmImInstruction::GlobalSetI(unsafe { GlobalVarIndex::new(global_index) }),
-                        value_stack.stack_level(),
-                    ));
+
+                    let im = match val_type {
+                        WasmValType::I32 => WasmImInstruction::GlobalSetI32(unsafe {
+                            GlobalVarIndex::new(global_index)
+                        }),
+                        WasmValType::I64 => WasmImInstruction::GlobalSetI64(unsafe {
+                            GlobalVarIndex::new(global_index)
+                        }),
+                        WasmValType::F32 => WasmImInstruction::GlobalSetF32(unsafe {
+                            GlobalVarIndex::new(global_index)
+                        }),
+                        WasmValType::F64 => WasmImInstruction::GlobalSetF64(unsafe {
+                            GlobalVarIndex::new(global_index)
+                        }),
+                    };
+                    int_codes.push(WasmImc::new(im, value_stack.stack_level()));
                 }
 
                 WasmOpcode::I32Load(memarg) => {

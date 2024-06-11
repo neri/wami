@@ -8,13 +8,13 @@ use alloc::format;
 use alloc::string::*;
 use core::error::Error;
 use core::fmt;
-use core::mem::{size_of, transmute, ManuallyDrop};
+use core::mem::{size_of, ManuallyDrop};
 use core::num::NonZeroU32;
 use core::ops::*;
 use core::ptr::slice_from_raw_parts_mut;
 use core::slice;
 use core::str;
-use core::sync::atomic::{AtomicU64, Ordering};
+use global::WasmGlobal;
 use smallvec::SmallVec;
 
 use self::memory::{WasmPtr, WasmPtrMut};
@@ -63,7 +63,9 @@ impl WebAssembly {
 }
 
 pub type WasmResult<T> = Result<T, Box<dyn Error>>;
+
 pub type WasmDynResult = WasmResult<Option<WasmValue>>;
+
 pub type WasmDynFunc = fn(&WasmInstance, WasmArgs) -> WasmDynResult;
 
 pub trait WasmEnv {
@@ -431,7 +433,7 @@ impl WasmModule {
                 return Err(WasmCompileErrorKind::InvalidGlobal.into());
             }
 
-            WasmGlobal::new(value, is_mutable).map(|v| self.globals.push(v))?;
+            self.globals.push(WasmGlobal::new(value, is_mutable));
         }
         Ok(())
     }
@@ -2332,51 +2334,6 @@ impl WasmArgs<'_> {
             .next()
             .map(|v| unsafe { UnsafeInto::unsafe_into(*v) })
             .ok_or(WasmRuntimeErrorKind::InvalidParameter.into())
-    }
-}
-
-/// WebAssembly global variable
-pub struct WasmGlobal {
-    data: AtomicU64,
-    val_type: WasmValType,
-    is_mutable: bool,
-}
-
-impl WasmGlobal {
-    #[inline]
-    pub fn new(val: WasmValue, is_mutable: bool) -> Result<Self, WasmCompileErrorKind> {
-        let val_type = val.val_type();
-        let val = WasmUnionValue::from(val);
-        Ok(Self {
-            data: AtomicU64::new(unsafe { val.get_u64() }),
-            val_type,
-            is_mutable,
-        })
-    }
-
-    #[inline]
-    pub fn raw_value(&self) -> WasmUnionValue {
-        unsafe { transmute(self.data.load(Ordering::Relaxed)) }
-    }
-
-    #[inline]
-    pub fn value(&self) -> WasmValue {
-        unsafe { self.raw_value().get_by_type(self.val_type) }
-    }
-
-    #[inline]
-    pub fn set_raw_value(&self, val: WasmUnionValue) {
-        self.data.store(unsafe { transmute(val) }, Ordering::SeqCst);
-    }
-
-    #[inline]
-    pub const fn val_type(&self) -> WasmValType {
-        self.val_type
-    }
-
-    #[inline]
-    pub const fn is_mutable(&self) -> bool {
-        self.is_mutable
     }
 }
 

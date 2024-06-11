@@ -37,14 +37,19 @@ pub enum WasmImInstruction {
     LocalGetI(LocalVarIndex),
     LocalSetI(LocalVarIndex),
     LocalTeeI(LocalVarIndex),
-    GlobalGetI(GlobalVarIndex),
-    GlobalSetI(GlobalVarIndex),
 
     LocalGetF(LocalVarIndex),
     LocalSetF(LocalVarIndex),
     LocalTeeF(LocalVarIndex),
-    GlobalGetF(GlobalVarIndex),
-    GlobalSetF(GlobalVarIndex),
+
+    GlobalGetI32(GlobalVarIndex),
+    GlobalGetI64(GlobalVarIndex),
+    GlobalGetF32(GlobalVarIndex),
+    GlobalGetF64(GlobalVarIndex),
+    GlobalSetI32(GlobalVarIndex),
+    GlobalSetI64(GlobalVarIndex),
+    GlobalSetF32(GlobalVarIndex),
+    GlobalSetF64(GlobalVarIndex),
 
     I32Load(u32, ExceptionPosition),
     I64Load(u32, ExceptionPosition),
