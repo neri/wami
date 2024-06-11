@@ -45,8 +45,8 @@ A WebAssembly Interpreter used in my os (https://github.com/neri/maystorm)
 use wami::prelude::*;
 
 fn main() {
-    let instance = WebAssembly::instantiate(include_bytes!("../hello.wasm"), &Env {}).unwrap();
-
+    let env = Env {};
+    let instance = WebAssembly::instantiate(include_bytes!("../hello.wasm"), &env).unwrap();
     instance.exports().main().unwrap();
 }
 
