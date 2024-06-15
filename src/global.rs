@@ -1,7 +1,8 @@
 //! WebAssembly global variables
+use crate::WasmRuntimeErrorKind;
 use crate::*;
-use crate::{sync::rwlock_nb::RwLockNb, WasmRuntimeErrorKind};
-use core::sync::atomic::{AtomicI32, AtomicI64, Ordering};
+use core::mem::transmute;
+use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
 pub trait WasmGlobalProp<T>
 where
@@ -35,41 +36,6 @@ impl<T: Copy> WasmGlobalProp<T> for WasmGlobalFixedValue<T> {
     }
 }
 
-pub struct WasmGlobalMutableValue<T> {
-    value: RwLockNb<T>,
-}
-
-impl<T> WasmGlobalMutableValue<T> {
-    #[inline]
-    pub const fn new(value: T) -> Self {
-        Self {
-            value: RwLockNb::new(value),
-        }
-    }
-}
-
-impl<T: Copy> WasmGlobalProp<T> for WasmGlobalMutableValue<T> {
-    #[inline]
-    fn get(&self) -> Result<T, WasmRuntimeErrorKind> {
-        self.value
-            .try_read()
-            .map(|v| *v)
-            .map_err(|_| WasmRuntimeErrorKind::WouldBlock)
-    }
-}
-
-impl<T: Copy> WasmGlobalPropMut<T> for WasmGlobalMutableValue<T> {
-    #[inline]
-    fn set(&self, value: T) -> Result<(), WasmRuntimeErrorKind> {
-        self.value
-            .try_write()
-            .map(|mut v| {
-                *v = value;
-            })
-            .map_err(|_| WasmRuntimeErrorKind::WouldBlock)
-    }
-}
-
 macro_rules! decl_wasm_global_atomics {
     ($class_name:ident, $val_type:ident, $atomic_type:ident) => {
         pub struct $class_name {
@@ -80,7 +46,7 @@ macro_rules! decl_wasm_global_atomics {
             #[inline]
             pub const fn new(value: $val_type) -> Self {
                 Self {
-                    value: $atomic_type::new(value),
+                    value: $atomic_type::new(unsafe { transmute(value) }),
                 }
             }
         }
@@ -88,22 +54,25 @@ macro_rules! decl_wasm_global_atomics {
         impl WasmGlobalProp<$val_type> for $class_name {
             #[inline]
             fn get(&self) -> Result<$val_type, WasmRuntimeErrorKind> {
-                Ok(self.value.load(Ordering::Relaxed))
+                Ok(unsafe { transmute(self.value.load(Ordering::Relaxed)) })
             }
         }
 
         impl WasmGlobalPropMut<$val_type> for $class_name {
             #[inline]
             fn set(&self, value: $val_type) -> Result<(), WasmRuntimeErrorKind> {
-                self.value.store(value, Ordering::SeqCst);
+                self.value
+                    .store(unsafe { transmute(value) }, Ordering::SeqCst);
                 Ok(())
             }
         }
     };
 }
 
-decl_wasm_global_atomics!(WasmGlobalI32, i32, AtomicI32);
-decl_wasm_global_atomics!(WasmGlobalI64, i64, AtomicI64);
+decl_wasm_global_atomics!(WasmGlobalI32, i32, AtomicU32);
+decl_wasm_global_atomics!(WasmGlobalI64, i64, AtomicU64);
+decl_wasm_global_atomics!(WasmGlobalF32, f32, AtomicU32);
+decl_wasm_global_atomics!(WasmGlobalF64, f64, AtomicU64);
 
 /// WebAssembly global variable
 pub enum WasmGlobal {
@@ -130,8 +99,8 @@ impl WasmGlobal {
     #[inline]
     pub fn with_const(val: WasmValue) -> Self {
         match val {
-            WasmValue::I32(v) => Self::I32(Box::new(WasmGlobalI32::new(v))),
-            WasmValue::I64(v) => Self::I64(Box::new(WasmGlobalI64::new(v))),
+            WasmValue::I32(v) => Self::I32(Box::new(WasmGlobalFixedValue::new(v))),
+            WasmValue::I64(v) => Self::I64(Box::new(WasmGlobalFixedValue::new(v))),
             WasmValue::F32(v) => Self::F32(Box::new(WasmGlobalFixedValue::new(v))),
             WasmValue::F64(v) => Self::F64(Box::new(WasmGlobalFixedValue::new(v))),
         }
@@ -142,8 +111,8 @@ impl WasmGlobal {
         match val {
             WasmValue::I32(v) => Self::I32Mut(Box::new(WasmGlobalI32::new(v))),
             WasmValue::I64(v) => Self::I64Mut(Box::new(WasmGlobalI64::new(v))),
-            WasmValue::F32(v) => Self::F32Mut(Box::new(WasmGlobalMutableValue::new(v))),
-            WasmValue::F64(v) => Self::F64Mut(Box::new(WasmGlobalMutableValue::new(v))),
+            WasmValue::F32(v) => Self::F32Mut(Box::new(WasmGlobalF32::new(v))),
+            WasmValue::F64(v) => Self::F64Mut(Box::new(WasmGlobalF64::new(v))),
         }
     }
 

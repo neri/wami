@@ -34,7 +34,7 @@ pub mod prelude {
     pub use crate::memory::{WasmMemory, WasmPtr, WasmPtrMut};
     pub use crate::{
         WasmArgs, WasmCompileError, WasmCompileErrorKind, WasmDynResult, WasmEnv, WasmExports,
-        WasmImportResult, WasmInstance, WasmInvocation, WasmLinkError, WasmModule, WasmResult,
+        WasmImportFuncResult, WasmInstance, WasmInvocation, WasmLinkError, WasmModule, WasmResult,
         WasmRuntimeErrorKind, WasmType, WasmValType, WasmValue, WebAssembly,
     };
     pub use wami_macro::*;

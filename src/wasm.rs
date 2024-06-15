@@ -69,7 +69,12 @@ pub type WasmDynResult = WasmResult<Option<WasmValue>>;
 pub type WasmDynFunc = fn(&WasmInstance, WasmArgs) -> WasmDynResult;
 
 pub trait WasmEnv {
-    fn resolve_imports(&self, mod_name: &str, name: &str, type_: &WasmType) -> WasmImportResult;
+    fn resolve_import_func(
+        &self,
+        mod_name: &str,
+        name: &str,
+        type_: &WasmType,
+    ) -> WasmImportFuncResult;
 
     /// Run the first resolver, and if none is found, run the next one.
     #[inline]
@@ -84,15 +89,20 @@ pub struct WasmEnvChain<'a, A: ?Sized, B> {
 }
 
 impl<A: WasmEnv, B: WasmEnv> WasmEnv for WasmEnvChain<'_, A, B> {
-    fn resolve_imports(&self, mod_name: &str, name: &str, type_: &WasmType) -> WasmImportResult {
-        match self.a.resolve_imports(mod_name, name, type_) {
-            WasmImportResult::Ok(v) => WasmImportResult::Ok(v),
-            _ => self.b.resolve_imports(mod_name, name, type_),
+    fn resolve_import_func(
+        &self,
+        mod_name: &str,
+        name: &str,
+        type_: &WasmType,
+    ) -> WasmImportFuncResult {
+        match self.a.resolve_import_func(mod_name, name, type_) {
+            WasmImportFuncResult::Ok(v) => WasmImportFuncResult::Ok(v),
+            _ => self.b.resolve_import_func(mod_name, name, type_),
         }
     }
 }
 
-pub enum WasmImportResult {
+pub enum WasmImportFuncResult {
     Ok(WasmDynFunc),
     NoModule,
     NoMethod,
@@ -223,18 +233,18 @@ impl WasmModule {
         for import in &self.imports {
             match import.desc {
                 WasmImportDescriptor::Function(type_index) => {
-                    match env.resolve_imports(
+                    match env.resolve_import_func(
                         &import.mod_name,
                         &import.name,
                         self.type_by_index(type_index),
                     ) {
-                        WasmImportResult::Ok(dyn_func) => {
+                        WasmImportFuncResult::Ok(dyn_func) => {
                             self.functions[func_idx].resolve(dyn_func)?;
                         }
-                        WasmImportResult::NoModule => {
+                        WasmImportFuncResult::NoModule => {
                             return Err(WasmLinkError::NoModule(import.mod_name.clone()).into())
                         }
-                        WasmImportResult::NoMethod => {
+                        WasmImportFuncResult::NoMethod => {
                             return Err(WasmLinkError::NoMethod(import.name.clone()).into())
                         }
                     }
@@ -1605,10 +1615,8 @@ pub enum WasmCompileErrorKind {
     InvalidBytecode(u8),
     /// Detected a bytecode that cannot be decoded.
     InvalidBytecode2(u8, u32),
-    /// Unsupported bytecode
+    /// Decodable but unsupported bytecode.
     UnsupportedBytecode(WasmMnemonic),
-    /// Unsupported global data type
-    UnsupportedGlobalType(WasmValType),
     /// Unprocessable section order found.
     InvalidSectionOrder(WasmSectionId),
     /// Invalid parameter was specified.

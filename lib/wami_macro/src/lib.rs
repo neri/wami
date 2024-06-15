@@ -112,8 +112,8 @@ pub fn wasm_env(attr: TokenStream, input: TokenStream) -> TokenStream {
                         func_body.push(format!("let {var_memory} = {var_instance}.memory(0).unwrap().try_borrow()?;
 let {} = {{
     let base = args.next::<WasmPtr<u8>>()?;
-    let len = args.next::<u32>().map(|v| v as usize)?;
-    {var_memory}.slice(base, len).and_then(|v| core::str::from_utf8(v).map_err(|_| WasmRuntimeErrorKind::InvalidParameter.into()))?
+    let len = args.next::<u32>()?;
+    {var_memory}.slice(base, len as usize).and_then(|v| core::str::from_utf8(v).map_err(|_| WasmRuntimeErrorKind::InvalidParameter.into()))?
 }};",
                         param.0))
                     }
@@ -156,19 +156,19 @@ let {} = {{
         let mut func_body = Vec::new();
         func_body.push(format!("impl WasmEnv for {} {{", class_name.to_string()));
         func_body.push(format!(
-            "fn resolve_imports(&self, mod_name: &str, name: &str, type_: &WasmType) -> WasmImportResult {{",
+            "fn resolve_import_func(&self, mod_name: &str, name: &str, type_: &WasmType) -> WasmImportFuncResult {{",
         ));
         func_body.push(format!(
-            "if mod_name != {mod_name:?} {{ return WasmImportResult::NoModule; }}"
+            "if mod_name != {mod_name:?} {{ return WasmImportFuncResult::NoModule; }}"
         ));
         func_body.push("match (name, type_.signature().as_str()) {".to_string());
         for item in resolve_list {
             func_body.push(format!(
-                "({:?}, {:?}) => WasmImportResult::Ok(Self::{}),",
+                "({:?}, {:?}) => WasmImportFuncResult::Ok(Self::{}),",
                 item.0, item.2, item.1
             ));
         }
-        func_body.push("_ => WasmImportResult::NoMethod } } }".to_string());
+        func_body.push("_ => WasmImportFuncResult::NoMethod } } }".to_string());
 
         output.push(func_body.join("\n"));
     }
