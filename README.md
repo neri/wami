@@ -65,7 +65,6 @@ trait Hello {
 }
 ```
 
-
 ## License
 
 MIT License

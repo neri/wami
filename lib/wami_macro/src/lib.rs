@@ -22,7 +22,10 @@ macro_rules! unexpected_token {
 
 /// A Macro to automatically generate WebAssembly import resolver from `impl`
 ///
-/// - parameter: module name (default name is "env")
+/// Valid forms are:
+///
+/// * `#[wasm_env]`
+/// * `#[wasm_env(ident)]` - *ident*: module name, default name is `env`
 #[proc_macro_attribute]
 pub fn wasm_env(attr: TokenStream, input: TokenStream) -> TokenStream {
     // println!("INPUT: {:?}", input.to_string());
@@ -179,7 +182,14 @@ let {} = {{
     input_
 }
 
-/// A Macro to automatically generate WebAssembly exports from `trait`
+/// A Macro to automatically generate WebAssembly exports from `trait`.
+///
+/// The `trait` defined by this macro is automatically implemented in `instance.exports()` with a slightly modified function signature.
+/// For example, the signature of the function `fn main()` is converted to `fn main(&self) -> WasmResult<()>`.
+///
+/// Valid forms are:
+///
+/// * `#[wasm_exports]`
 #[proc_macro_attribute]
 pub fn wasm_exports(_attr: TokenStream, input: TokenStream) -> TokenStream {
     // println!("INPUT: {:?}", input.to_string());

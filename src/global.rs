@@ -4,76 +4,6 @@ use crate::*;
 use core::mem::transmute;
 use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
-pub trait WasmGlobalProp<T>
-where
-    T: Copy,
-{
-    fn get(&self) -> Result<T, WasmRuntimeErrorKind>;
-}
-
-pub trait WasmGlobalPropMut<T>: WasmGlobalProp<T>
-where
-    T: Copy,
-{
-    fn set(&self, value: T) -> Result<(), WasmRuntimeErrorKind>;
-}
-
-pub struct WasmGlobalFixedValue<T> {
-    value: T,
-}
-
-impl<T> WasmGlobalFixedValue<T> {
-    #[inline]
-    pub const fn new(value: T) -> Self {
-        Self { value }
-    }
-}
-
-impl<T: Copy> WasmGlobalProp<T> for WasmGlobalFixedValue<T> {
-    #[inline]
-    fn get(&self) -> Result<T, WasmRuntimeErrorKind> {
-        Ok(self.value)
-    }
-}
-
-macro_rules! decl_wasm_global_atomics {
-    ($class_name:ident, $val_type:ident, $atomic_type:ident) => {
-        pub struct $class_name {
-            value: $atomic_type,
-        }
-
-        impl $class_name {
-            #[inline]
-            pub const fn new(value: $val_type) -> Self {
-                Self {
-                    value: $atomic_type::new(unsafe { transmute(value) }),
-                }
-            }
-        }
-
-        impl WasmGlobalProp<$val_type> for $class_name {
-            #[inline]
-            fn get(&self) -> Result<$val_type, WasmRuntimeErrorKind> {
-                Ok(unsafe { transmute(self.value.load(Ordering::Relaxed)) })
-            }
-        }
-
-        impl WasmGlobalPropMut<$val_type> for $class_name {
-            #[inline]
-            fn set(&self, value: $val_type) -> Result<(), WasmRuntimeErrorKind> {
-                self.value
-                    .store(unsafe { transmute(value) }, Ordering::SeqCst);
-                Ok(())
-            }
-        }
-    };
-}
-
-decl_wasm_global_atomics!(WasmGlobalI32, i32, AtomicU32);
-decl_wasm_global_atomics!(WasmGlobalI64, i64, AtomicU64);
-decl_wasm_global_atomics!(WasmGlobalF32, f32, AtomicU32);
-decl_wasm_global_atomics!(WasmGlobalF64, f64, AtomicU64);
-
 /// WebAssembly global variable
 pub enum WasmGlobal {
     I32(Box<dyn WasmGlobalProp<i32>>),
@@ -155,6 +85,20 @@ impl WasmGlobal {
     }
 }
 
+pub trait WasmGlobalProp<T>
+where
+    T: Copy,
+{
+    fn get(&self) -> Result<T, WasmRuntimeErrorKind>;
+}
+
+pub trait WasmGlobalPropMut<T>: WasmGlobalProp<T>
+where
+    T: Copy,
+{
+    fn set(&self, value: T) -> Result<(), WasmRuntimeErrorKind>;
+}
+
 pub trait Get<T> {
     fn get(&self) -> Result<T, WasmRuntimeErrorKind>;
 }
@@ -190,3 +134,59 @@ impl_get_set!(i32, I32, I32Mut);
 impl_get_set!(i64, I64, I64Mut);
 impl_get_set!(f32, F32, F32Mut);
 impl_get_set!(f64, F64, F64Mut);
+
+pub struct WasmGlobalFixedValue<T> {
+    value: T,
+}
+
+impl<T> WasmGlobalFixedValue<T> {
+    #[inline]
+    pub const fn new(value: T) -> Self {
+        Self { value }
+    }
+}
+
+impl<T: Copy> WasmGlobalProp<T> for WasmGlobalFixedValue<T> {
+    #[inline]
+    fn get(&self) -> Result<T, WasmRuntimeErrorKind> {
+        Ok(self.value)
+    }
+}
+
+macro_rules! decl_wasm_global_atomics {
+    ($class_name:ident, $val_type:ident, $atomic_type:ident) => {
+        pub struct $class_name {
+            value: $atomic_type,
+        }
+
+        impl $class_name {
+            #[inline]
+            pub const fn new(value: $val_type) -> Self {
+                Self {
+                    value: $atomic_type::new(unsafe { transmute(value) }),
+                }
+            }
+        }
+
+        impl WasmGlobalProp<$val_type> for $class_name {
+            #[inline]
+            fn get(&self) -> Result<$val_type, WasmRuntimeErrorKind> {
+                Ok(unsafe { transmute(self.value.load(Ordering::Relaxed)) })
+            }
+        }
+
+        impl WasmGlobalPropMut<$val_type> for $class_name {
+            #[inline]
+            fn set(&self, value: $val_type) -> Result<(), WasmRuntimeErrorKind> {
+                self.value
+                    .store(unsafe { transmute(value) }, Ordering::SeqCst);
+                Ok(())
+            }
+        }
+    };
+}
+
+decl_wasm_global_atomics!(WasmGlobalI32, i32, AtomicU32);
+decl_wasm_global_atomics!(WasmGlobalI64, i64, AtomicU64);
+decl_wasm_global_atomics!(WasmGlobalF32, f32, AtomicU32);
+decl_wasm_global_atomics!(WasmGlobalF64, f64, AtomicU64);

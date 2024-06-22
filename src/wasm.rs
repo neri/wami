@@ -211,9 +211,9 @@ impl WasmModule {
                 WasmSectionId::Export => module.parse_sec_export(section)?,
                 WasmSectionId::Start => module.parse_sec_start(section)?,
                 WasmSectionId::Element => module.parse_sec_elem(section)?,
+                WasmSectionId::DataCount => module.parse_sec_data_count(section)?,
                 WasmSectionId::Code => module.parse_sec_code(section)?,
                 WasmSectionId::Data => module.parse_sec_data(section)?,
-                WasmSectionId::DataCount => module.parse_sec_data_count(section)?,
             };
         }
 
@@ -231,12 +231,12 @@ impl WasmModule {
     pub fn instantiate<Env: WasmEnv>(mut self, env: &Env) -> Result<WasmInstance, Box<dyn Error>> {
         let mut func_idx = 0;
         for import in &self.imports {
-            match import.desc {
+            match &import.desc {
                 WasmImportDescriptor::Function(type_index) => {
                     match env.resolve_import_func(
                         &import.mod_name,
                         &import.name,
-                        self.type_by_index(type_index),
+                        self.type_by_index(*type_index),
                     ) {
                         WasmImportFuncResult::Ok(dyn_func) => {
                             self.functions[func_idx].resolve(dyn_func)?;
@@ -250,8 +250,11 @@ impl WasmModule {
                     }
                     func_idx += 1;
                 }
-                WasmImportDescriptor::Memory(_) => {
+                WasmImportDescriptor::Memory(_limit) => {
                     // TODO: import memory
+                }
+                WasmImportDescriptor::Global(_global) => {
+                    // TODO: import global
                 }
             }
         }
@@ -272,7 +275,7 @@ impl WasmModule {
     fn parse_sec_import(&mut self, mut section: WasmSection) -> Result<(), WasmCompileErrorKind> {
         let n_items: usize = section.reader.read()?;
         for _ in 0..n_items {
-            let import = WasmImport::from_reader(&mut section.reader)?;
+            let import = WasmImport::new(self, &mut section.reader)?;
             match import.desc {
                 WasmImportDescriptor::Function(type_index) => {
                     let index = self.functions.len();
@@ -289,6 +292,9 @@ impl WasmModule {
                 WasmImportDescriptor::Memory(memtype) => {
                     // TODO: import memory
                     self.memories.push(WasmMemory::new(memtype)?);
+                }
+                WasmImportDescriptor::Global(_global) => {
+                    //
                 }
             }
             self.imports.push(import);
@@ -630,6 +636,7 @@ impl ImportExportKind {
         match *desc {
             WasmImportDescriptor::Function(_) => Self::Function,
             WasmImportDescriptor::Memory(_) => Self::Memory,
+            WasmImportDescriptor::Global(_) => Self::Global,
         }
     }
 
@@ -1364,7 +1371,7 @@ impl fmt::Display for WasmType {
 /// WebAssembly import object
 ///
 /// It appears as the second section (`0x02`) in the WebAssembly binary.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct WasmImport {
     mod_name: String,
     name: String,
@@ -1373,10 +1380,13 @@ pub struct WasmImport {
 
 impl WasmImport {
     #[inline]
-    fn from_reader(reader: &mut Leb128Reader) -> Result<Self, WasmCompileErrorKind> {
+    fn new(
+        module: &mut WasmModule,
+        reader: &mut Leb128Reader,
+    ) -> Result<Self, WasmCompileErrorKind> {
         let mod_name = reader.get_string()?;
         let name = reader.get_string()?;
-        let desc = WasmImportDescriptor::from_reader(reader)?;
+        let desc = WasmImportDescriptor::new(module, reader)?;
 
         Ok(Self {
             mod_name,
@@ -1386,17 +1396,20 @@ impl WasmImport {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum WasmImportDescriptor {
     Function(WasmTypeIndex),
     // Table(_),
     Memory(WasmLimit),
-    // Global(_),
+    Global(GlobalVarIndex),
 }
 
 impl WasmImportDescriptor {
     #[inline]
-    fn from_reader(mut reader: &mut Leb128Reader) -> Result<Self, WasmCompileErrorKind> {
+    fn new(
+        module: &mut WasmModule,
+        mut reader: &mut Leb128Reader,
+    ) -> Result<Self, WasmCompileErrorKind> {
         let import_type = reader.read_byte()?;
         match import_type {
             0 => reader
@@ -1405,7 +1418,20 @@ impl WasmImportDescriptor {
                 .map_err(|v| v.into()),
             // 1 => reader.read().map(|v| Self::Table(v)),
             2 => WasmLimit::from_reader(&mut reader, true).map(|v| Self::Memory(v)),
-            // 3 => reader.read().map(|v| Self::Global(v)),
+            3 => {
+                let val_type = reader
+                    .read()
+                    .map_err(|v| v.into())
+                    .and_then(|v| WasmValType::from_i64(v))?;
+                let is_mutable = reader.read_byte()? == 1;
+                let value = WasmValue::default_for(val_type);
+                let global = WasmGlobal::new(value, is_mutable);
+                module.globals.push(global);
+
+                Ok(Self::Global(unsafe {
+                    GlobalVarIndex::new(module.globals.len() as u32)
+                }))
+            }
             _ => Err(WasmCompileErrorKind::UnexpectedToken),
         }
     }

@@ -1,7 +1,6 @@
 //! WebAssembly Interpreter
 
 #![cfg_attr(not(test), no_std)]
-#![deny(unsafe_op_in_unsafe_fn)]
 //
 #![feature(float_minimum_maximum)]
 #![feature(negative_impls)]
@@ -31,6 +30,7 @@ mod tests;
 
 pub mod prelude {
     pub use crate::cg::intr::WasmRuntimeError;
+    pub use crate::global::*;
     pub use crate::memory::{WasmMemory, WasmPtr, WasmPtrMut};
     pub use crate::{
         WasmArgs, WasmCompileError, WasmCompileErrorKind, WasmDynResult, WasmEnv, WasmExports,
