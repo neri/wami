@@ -6,7 +6,19 @@ A WebAssembly Interpreter used in my os (https://github.com/neri/maystorm)
 
 - Support for `no_std`
 - A subset of WebAssembly 2.0
-  - It can be used for most applications, but it does not support SIMD, reference, and some basic instructions.
+
+## Supported WebAssembly 2.0 Features
+
+|Proposals|Status|
+|-|-|
+|Sign extension instructions|✅|
+|Non-trapping float-to-int conversions|✅|
+|Multiple values|-|
+|Reference types|-|
+|Table instructions|-|
+|Multiple tables|-|
+|Bulk memory and table instructions|`memory.fill`, `memory.copy`|
+|Vector instructions|-|
 
 ## Requirements
 
