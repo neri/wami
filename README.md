@@ -6,6 +6,7 @@ A WebAssembly Interpreter used in my os (https://github.com/neri/maystorm)
 
 - Support for `no_std`
 - A subset of WebAssembly 2.0
+- This library by itself does not support execution environments such as WASI.
 
 ## Supported WebAssembly 2.0 Features
 
