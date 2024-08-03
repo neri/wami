@@ -16,7 +16,7 @@ default = []
 [dependencies]
 wami_macro = {path="./lib/wami_macro"}
 
-bitflags = {version = "2.5.0", default-features = false}
+bitflags = {version = "2.6.0", default-features = false}
 libm = {version="0.2.8"}
 num-traits = {version = "0.2.19", default-features = false}
 smallvec = {version = "1.13.2", default-features = false}

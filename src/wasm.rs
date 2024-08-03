@@ -1,7 +1,7 @@
 //! WebAssembly Interpreter
 use crate::cg::WasmCodeBlock;
 use crate::leb128::*;
-use crate::memory::WasmMemory;
+use crate::memory::{WasmMemory, WasmPtr, WasmPtrMut};
 use crate::opcode::{WasmMnemonic, WasmOpcode};
 use crate::*;
 use alloc::format;
@@ -16,8 +16,6 @@ use core::slice;
 use core::str;
 use global::WasmGlobal;
 use smallvec::SmallVec;
-
-use self::memory::{WasmPtr, WasmPtrMut};
 
 pub struct WebAssembly;
 
