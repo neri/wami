@@ -23,9 +23,9 @@ impl WebAssembly {
     /// Minimal valid module size, Magic(4) + Version(4) + Empty sections(0) = 8
     pub const MINIMAL_MOD_SIZE: usize = 8;
     /// Magic number of WebAssembly Binary Format
-    pub const MAGIC: [u8; 4] = *b"\0asm";
+    pub const WASM_BINARY_MAGIC: [u8; 4] = *b"\0asm";
     /// Current version number is 1
-    pub const VER_CURRENT: [u8; 4] = *b"\x01\0\0\0";
+    pub const WASM_BINARY_VERSION: [u8; 4] = *b"\x01\0\0\0";
 
     /// The length of the vector always is a multiple of the WebAssembly page size,
     /// which is defined to be the constant 65536 – abbreviated 64Ki.
@@ -35,8 +35,8 @@ impl WebAssembly {
     #[inline]
     pub fn identify(bytes: &[u8]) -> bool {
         bytes.len() >= Self::MINIMAL_MOD_SIZE
-            && &bytes[0..4] == Self::MAGIC
-            && &bytes[4..8] == Self::VER_CURRENT
+            && &bytes[0..4] == Self::WASM_BINARY_MAGIC
+            && &bytes[4..8] == Self::WASM_BINARY_VERSION
     }
 
     /// Instantiate wasm module
@@ -410,12 +410,20 @@ impl WasmModule {
     fn parse_sec_data(&mut self, mut section: WasmSection) -> Result<(), WasmCompileError> {
         let n_items: usize = section.reader.read()?;
         for _ in 0..n_items {
-            let memidx: usize = section.reader.read()?;
+            let data_position = section.reader.position();
+            let segment_flags: usize = section.reader.read()?;
+            if segment_flags != 0 {
+                return Err(WasmCompileError::new(
+                    WasmCompileErrorKind::UnexpectedToken,
+                    ExceptionPosition::new(section.file_position() + data_position),
+                    CompileErrorSource::Unknown,
+                ));
+            }
             let offset = self.eval_offset(&mut section)?;
             let src = section.reader.read_blob()?;
             let memory = self
                 .memories
-                .get_mut(memidx)
+                .get_mut(0)
                 .ok_or(WasmCompileErrorKind::InvalidData)?;
             memory
                 .write_slice(offset, src)
