@@ -541,7 +541,7 @@ impl WasmModule {
     }
 
     #[inline]
-    pub fn custom_sections<'a>(&'a self, section_name: &str) -> Option<&Box<[u8]>> {
+    pub fn custom_sections(&self, section_name: &str) -> Option<&Box<[u8]>> {
         self.custom_sections.get(section_name)
     }
 
@@ -602,7 +602,7 @@ impl WasmModule {
                 }
             }
         }
-        Err(WasmRuntimeErrorKind::NoMethod)
+        Err(WasmRuntimeErrorKind::NoMethod(name.to_owned()))
     }
 
     #[inline]
@@ -1733,7 +1733,7 @@ pub enum WasmLinkError {
 
 impl fmt::Display for WasmLinkError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "LinkError: {:?}", self)
     }
 }
 
@@ -1756,7 +1756,7 @@ pub enum WasmRuntimeErrorKind {
     /// (unrecoverable) Memory Boundary Errors
     OutOfBounds,
     /// (unrecoverable) The specified function cannot be found.
-    NoMethod,
+    NoMethod(String),
     /// (unrecoverable) Devide by zero
     DivideByZero,
     /// (unrecoverable) The type of call instructions do not match.

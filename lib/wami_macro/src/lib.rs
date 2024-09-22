@@ -254,9 +254,9 @@ pub fn wasm_exports(_attr: TokenStream, input: TokenStream) -> TokenStream {
         output_impl.push(format!("let args = [{}];", push_args.join(",")));
         output_impl.push(format!(
             "self.instance().exports().get({:?})
-                .ok_or(WasmRuntimeErrorKind::NoMethod.into())
+                .ok_or(WasmRuntimeErrorKind::NoMethod({:?}.to_owned()).into())
                 .and_then(|v| v.invoke(&args))",
-            func_name
+            func_name, func_name,
         ));
         match result_type {
             Some(ref result_type) => output_impl.push(format!(
@@ -360,6 +360,13 @@ impl ParsedType {
                 Some(path)
             }
             syn::Type::Reference(reference) => {
+                if options.allow_intrinsics {
+                    if let Some(intrinsics) =
+                        IntrinsicType::from_ref(reference.elem.as_ref(), options)
+                    {
+                        return Some(ParsedType::IntrinsicType(intrinsics));
+                    }
+                }
                 if options.allow_reference {
                     Self::new(
                         reference.elem.as_ref(),
@@ -621,6 +628,25 @@ impl IntrinsicType {
         match v.as_str() {
             "&WasmInstance" => Some(Self::WasmInstance),
             "&str" => Some(Self::Str),
+            _ => None,
+        }
+    }
+
+    pub fn from_ref(ty: &syn::Type, options: ParseOption) -> Option<Self> {
+        // For some reason it is not always possible to get the content of the `span` in the usual way
+        let _ = options;
+        match ty {
+            syn::Type::Path(type_path) => {
+                let mut segments = type_path.path.segments.iter();
+                let Some(first_elem) = segments.next() else {
+                    return None;
+                };
+                match first_elem.ident.to_string().as_str() {
+                    "WasmInstance" => Some(Self::WasmInstance),
+                    "str" => Some(Self::Str),
+                    _ => None,
+                }
+            }
             _ => None,
         }
     }

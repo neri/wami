@@ -1,8 +1,7 @@
 //! Stack structure for the Webassembly Runtime
 use crate::*;
 use core::cell::UnsafeCell;
-use core::mem::align_of;
-use core::mem::size_of;
+use core::mem::{self, align_of, size_of};
 use core::slice;
 
 /// Fixed size stack
@@ -38,12 +37,7 @@ impl<T> FixedStack<'_, T> {
     }
 }
 
-impl<T: Sized> FixedStack<'_, T> {
-    #[inline]
-    pub fn remove_all(&mut self) {
-        while self.pop().is_some() {}
-    }
-
+impl<T: Copy + Sized> FixedStack<'_, T> {
     #[inline]
     pub fn last(&self) -> Option<&T> {
         if self.stack_pointer > 0 {
@@ -89,20 +83,20 @@ impl<T: Sized> FixedStack<'_, T> {
     }
 }
 
-impl<T: Sized + Clone> FixedStack<'_, T> {
-    #[track_caller]
-    pub fn resize(&mut self, new_size: usize, new_value: T) {
-        if new_size < self.slice.len() {
-            if self.stack_pointer < new_size {
-                let _ = new_value;
-                todo!();
-            }
-            self.stack_pointer = new_size;
-        } else {
-            todo!()
-        }
-    }
-}
+// impl<T: Sized + Clone> FixedStack<'_, T> {
+//     #[track_caller]
+//     pub fn resize(&mut self, new_size: usize, new_value: T) {
+//         if new_size < self.slice.len() {
+//             if self.stack_pointer < new_size {
+//                 let _ = new_value;
+//                 todo!();
+//             }
+//             self.stack_pointer = new_size;
+//         } else {
+//             todo!()
+//         }
+//     }
+// }
 
 /// Shared Stack
 pub struct StackHeap {
@@ -134,17 +128,15 @@ impl StackHeap {
     {
         let Self { vec, stack_pointer } = self;
 
-        let vec = unsafe { vec.get().replace(Vec::new()) };
+        let vec = UnsafeCell::new(unsafe { vec.get().read() });
 
         let mut child = Self {
-            vec: UnsafeCell::new(vec),
+            vec,
             stack_pointer: *stack_pointer,
         };
         let r = f(&mut child);
 
-        unsafe {
-            self.vec.get().replace(child.vec.into_inner());
-        }
+        mem::forget(child.vec);
 
         r
     }

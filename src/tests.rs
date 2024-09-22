@@ -1,8 +1,8 @@
-use crate::cg::intr::WasmInterpreter;
 use crate::cg::WasmCodeBlock;
+use crate::cg::intr::WasmInterpreter;
 use crate::opcode::WasmMnemonic;
 use crate::prelude::*;
-use crate::{leb128::*, WasmSectionId};
+use crate::{WasmSectionId, leb128::*};
 use core::f64::consts::PI;
 use num_traits::Zero;
 use std::assert_matches::assert_matches;
@@ -1297,7 +1297,7 @@ fn call_indirect_test() {
             .unwrap_err()
             .downcast()
             .unwrap();
-        assert_matches!(err.kind(), WasmRuntimeErrorKind::NoMethod);
+        assert_matches!(err.kind(), WasmRuntimeErrorKind::NoMethod(_));
     }
 }
 

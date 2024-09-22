@@ -6,6 +6,7 @@ use crate::memory::WasmMemory;
 use crate::stack::*;
 use crate::wasm::*;
 use crate::*;
+use alloc::format;
 use core::error::Error;
 use core::iter;
 use core::mem::{size_of, transmute};
@@ -19,6 +20,14 @@ const INITIAL_VALUE_STACK_SIZE: usize = 512;
 pub struct WasmInterpreter<'a> {
     instance: &'a WasmInstance,
     func_index: usize,
+    stack_trace: Vec<StackTraceEntry>,
+}
+
+#[derive(Debug, Clone)]
+pub struct StackTraceEntry {
+    pub func: u32,
+    pub position: u32,
+    pub name: Option<String>,
 }
 
 impl<'a> WasmInterpreter<'a> {
@@ -27,6 +36,7 @@ impl<'a> WasmInterpreter<'a> {
         Self {
             instance,
             func_index: 0,
+            stack_trace: Vec::new(),
         }
     }
 }
@@ -52,6 +62,16 @@ impl WasmInterpreter<'_> {
             .unwrap_or(0)
             + ex_position.position();
 
+        let mut stack_trace = self.stack_trace.clone();
+        for item in stack_trace.iter_mut() {
+            item.name = self
+                .instance
+                .module()
+                .names()
+                .and_then(|v| v.func_by_index(item.func as usize))
+                .map(|v| v.to_owned());
+        }
+
         Box::new(WasmRuntimeError {
             kind,
             file_position,
@@ -59,6 +79,7 @@ impl WasmInterpreter<'_> {
             function_name,
             position: ex_position.position(),
             mnemonic,
+            stack_trace,
         })
     }
 
@@ -269,7 +290,7 @@ impl WasmInterpreter<'_> {
                     let index =
                         unsafe { value_stack.get(code.base_stack_level()).get_i32() as usize };
                     let func = self.instance.module().elem_get(index).ok_or(self.error(
-                        WasmRuntimeErrorKind::NoMethod,
+                        WasmRuntimeErrorKind::NoMethod(format!("$elem({index})")),
                         opcode,
                         ex_position,
                     ))?;
@@ -1572,6 +1593,11 @@ impl WasmInterpreter<'_> {
                     locals
                 };
 
+                self.stack_trace.push(StackTraceEntry {
+                    func: self.func_index as u32,
+                    position: ex_position.position() as u32,
+                    name: None,
+                });
                 self._interpret(
                     target.index(),
                     code_block,
@@ -1584,6 +1610,7 @@ impl WasmInterpreter<'_> {
                         let var = value_stack.get_mut(stack_under);
                         *var = WasmUnionValue::from(result);
                     }
+                    self.stack_trace.pop();
                     self.func_index = current_function;
                     Ok(())
                 })
@@ -1612,9 +1639,11 @@ impl WasmInterpreter<'_> {
                     }
                 })
             }
-            WasmFunctionContent::Unresolved => {
-                Err(self.error(WasmRuntimeErrorKind::NoMethod, opcode, ex_position))
-            }
+            WasmFunctionContent::Unresolved => Err(self.error(
+                WasmRuntimeErrorKind::NoMethod(format!("$func({})", target.index())),
+                opcode,
+                ex_position,
+            )),
         }
     }
 }
@@ -1662,7 +1691,10 @@ impl WasmInvocation for WasmRunnable<'_> {
         let code_block = match function.content() {
             WasmFunctionContent::CodeBlock(v) => Ok(v),
             WasmFunctionContent::Dynamic(_) => Err(WasmRuntimeErrorKind::InvalidParameter),
-            WasmFunctionContent::Unresolved => Err(WasmRuntimeErrorKind::NoMethod),
+            WasmFunctionContent::Unresolved => Err(WasmRuntimeErrorKind::NoMethod(format!(
+                "$func({})",
+                function.index()
+            ))),
         }?;
 
         let mut locals =
@@ -1699,6 +1731,7 @@ pub struct WasmRuntimeError {
     function_name: Option<String>,
     position: usize,
     mnemonic: WasmMnemonic,
+    stack_trace: Vec<StackTraceEntry>,
 }
 
 impl WasmRuntimeError {
@@ -1762,6 +1795,7 @@ impl From<WasmRuntimeErrorKind> for Box<dyn Error> {
             function_name: None,
             position: 0,
             mnemonic: WasmMnemonic::Unreachable,
+            stack_trace: Vec::new(),
         })
     }
 }
@@ -1770,20 +1804,39 @@ impl fmt::Display for WasmRuntimeError {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mnemonic = self.mnemonic();
-        write!(f, "{:?} at", self.kind())?;
-        if let Some(function_name) = self.function_name() {
-            write!(
-                f,
-                " {}(${}):{}",
-                function_name,
-                self.function(),
-                self.position(),
-            )?;
-        } else {
-            write!(f, " ${}:{}", self.function(), self.position(),)?;
+        write!(f, "{:?}", self.kind())?;
+
+        // In wasm, positon is never zero.
+        if self.position() > 0 {
+            write!(f, "\n  at")?;
+            if let Some(function_name) = self.function_name() {
+                write!(
+                    f,
+                    " {}(${}):{}",
+                    function_name,
+                    self.function(),
+                    self.position(),
+                )?;
+            } else {
+                write!(f, " ${}:{}", self.function(), self.position(),)?;
+            }
+        }
+        if self.file_position() > 0 {
+            write!(f, ", 0x{:x}: {:?}", self.file_position(), mnemonic)?;
         }
 
-        write!(f, ", 0x{:x}: {:?}", self.file_position(), mnemonic)
+        if self.stack_trace.len() > 0 {
+            writeln!(f, "")?;
+            for item in self.stack_trace.iter().rev() {
+                if let Some(name) = item.name.as_ref() {
+                    writeln!(f, "  at {}(${}):{}", name, item.func, item.position)?;
+                } else {
+                    writeln!(f, "  at {}:{}", item.func, item.position)?;
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 
