@@ -8,7 +8,6 @@ use crate::opcode::*;
 use crate::*;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
-use bitflags::*;
 use core::cell::RefCell;
 use core::fmt;
 use smallvec::SmallVec;
@@ -26,9 +25,19 @@ pub struct WasmCodeBlock {
     int_codes: Box<[WasmImc]>,
 }
 
-bitflags! {
-    pub struct WasmBlockFlag: usize {
-        const LEAF_FUNCTION     = 0b0000_0000_0000_0001;
+pub struct WasmBlockFlag(usize);
+
+impl WasmBlockFlag {
+    pub const LEAF_FUNCTION: Self = Self(0b0000_0000_0000_0001);
+
+    #[inline]
+    pub const fn contains(&self, other: Self) -> bool {
+        (self.0 & other.0) == other.0
+    }
+
+    #[inline]
+    pub fn remove(&mut self, other: Self) {
+        self.0 &= !other.0;
     }
 }
 
