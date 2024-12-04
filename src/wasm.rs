@@ -1,6 +1,5 @@
 //! WebAssembly Interpreter
 use crate::cg::WasmCodeBlock;
-use crate::leb128::*;
 use crate::memory::{WasmMemory, WasmPtr, WasmPtrMut};
 use crate::opcode::{WasmMnemonic, WasmOpcode};
 use crate::*;
@@ -8,13 +7,14 @@ use alloc::format;
 use alloc::string::*;
 use core::error::Error;
 use core::fmt;
-use core::mem::{size_of, ManuallyDrop};
+use core::mem::{ManuallyDrop, size_of};
 use core::num::NonZeroU32;
 use core::ops::*;
 use core::ptr::slice_from_raw_parts_mut;
 use core::slice;
 use core::str;
 use global::WasmGlobal;
+use leb128::*;
 use smallvec::SmallVec;
 
 pub struct WebAssembly;
@@ -240,10 +240,10 @@ impl WasmModule {
                             self.functions[func_idx].resolve(dyn_func)?;
                         }
                         WasmImportFuncResult::NoModule => {
-                            return Err(WasmLinkError::NoModule(import.mod_name.clone()).into())
+                            return Err(WasmLinkError::NoModule(import.mod_name.clone()).into());
                         }
                         WasmImportFuncResult::NoMethod => {
-                            return Err(WasmLinkError::NoMethod(import.name.clone()).into())
+                            return Err(WasmLinkError::NoMethod(import.name.clone()).into());
                         }
                     }
                     func_idx += 1;
@@ -949,21 +949,17 @@ impl From<f64> for WasmValType {
 
 impl fmt::Display for WasmValType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            match *self {
-                Self::I32 => "i32",
-                Self::I64 => "i64",
-                Self::F32 => "f32",
-                Self::F64 => "f64",
-                // Self::V128 => "v128",
-                // Self::I8 => "i8",
-                // Self::I16 => "i16",
-                // Self::FuncRef => "func",
-                // Self::ExternRef => "extern",
-            }
-        )
+        write!(f, "{}", match *self {
+            Self::I32 => "i32",
+            Self::I64 => "i64",
+            Self::F32 => "f32",
+            Self::F64 => "f64",
+            // Self::V128 => "v128",
+            // Self::I8 => "i8",
+            // Self::I16 => "i16",
+            // Self::FuncRef => "func",
+            // Self::ExternRef => "extern",
+        })
     }
 }
 
@@ -1707,9 +1703,9 @@ impl From<leb128::ReadError> for WasmCompileErrorKind {
     #[inline]
     fn from(value: leb128::ReadError) -> Self {
         match value {
-            ReadError::InvalidData => WasmCompileErrorKind::InvalidData,
-            ReadError::UnexpectedEof => WasmCompileErrorKind::UnexpectedEof,
-            ReadError::OutOfBounds => WasmCompileErrorKind::UnexpectedToken,
+            leb128::ReadError::InvalidData => WasmCompileErrorKind::InvalidData,
+            leb128::ReadError::UnexpectedEof => WasmCompileErrorKind::UnexpectedEof,
+            leb128::ReadError::OutOfBounds => WasmCompileErrorKind::UnexpectedToken,
         }
     }
 }

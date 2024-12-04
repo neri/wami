@@ -1,0 +1,25 @@
+# WebAssembly reserved keywords
+
+module
+
+type
+import
+func
+table
+memory
+global
+export
+start
+elem
+data
+
+param
+result
+local
+mut
+
+offset
+item
+anyfunc
+funcref
+externref

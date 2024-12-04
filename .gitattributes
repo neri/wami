@@ -1,0 +1,6 @@
+tests/* linguist-vendored
+tools/* linguist-vendored
+docs/* linguist-documentation
+
+lib/wasm_asm/src/_generated/* linguist-generated
+src/_generated/* linguist-generated

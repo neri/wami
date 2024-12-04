@@ -1,15 +1,22 @@
 //! Little Endian Base 128
-use crate::*;
+#![cfg_attr(not(test), no_std)]
+
+extern crate alloc;
+
+#[cfg(test)]
+mod tests;
+
+use alloc::borrow::ToOwned;
+use alloc::string::String;
+use alloc::vec::Vec;
 use core::mem::size_of_val;
 use core::str;
 
-#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum WriteError {
     OutOfMemory,
 }
 
-#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ReadError {
     InvalidData,
@@ -156,6 +163,33 @@ impl Leb128Writer {
         }
     }
 
+    pub fn write_fixed_u32(&mut self, value: u32) -> Result<(), WriteError> {
+        let bytes = [
+            (value | 0x80) as u8,
+            ((value >> 7) | 0x80) as u8,
+            ((value >> 14) | 0x80) as u8,
+            ((value >> 21) | 0x80) as u8,
+            (value >> 28) as u8,
+        ];
+        self.write_bytes(&bytes)
+    }
+
+    pub fn write_fixed_u64(&mut self, value: u64) -> Result<(), WriteError> {
+        let bytes = [
+            (value | 0x80) as u8,
+            ((value >> 7) | 0x80) as u8,
+            ((value >> 14) | 0x80) as u8,
+            ((value >> 21) | 0x80) as u8,
+            ((value >> 28) | 0x80) as u8,
+            ((value >> 35) | 0x80) as u8,
+            ((value >> 42) | 0x80) as u8,
+            ((value >> 49) | 0x80) as u8,
+            ((value >> 56) | 0x80) as u8,
+            (value >> 63) as u8,
+        ];
+        self.write_bytes(&bytes)
+    }
+
     pub fn write_signed(&mut self, value: i64) -> Result<(), WriteError> {
         let bits = (size_of_val(&value) * 8)
             - if value < 0 {
@@ -260,6 +294,16 @@ impl Leb128Writer {
     #[inline]
     pub fn write_byte(&mut self, byte: u8) -> Result<(), WriteError> {
         self.write_bytes(&[byte])
+    }
+
+    #[inline]
+    pub fn write_f32(&mut self, value: f32) -> Result<(), WriteError> {
+        self.write_bytes(&value.to_le_bytes())
+    }
+
+    #[inline]
+    pub fn write_f64(&mut self, value: f64) -> Result<(), WriteError> {
+        self.write_bytes(&value.to_le_bytes())
     }
 
     /// blob:
@@ -470,6 +514,14 @@ impl WriteLeb128<&str> for Leb128Writer {
     }
 }
 
+impl WriteLeb128<&String> for Leb128Writer {
+    #[inline]
+    fn write(&mut self, value: &String) -> Result<(), WriteError> {
+        self.write(value.len())?;
+        self.write_bytes(value.as_bytes())
+    }
+}
+
 macro_rules! leb128_serialize_u {
     ($type:ident) => {
         impl<'a> ReadLeb128<'a, $type> for Leb128Reader<'_> {
@@ -532,10 +584,24 @@ impl<'a> ReadLeb128<'a, i8> for Leb128Reader<'_> {
     }
 }
 
+impl WriteLeb128<f32> for Leb128Writer {
+    #[inline]
+    fn write(&mut self, value: f32) -> Result<(), WriteError> {
+        self.write_f32(value)
+    }
+}
+
 impl<'a> ReadLeb128<'a, f32> for Leb128Reader<'_> {
     #[inline]
     fn read(&'a mut self) -> Result<f32, ReadError> {
         self.read_f32()
+    }
+}
+
+impl WriteLeb128<f64> for Leb128Writer {
+    #[inline]
+    fn write(&mut self, value: f64) -> Result<(), WriteError> {
+        self.write_f64(value)
     }
 }
 
@@ -546,179 +612,27 @@ impl<'a> ReadLeb128<'a, f64> for Leb128Reader<'_> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub trait WriteFixed<T> {
+    fn write_fixed(&mut self, value: T) -> Result<(), WriteError>;
+}
 
-    #[test]
-    fn leb128_reader() {
-        let data = [
-            0x7F, 0xFF, 0x00, 0xEF, 0xFD, 0xB6, 0xF5, 0x0D, 0xEF, 0xFD, 0xB6, 0xF5, 0x7D,
-        ];
-        let mut reader = Leb128Reader::from_slice(&data);
-
-        reader.reset();
-        assert_eq!(reader.position(), 0);
-        let test = reader.read_unsigned().unwrap();
-        assert_eq!(test, 127);
-        let test = reader.read_unsigned().unwrap();
-        assert_eq!(test, 127);
-        let test = reader.read_unsigned().unwrap();
-        assert_eq!(test, 0xdeadbeef);
-        let test = reader.read_unsigned().unwrap();
-        assert_eq!(test, 0x7deadbeef);
-
-        reader.reset();
-        assert_eq!(reader.position(), 0);
-        let test = reader.read_signed().unwrap();
-        assert_eq!(test, -1);
-        let test = reader.read_signed().unwrap();
-        assert_eq!(test, 127);
-        let test = reader.read_signed().unwrap();
-        assert_eq!(test, 0xdeadbeef);
-        let test = reader.read_signed().unwrap();
-        assert_eq!(test, -559038737);
-
-        let data = [0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0];
-        let mut stream = Leb128Reader::from_slice(&data);
-
-        stream.reset();
-        assert_eq!(stream.position(), 0);
-        let test = stream.read_unsigned().unwrap();
-        assert_eq!(test, 0);
-        assert_eq!(reader.read_byte().unwrap_err(), ReadError::UnexpectedEof);
-
-        stream.reset();
-        assert_eq!(stream.position(), 0);
-        let test = stream.read_signed().unwrap();
-        assert_eq!(test, 0);
-        assert_eq!(reader.read_byte().unwrap_err(), ReadError::UnexpectedEof);
+impl WriteFixed<u8> for Leb128Writer {
+    #[inline]
+    fn write_fixed(&mut self, value: u8) -> Result<(), WriteError> {
+        self.write_byte(value)
     }
+}
 
-    #[test]
-    fn leb128_writer() {
-        let mut writer = Leb128Writer::new();
-
-        writer.clear();
-        assert_eq!(writer.len(), 0);
-        writer.write(0u32).unwrap();
-        assert_eq!(writer.as_slice(), &[0]);
-
-        writer.clear();
-        assert_eq!(writer.len(), 0);
-        writer.write(0i32).unwrap();
-        assert_eq!(writer.as_slice(), &[0]);
-
-        for i in 0..64 {
-            let value1 = 1u64 << i;
-            let mut writer = Leb128Writer::new();
-            writer.write(value1).unwrap();
-
-            let byte_cnt = (i + 7) / 7;
-            assert_eq!(writer.as_slice().len(), byte_cnt);
-
-            assert_ne!(*writer.as_slice().last().unwrap(), 0);
-
-            let mut reader = Leb128Reader::from_slice(writer.as_slice());
-            let test1 = reader.read().unwrap();
-            assert_eq!(value1, test1);
-        }
-
-        writer.clear();
-        writer.write(127u32).unwrap();
-        assert_eq!(writer.as_slice(), &[0x7F]);
-
-        writer.clear();
-        writer.write(128u32).unwrap();
-        assert_eq!(writer.as_slice(), &[0x80, 0x01]);
-
-        writer.clear();
-        writer.write(0xdeadbeefu32).unwrap();
-        assert_eq!(writer.as_slice(), &[0xEF, 0xFD, 0xB6, 0xF5, 0x0D]);
-
-        writer.clear();
-        writer.write(0x7deadbeefu64).unwrap();
-        assert_eq!(writer.as_slice(), &[0xEF, 0xFD, 0xB6, 0xF5, 0x7D]);
-
-        writer.clear();
-        writer.write(127i32).unwrap();
-        assert_eq!(writer.as_slice(), &[0xFF, 0x00]);
-
-        writer.clear();
-        writer.write(63i32).unwrap();
-        assert_eq!(writer.as_slice(), &[0x3F]);
-
-        writer.clear();
-        writer.write(64i32).unwrap();
-        assert_eq!(writer.as_slice(), &[0xC0, 0x00]);
-
-        writer.clear();
-        writer.write(-1i32).unwrap();
-        assert_eq!(writer.as_slice(), &[0x7F]);
-
-        writer.clear();
-        writer.write(-64i32).unwrap();
-        assert_eq!(writer.as_slice(), &[0x40]);
-
-        writer.clear();
-        writer.write(0xdeadbeefi64).unwrap();
-        assert_eq!(writer.as_slice(), &[0xEF, 0xFD, 0xB6, 0xF5, 0x0D]);
-
-        writer.clear();
-        writer.write(-559038737i64).unwrap();
-        assert_eq!(writer.as_slice(), &[0xEF, 0xFD, 0xB6, 0xF5, 0x7D]);
+impl WriteFixed<u32> for Leb128Writer {
+    #[inline]
+    fn write_fixed(&mut self, value: u32) -> Result<(), WriteError> {
+        self.write_fixed_u32(value)
     }
+}
 
-    #[test]
-    fn leb128_read_write() {
-        for i in 0..64 {
-            let value1u = 1u64 << i;
-            let value2u = value1u - 1;
-            let value3u = !value2u;
-
-            let value1i = value1u as i64;
-            let value2i = value2u as i64;
-            let value3i = value3u as i64;
-
-            let value5 = value2u & 0x5555_5555_5555_5555;
-            let value6 = value2u & 0x1234_5678_9ABC_DEF0;
-            let value7 = value2u & 0xDEAD_BEEF_F00D_BAAD;
-
-            let mut writer = Leb128Writer::new();
-            writer.write(value1i).unwrap();
-            writer.write(value1u).unwrap();
-            writer.write(value2i).unwrap();
-            writer.write(value2u).unwrap();
-            writer.write(value3i).unwrap();
-            writer.write(value3u).unwrap();
-            writer.write(value5).unwrap();
-            writer.write(value6).unwrap();
-            writer.write(value7).unwrap();
-            let mut reader = Leb128Reader::from_slice(writer.as_slice());
-
-            let test1i = reader.read().unwrap();
-            assert_eq!(value1i, test1i);
-            let test1u = reader.read().unwrap();
-            assert_eq!(value1u, test1u);
-            let test2i = reader.read().unwrap();
-            assert_eq!(value2i, test2i);
-            let test2u = reader.read().unwrap();
-            assert_eq!(value2u, test2u);
-            let test3i = reader.read().unwrap();
-            assert_eq!(value3i, test3i);
-            let test3u = reader.read().unwrap();
-            assert_eq!(value3u, test3u);
-
-            let test5 = reader.read().unwrap();
-            assert_eq!(value5, test5);
-            let test6 = reader.read().unwrap();
-            assert_eq!(value6, test6);
-            let test7 = reader.read().unwrap();
-            assert_eq!(value7, test7);
-
-            assert!(reader.is_eof());
-
-            assert_eq!(reader.read_byte().unwrap_err(), ReadError::UnexpectedEof);
-        }
+impl WriteFixed<u64> for Leb128Writer {
+    #[inline]
+    fn write_fixed(&mut self, value: u64) -> Result<(), WriteError> {
+        self.write_fixed_u64(value)
     }
 }

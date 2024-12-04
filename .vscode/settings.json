@@ -1,7 +1,8 @@
 {
     "rust-analyzer.linkedProjects": [
         "./Cargo.toml",
-        "./example/cli/Cargo.toml",
-        "./example/hello/Cargo.toml",
+        "example/cli/Cargo.toml",
+        "example/hello/Cargo.toml",
+        "tools/wat2wasm/Cargo.toml",
     ]
 }

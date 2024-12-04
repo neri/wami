@@ -1,10 +1,13 @@
+use crate::WasmSectionId;
 use crate::cg::WasmCodeBlock;
 use crate::cg::intr::WasmInterpreter;
 use crate::opcode::WasmMnemonic;
 use crate::prelude::*;
-use crate::{WasmSectionId, leb128::*};
 use core::f64::consts::PI;
+use leb128::*;
 use std::assert_matches::assert_matches;
+use std::sync::OnceLock;
+use wa_asm::WasmAssembler;
 
 struct Env;
 
@@ -91,6 +94,15 @@ trait TestTask {
     fn exit_test();
 }
 
+fn shared_instance() -> WasmInstance {
+    static BINARY: OnceLock<Vec<u8>> = OnceLock::new();
+    let wasm = BINARY.get_or_init(|| {
+        let src = include_bytes!("../test/tester.wat").to_vec();
+        WasmAssembler::to_wasm("tester.wat", src).unwrap()
+    });
+    WebAssembly::instantiate(&wasm, &Env {}).unwrap()
+}
+
 #[test]
 fn instantiate() {
     let data = [0, 97, 115, 109, 1, 0, 0, 0];
@@ -117,8 +129,7 @@ fn instantiate() {
         WasmCompileErrorKind::UnexpectedEof
     );
 
-    let instance =
-        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), &Env {}).unwrap();
+    let instance = shared_instance();
     let _ = instance.exports().get("fib").unwrap();
 }
 
@@ -861,8 +872,7 @@ fn br_table() {
 
 #[test]
 fn app_fact() {
-    let instance =
-        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), &Env {}).unwrap();
+    let instance = shared_instance();
 
     let result = instance.exports().fact(7).unwrap();
     assert_eq!(result, 5040);
@@ -873,8 +883,7 @@ fn app_fact() {
 
 #[test]
 fn app_fib() {
-    let instance =
-        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), &Env {}).unwrap();
+    let instance = shared_instance();
 
     let result = instance.exports().fib(5).unwrap();
     assert_eq!(result, 5);
@@ -888,8 +897,7 @@ fn app_fib() {
 
 #[test]
 fn opr_test_i32() {
-    let instance =
-        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), &Env {}).unwrap();
+    let instance = shared_instance();
 
     let memory = instance.memory(0).unwrap().try_borrow().unwrap();
 
@@ -1034,8 +1042,7 @@ fn opr_test_i32() {
 
 #[test]
 fn opr_test_i64() {
-    let instance =
-        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), &Env {}).unwrap();
+    let instance = shared_instance();
 
     let memory = instance.memory(0).unwrap().try_borrow().unwrap();
 
@@ -1184,8 +1191,7 @@ fn opr_test_i64() {
 
 #[test]
 fn call_test() {
-    let instance =
-        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), &Env {}).unwrap();
+    let instance = shared_instance();
 
     let memory = instance.memory(0).unwrap().try_borrow().unwrap();
 
@@ -1258,8 +1264,7 @@ fn call_test() {
 
 #[test]
 fn call_indirect_test() {
-    let instance =
-        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), &Env {}).unwrap();
+    let instance = shared_instance();
 
     // let memory = instance.memory(0).unwrap().try_borrow().unwrap();
 
@@ -1302,8 +1307,7 @@ fn call_indirect_test() {
 
 #[test]
 fn mem_load_store() {
-    let instance =
-        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), &Env {}).unwrap();
+    let instance = shared_instance();
 
     let mut src = Vec::new();
     for i in 0..65536 {
@@ -1543,8 +1547,7 @@ fn mem_load_store() {
 
 #[test]
 fn memory() {
-    let instance =
-        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), &Env {}).unwrap();
+    let instance = shared_instance();
 
     let mut src = Vec::new();
     for i in 0..256 {
@@ -1661,8 +1664,7 @@ fn memory() {
 
 #[test]
 fn global() {
-    let instance =
-        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), &Env {}).unwrap();
+    let instance = shared_instance();
 
     assert_eq!(instance.global("global1").unwrap().get_i32().unwrap(), 123);
 
@@ -1786,8 +1788,7 @@ fn float32() {
 
 #[test]
 fn float32_opr() {
-    let instance =
-        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), &Env {}).unwrap();
+    let instance = shared_instance();
 
     let memory = instance.memory(0).unwrap().try_borrow().unwrap();
 
@@ -2467,8 +2468,7 @@ fn float64() {
 
 #[test]
 fn float64_opr() {
-    let instance =
-        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), &Env {}).unwrap();
+    let instance = shared_instance();
 
     let memory = instance.memory(0).unwrap().try_borrow().unwrap();
 
@@ -3224,8 +3224,7 @@ fn block_nest() {
 
 #[test]
 fn block_test() {
-    let instance =
-        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), &Env {}).unwrap();
+    let instance = shared_instance();
 
     let result = instance.exports().block_test(1, 123, 456, 789).unwrap();
     assert_eq!(result, 456);
@@ -3277,8 +3276,7 @@ fn loop_nest() {
 
 #[test]
 fn loop_test() {
-    let instance =
-        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), &Env {}).unwrap();
+    let instance = shared_instance();
 
     let result = instance.exports().loop_test(10).unwrap();
     assert_eq!(result, 55);
@@ -3329,8 +3327,7 @@ fn if_nest() {
 
 #[test]
 fn if_test() {
-    let instance =
-        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), &Env {}).unwrap();
+    let instance = shared_instance();
 
     let result = instance.exports().if_test1(123, 456, true).unwrap();
     assert_eq!(result, 123);
@@ -3369,8 +3366,7 @@ fn if_test() {
 
 #[test]
 fn import_test() {
-    let instance =
-        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), &Env {}).unwrap();
+    let instance = shared_instance();
 
     let result = instance.exports().import_test1(123, 456).unwrap();
     assert_eq!(result, 123 + 456);
@@ -3381,8 +3377,7 @@ fn import_test() {
 
 #[test]
 fn exit_test() {
-    let instance =
-        WebAssembly::instantiate(include_bytes!("../test/tester.wasm"), &Env {}).unwrap();
+    let instance = shared_instance();
     let err = instance.exports().exit_test().unwrap_err();
     let err = WasmRuntimeError::try_from_error(err).unwrap();
     assert_matches!(err.kind(), WasmRuntimeErrorKind::Exit)

@@ -3,13 +3,13 @@ pub mod intr;
 
 use self::intcode::{WasmImInstruction, WasmImc};
 use crate::cg::intcode::MarkerKind;
-use crate::leb128::*;
 use crate::opcode::*;
 use crate::*;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 use core::fmt;
+use leb128::*;
 use smallvec::SmallVec;
 
 #[cfg(test)]

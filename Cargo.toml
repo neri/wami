@@ -1,5 +1,3 @@
-cargo-features = ["edition2024"]
-
 [package]
 authors = ["Nerry <108566+neri@users.noreply.github.com>"]
 edition = "2024"
@@ -13,12 +11,20 @@ default = []
 
 [dependencies]
 wami_macro = {path="./lib/wami_macro"}
+leb128 = {path="./lib/leb128"}
 
-libm = {version="0.2.8"}
+libm = {version="0.2.11"}
 smallvec = {version = "1.13.2", default-features = false}
+
+[dev-dependencies]
+wa_asm = { path = "./lib/wa_asm" }
 
 [workspace]
 members = [
   "example/cli",
   "example/hello",
+  "tools/wat2wasm",
+  "lib/wami_macro",
+  "lib/leb128",
+  "lib/wa_asm",
 ]
