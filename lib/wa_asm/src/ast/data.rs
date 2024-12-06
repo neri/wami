@@ -1,8 +1,9 @@
 //! Data section
 
-use super::{keyword::Keyword, ModuleName};
+use super::{ModuleName, keyword::Keyword};
 use crate::*;
 use ast::*;
+use identifier::Identifier;
 use literal::RawBytesLiteral;
 use memory::MemUse;
 use wasm::expr::ConstExpr;
@@ -18,6 +19,8 @@ impl ModuleName for Data {
     const IDENTIFIER: Keyword = Keyword::Data;
 
     fn from_tokens(tokens: &mut TokenStream<Keyword>) -> Result<Self, AssembleError> {
+        let _id = Identifier::try_expect(tokens)?;
+
         let mem_use = try_expect_module::<MemUse>(tokens)?;
 
         let offset = Offset::expect(tokens)?;
