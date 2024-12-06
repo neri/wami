@@ -55,11 +55,27 @@ A WebAssembly Interpreter used in my os (https://github.com/neri/maystorm)
 * To run this, we create the following Rust code.
 
 ```rust
+use wa_asm::WasmAssembler;
 use wami::prelude::*;
 
 fn main() {
-    let env = Env {};
-    let instance = WebAssembly::instantiate(include_bytes!("../hello.wasm"), &env).unwrap();
+    let src = r#"
+(module
+  (import "env" "println" (func $println (param i32) (param i32)))
+
+  (memory 1)
+
+  (data (i32.const 16) "hello world!")
+
+  (func $main (export "main")
+    i32.const 12
+    i32.const 16
+    call $println
+  )
+)
+"#;
+    let bin = WasmAssembler::to_wasm("hello.wat", src.as_bytes().to_vec()).unwrap();
+    let instance = WebAssembly::instantiate(&bin, &Env {}).unwrap();
     instance.exports().main().unwrap();
 }
 
