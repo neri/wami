@@ -48,20 +48,7 @@ impl WasmAssembler {
             .map_err(|e| e.to_detail_string(file_name, &src, tokens.line_positions()))
     }
 
-    // pub fn explain_ast(file_name: &str, src: Vec<u8>) -> Result<String, String> {
-    //     Self::_from_src(file_name, src, |tokens| ast::AstModule::parse(tokens))
-    //         .map(|v| format!("{:#?}", v))
-    // }
-
-    // pub fn explain_ir(file_name: &str, src: Vec<u8>) -> Result<String, String> {
-    //     Self::_from_src(file_name, src, |tokens| {
-    //         let ast_module = ast::AstModule::parse(tokens)?;
-    //         ir::Module::from_ast(ast_module)
-    //     })
-    //     .map(|v| format!("{:#?}", v))
-    // }
-
-    pub fn to_wasm(file_name: &str, src: Vec<u8>) -> Result<Vec<u8>, String> {
+    pub fn assemble(file_name: &str, src: Vec<u8>) -> Result<Vec<u8>, String> {
         Self::_from_src(file_name, src, |tokens: &mut TokenStream<Keyword>| {
             let ir_module = ir::Module::from_ast(ast::AstModule::parse(tokens)?)?;
 

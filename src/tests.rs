@@ -7,7 +7,6 @@ use core::f64::consts::PI;
 use leb128::*;
 use std::assert_matches::assert_matches;
 use std::sync::OnceLock;
-use wa_asm::WasmAssembler;
 
 struct Env;
 
@@ -98,7 +97,7 @@ fn shared_instance() -> WasmInstance {
     static BINARY: OnceLock<Vec<u8>> = OnceLock::new();
     let wasm = BINARY.get_or_init(|| {
         let src = include_bytes!("../test/tester.wat").to_vec();
-        WasmAssembler::to_wasm("tester.wat", src).unwrap()
+        WebAssembly::wat2wasm("tester.wat", src).unwrap()
     });
     WebAssembly::instantiate(&wasm, &Env {}).unwrap()
 }

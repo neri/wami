@@ -1,12 +1,12 @@
 //! WebAssembly Assembler CLI Frontend
 
+use libwat2wasm::*;
 use std::{
     env::{self, args},
     fs::{File, read_to_string},
     io::{self, Write},
     process,
 };
-use wa_asm::*;
 
 fn usage() -> ! {
     let mut args = env::args_os();
@@ -54,7 +54,7 @@ fn main() {
     };
 
     let src = read_to_string(path_input.as_str()).unwrap();
-    let binary = match WasmAssembler::to_wasm(path_input.as_str(), src.into_bytes()) {
+    let binary = match WasmAssembler::assemble(path_input.as_str(), src.into_bytes()) {
         Ok(v) => v,
         Err(e) => {
             panic!("{}", e);

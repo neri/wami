@@ -15,6 +15,7 @@ use core::slice;
 use core::str;
 use global::WasmGlobal;
 use leb128::*;
+use libwat2wasm::WasmAssembler;
 use smallvec::SmallVec;
 
 pub struct WebAssembly;
@@ -40,9 +41,9 @@ impl WebAssembly {
     }
 
     /// Instantiate wasm module
-    pub fn instantiate<Env: WasmEnv>(
+    pub fn instantiate<ENV: WasmEnv>(
         bytes: &[u8],
-        env: &Env,
+        env: &ENV,
     ) -> Result<WasmInstance, Box<dyn Error>> {
         Self::compile(bytes)?.instantiate(env)
     }
@@ -57,6 +58,11 @@ impl WebAssembly {
     #[must_use]
     pub fn validate(bytes: &[u8]) -> bool {
         Self::compile(bytes).is_ok()
+    }
+
+    /// Translates WebAssembly Text format into binary format
+    pub fn wat2wasm(file_name: &str, src: Vec<u8>) -> Result<Vec<u8>, String> {
+        WasmAssembler::assemble(file_name, src)
     }
 }
 
@@ -226,7 +232,7 @@ impl WasmModule {
         Ok(module)
     }
 
-    pub fn instantiate<Env: WasmEnv>(mut self, env: &Env) -> Result<WasmInstance, Box<dyn Error>> {
+    pub fn instantiate<ENV: WasmEnv>(mut self, env: &ENV) -> Result<WasmInstance, Box<dyn Error>> {
         let mut func_idx = 0;
         for import in &self.imports {
             match &import.desc {
