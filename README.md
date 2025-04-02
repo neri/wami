@@ -25,6 +25,10 @@ A WebAssembly Interpreter used in my os (https://github.com/neri/maystorm)
 
 - Rust nightly
 
+### MSRV
+
+- The latest version is recommended whenever possible.
+
 ## Test
 
 ```
