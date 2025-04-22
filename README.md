@@ -1,6 +1,6 @@
 # WAMI
 
-A WebAssembly Interpreter used in my os (https://github.com/neri/maystorm)
+A WebAssembly Interpreter
 
 ## Features
 
