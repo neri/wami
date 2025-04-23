@@ -14,8 +14,8 @@ leb128 = {path="./lib/leb128"}
 libwat2wasm = { path = "./lib/libwat2wasm" }
 wami_macro = {path="./lib/wami_macro"}
 
-libm = {version="0.2.11"}
-smallvec = {version = "1.14.0", default-features = false}
+libm = {version="0.2.13"}
+smallvec = {version = "1.15.0", default-features = false}
 
 [workspace]
 members = [

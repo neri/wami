@@ -4,7 +4,7 @@ extern crate proc_macro;
 
 use proc_macro::TokenStream;
 use std::borrow::Cow;
-use syn::{parse_macro_input, spanned::Spanned, ItemImpl, ItemTrait};
+use syn::{ItemImpl, ItemTrait, parse_macro_input, spanned::Spanned};
 
 macro_rules! unexpected_token {
     ($span:expr, $expected:expr ) => {{
@@ -13,7 +13,7 @@ macro_rules! unexpected_token {
             "Expected {}, found {:?} at {}:{}:{}",
             $expected,
             span.source_text().unwrap_or_default(),
-            span.source_file().path().to_str().unwrap(),
+            span.file().to_string(),
             span.line(),
             span.column(),
         );
@@ -421,7 +421,7 @@ impl ParsedType {
             "WasmPtr" => match &first_elem.arguments {
                 syn::PathArguments::AngleBracketed(v) => match v.args.first().unwrap() {
                     syn::GenericArgument::Type(ty) => {
-                        return ParsedType::new(ty, options).map(|v| ParsedType::Ptr(Box::new(v)))
+                        return ParsedType::new(ty, options).map(|v| ParsedType::Ptr(Box::new(v)));
                     }
                     _ => unexpected_token!(path.span(), "simple type"),
                 },
@@ -431,7 +431,7 @@ impl ParsedType {
                 syn::PathArguments::AngleBracketed(v) => match v.args.first().unwrap() {
                     syn::GenericArgument::Type(ty) => {
                         return ParsedType::new(ty, options)
-                            .map(|v| ParsedType::PtrMut(Box::new(v)))
+                            .map(|v| ParsedType::PtrMut(Box::new(v)));
                     }
                     _ => unexpected_token!(path.span(), "simple type"),
                 },
