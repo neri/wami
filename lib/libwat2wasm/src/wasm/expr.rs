@@ -85,8 +85,16 @@ impl ConstExpr {
                     vt_stack.push(ValType::I64);
                     codes.push(ConstInstr::I64Const(num.get()));
                 }
-                // WasmOpcode::F32Const => {}
-                // WasmOpcode::F64Const => {}
+                WasmOpcode::F32Const => {
+                    let num = NumericLiteral::<f32>::expect(tokens)?;
+                    vt_stack.push(ValType::F32);
+                    codes.push(ConstInstr::F32Const(num.get()));
+                }
+                WasmOpcode::F64Const => {
+                    let num = NumericLiteral::<f64>::expect(tokens)?;
+                    vt_stack.push(ValType::F64);
+                    codes.push(ConstInstr::F64Const(num.get()));
+                }
                 WasmOpcode::End => {
                     for _ in 0..=paren_level {
                         expect(tokens, &[TokenType::CloseParenthesis])?;

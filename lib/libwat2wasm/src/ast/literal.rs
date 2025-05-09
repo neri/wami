@@ -121,43 +121,57 @@ impl RawBytesLiteral {
 #[derive(Debug)]
 pub struct NumericRawLiteral {
     source: String,
+    position: TokenPosition,
+
     is_neg: bool,
     skip: usize,
     radix: Radix,
-    position: TokenPosition,
+
+    float_value: Option<f64>,
 }
 
 impl NumericRawLiteral {
-    pub fn from_token<KEYWORD>(token: &Token<KEYWORD>) -> Result<Self, AssembleError>
+    #[allow(private_bounds)]
+    pub fn from_token<KEYWORD, TYPE>(token: &Token<KEYWORD>) -> Result<Self, AssembleError>
     where
         KEYWORD: core::fmt::Debug + core::fmt::Display,
+        TYPE: IsSigned + IsFloat,
     {
-        match token.token_type() {
-            TokenType::NumericLiteral | TokenType::Uncategorized => {
-                let radix = token.radix().ok_or(AssembleError::invalid_number(
-                    token.source(),
-                    token.position().into(),
-                ))?;
+        if TYPE::is_float() {
+            let float_value = token.try_parse_float().map_err(|v| {
+                let mut position = token.position();
+                position.0.0 += v as u32;
+                AssembleError::invalid_number(token.source(), position.into())
+            })?;
 
-                let is_neg = if token.source().starts_with("-") {
-                    true
-                } else {
-                    false
-                };
+            Ok(Self {
+                source: token.source().to_owned(),
+                position: token.position(),
+                float_value: Some(float_value),
+                is_neg: false,
+                skip: 0,
+                radix: Radix::Dec,
+            })
+        } else {
+            let radix = token.radix().ok_or(AssembleError::invalid_number(
+                token.source(),
+                token.position().into(),
+            ))?;
 
-                Ok(Self {
-                    source: token.source().to_owned(),
-                    is_neg,
-                    skip: radix.0,
-                    radix: radix.1,
-                    position: token.position(),
-                })
-            }
+            let is_neg = if token.source().starts_with("-") {
+                true
+            } else {
+                false
+            };
 
-            _ => Err(AssembleError::missing_token(
-                &[TokenType::NumericLiteral],
-                token,
-            )),
+            Ok(Self {
+                source: token.source().to_owned(),
+                position: token.position(),
+                is_neg,
+                skip: radix.0,
+                radix: radix.1,
+                float_value: None,
+            })
         }
     }
 
@@ -166,21 +180,24 @@ impl NumericRawLiteral {
         is_opt: bool,
     ) -> Result<Option<Self>, AssembleError>
     where
-        TYPE: IsSigned,
+        TYPE: IsSigned + IsFloat,
         KEYWORD: PartialEq + Copy + core::fmt::Debug + core::fmt::Display,
     {
-        let token = match expect(
-            tokens,
-            if TYPE::is_signed() {
-                &[
-                    TokenType::Symbol('+'),
-                    TokenType::Symbol('-'),
-                    TokenType::NumericLiteral,
-                ]
-            } else {
-                &[TokenType::NumericLiteral]
-            },
-        ) {
+        let canonical_token = if TYPE::is_float() {
+            TokenType::FloatingNumberLiteral
+        } else {
+            TokenType::NumericLiteral
+        };
+        let expect_tokens: &[TokenType<KEYWORD>] = if TYPE::is_signed() {
+            &[
+                TokenType::Symbol('+'),
+                TokenType::Symbol('-'),
+                canonical_token,
+            ]
+        } else {
+            &[canonical_token]
+        };
+        let token = match expect(tokens, expect_tokens) {
             Ok(v) => v,
             Err(e) => {
                 if is_opt {
@@ -192,10 +209,10 @@ impl NumericRawLiteral {
         };
         match token.token_type() {
             TokenType::Symbol('+') => match tokens.next_immed() {
-                Some(token) => Self::from_token(&token).map(|v| Some(v)),
+                Some(token) => Self::from_token::<KEYWORD, TYPE>(&token).map(|v| Some(v)),
                 None => {
                     return Err(AssembleError::missing_token(
-                        &[TokenType::NumericLiteral],
+                        &[canonical_token],
                         &tokens.next().unwrap(),
                     ));
                 }
@@ -206,21 +223,27 @@ impl NumericRawLiteral {
                         token.position().start() as u32,
                         next.position().end() as u32,
                     )));
-                    Self::from_token(&token.as_token::<KEYWORD>()).map(|v| Some(v))
+                    Self::from_token::<KEYWORD, TYPE>(&token.as_token::<KEYWORD>()).map(|v| Some(v))
                 }
                 None => {
                     return Err(AssembleError::missing_token(
-                        &[TokenType::NumericLiteral],
+                        &[canonical_token],
                         &tokens.next().unwrap(),
                     ));
                 }
             },
-            TokenType::NumericLiteral => Self::from_token(&token).map(|v| Some(v)),
+            TokenType::NumericLiteral => Self::from_token::<KEYWORD, TYPE>(&token).map(|v| Some(v)),
+            TokenType::FloatingNumberLiteral => {
+                Self::from_token::<KEYWORD, TYPE>(&token).map(|v| Some(v))
+            }
             _ => unreachable!(),
         }
     }
 
     fn parse_int_u(&self) -> Option<u64> {
+        if self.float_value.is_some() {
+            return None;
+        }
         let mut acc = 0u64;
         let radix = self.radix.value() as u64;
 
@@ -241,6 +264,11 @@ impl NumericRawLiteral {
         }
 
         Some(acc)
+    }
+
+    #[inline]
+    pub fn try_parse_float(&self) -> Option<f64> {
+        self.float_value
     }
 }
 
@@ -294,6 +322,20 @@ impl Eval<i32, ()> for NumericRawLiteral {
     }
 }
 
+impl Eval<f32, ()> for NumericRawLiteral {
+    #[inline]
+    fn eval(&self) -> Result<f32, ()> {
+        self.try_parse_float().map(|v| v as f32).ok_or(())
+    }
+}
+
+impl Eval<f64, ()> for NumericRawLiteral {
+    #[inline]
+    fn eval(&self) -> Result<f64, ()> {
+        self.try_parse_float().ok_or(())
+    }
+}
+
 trait IsSigned {
     fn is_signed() -> bool;
 }
@@ -326,6 +368,63 @@ impl IsSigned for i64 {
     }
 }
 
+impl IsSigned for f32 {
+    #[inline]
+    fn is_signed() -> bool {
+        true
+    }
+}
+
+impl IsSigned for f64 {
+    #[inline]
+    fn is_signed() -> bool {
+        true
+    }
+}
+
+trait IsFloat {
+    fn is_float() -> bool;
+}
+
+impl IsFloat for f32 {
+    #[inline]
+    fn is_float() -> bool {
+        true
+    }
+}
+
+impl IsFloat for f64 {
+    #[inline]
+    fn is_float() -> bool {
+        true
+    }
+}
+
+impl IsFloat for u32 {
+    #[inline]
+    fn is_float() -> bool {
+        false
+    }
+}
+impl IsFloat for u64 {
+    #[inline]
+    fn is_float() -> bool {
+        false
+    }
+}
+impl IsFloat for i32 {
+    #[inline]
+    fn is_float() -> bool {
+        false
+    }
+}
+impl IsFloat for i64 {
+    #[inline]
+    fn is_float() -> bool {
+        false
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 #[allow(private_bounds)]
 pub struct NumericLiteral<TYPE: IsSigned> {
@@ -334,7 +433,7 @@ pub struct NumericLiteral<TYPE: IsSigned> {
 }
 
 #[allow(private_bounds)]
-impl<TYPE: IsSigned + Copy> NumericLiteral<TYPE> {
+impl<TYPE: IsSigned + IsFloat + Copy> NumericLiteral<TYPE> {
     pub fn expect<KEYWORD>(tokens: &mut TokenStream<KEYWORD>) -> Result<Self, AssembleError>
     where
         NumericRawLiteral: Eval<TYPE, ()>,
@@ -358,7 +457,7 @@ impl<TYPE: IsSigned + Copy> NumericLiteral<TYPE> {
         NumericRawLiteral: Eval<TYPE, ()>,
         KEYWORD: PartialEq + Copy + core::fmt::Debug + core::fmt::Display,
     {
-        let token = NumericRawLiteral::from_token(token)?;
+        let token = NumericRawLiteral::from_token::<KEYWORD, TYPE>(token)?;
         let position = token.position;
         let value = Eval::<TYPE, ()>::eval(&token)
             .map_err(|_| AssembleError::invalid_number(&token.source, position.into()))?;

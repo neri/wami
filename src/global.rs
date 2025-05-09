@@ -2,7 +2,7 @@
 use crate::WasmRuntimeErrorKind;
 use crate::*;
 use core::mem::transmute;
-use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicI32, AtomicI64, Ordering};
 
 /// WebAssembly global variable
 pub enum WasmGlobal {
@@ -186,7 +186,7 @@ macro_rules! decl_wasm_global_atomics {
     };
 }
 
-decl_wasm_global_atomics!(WasmGlobalI32, i32, AtomicU32);
-decl_wasm_global_atomics!(WasmGlobalI64, i64, AtomicU64);
-decl_wasm_global_atomics!(WasmGlobalF32, f32, AtomicU32);
-decl_wasm_global_atomics!(WasmGlobalF64, f64, AtomicU64);
+decl_wasm_global_atomics!(WasmGlobalI32, i32, AtomicI32);
+decl_wasm_global_atomics!(WasmGlobalI64, i64, AtomicI64);
+decl_wasm_global_atomics!(WasmGlobalF32, f32, AtomicI32);
+decl_wasm_global_atomics!(WasmGlobalF64, f64, AtomicI64);

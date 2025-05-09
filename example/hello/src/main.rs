@@ -1,4 +1,4 @@
-// Hello world
+//! Hello world
 use wami::prelude::*;
 
 fn main() {
@@ -8,10 +8,10 @@ fn main() {
 
   (memory 1)
 
-  (data (i32.const 16) "hello world!")
+  (data (i32.const 16) "Hello, World!")
 
   (func $main (export "main")
-    i32.const 12
+    i32.const 13
     i32.const 16
     call $println
   )

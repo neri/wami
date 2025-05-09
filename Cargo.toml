@@ -10,12 +10,12 @@ version = "0.1.0"
 default = []
 
 [dependencies]
-leb128 = {path="./lib/leb128"}
+leb128 = { path = "./lib/leb128" }
 libwat2wasm = { path = "./lib/libwat2wasm" }
-wami_macro = {path="./lib/wami_macro"}
+wami_macro = { path = "./lib/wami_macro" }
 
-libm = {version="0.2.13"}
-smallvec = {version = "1.15.0", default-features = false}
+libm = { version = "0.2"}
+smallvec = { version = "1.15", default-features = false }
 
 [workspace]
 members = [

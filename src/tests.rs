@@ -3,7 +3,7 @@ use crate::cg::WasmCodeBlock;
 use crate::cg::intr::WasmInterpreter;
 use crate::opcode::WasmMnemonic;
 use crate::prelude::*;
-use core::f64::consts::PI;
+use core::f64::consts::{PI, TAU};
 use leb128::*;
 use std::assert_matches::assert_matches;
 use std::sync::OnceLock;
@@ -42,6 +42,7 @@ trait TestTask {
     fn fib(v: i32) -> i32;
 
     fn global_add(v: i32) -> i32;
+    fn global_fadd(v: f64) -> f64;
 
     fn import_test1(a0: i32, a1: i32) -> i32;
     fn import_test2(a0: i32, a1: i32) -> i32;
@@ -1662,7 +1663,7 @@ fn memory() {
 }
 
 #[test]
-fn global() {
+fn global1() {
     let instance = shared_instance();
 
     assert_eq!(instance.global("global1").unwrap().get_i32().unwrap(), 123);
@@ -1676,6 +1677,23 @@ fn global() {
     assert_eq!(result, 1368);
 
     assert_eq!(instance.global("global1").unwrap().get_i32().unwrap(), 1368);
+}
+
+#[test]
+fn global2() {
+    let instance = shared_instance();
+
+    assert_eq!(instance.global("global2").unwrap().get_f64().unwrap(), 0.0);
+
+    let result = instance.exports().global_fadd(PI).unwrap();
+    assert_eq!(result, PI);
+
+    assert_eq!(instance.global("global2").unwrap().get_f64().unwrap(), PI);
+
+    let result = instance.exports().global_fadd(PI).unwrap();
+    assert_eq!(result, TAU);
+
+    assert_eq!(instance.global("global2").unwrap().get_f64().unwrap(), TAU);
 }
 
 #[test]

@@ -1187,6 +1187,121 @@ impl<KEYWORD> Token<KEYWORD> {
                 .map(|v| Cow::Owned(String::from_utf8(v).unwrap()))
         }
     }
+
+    pub fn try_parse_float(&self) -> Result<f64, usize> {
+        let source = self.source().as_bytes();
+        let mut index = 0;
+
+        fn combined(sign: isize, ipart: u64, exp: isize) -> Result<f64, usize> {
+            let ipart = ipart as f64;
+
+            // TODO: faster and more accurate
+            let value = if exp > 0 {
+                let mut acc = 1.0;
+                for _ in 0..exp {
+                    acc *= 10.0;
+                }
+                ipart * acc
+            } else if exp < 0 {
+                let mut acc = 1.0;
+                for _ in 0..(-exp) {
+                    acc *= 10.0;
+                }
+                ipart / acc
+            } else {
+                ipart
+            };
+
+            if !value.is_finite() {
+                return Err(0);
+            }
+
+            if sign == -1 { Ok(-value) } else { Ok(value) }
+        }
+
+        // sign
+        let ch = source.get(index).ok_or(index)?;
+        let sign = match *ch {
+            b'+' => {
+                index += 1;
+                1
+            }
+            b'-' => {
+                index += 1;
+                -1
+            }
+            _ => 1,
+        };
+
+        // ipart
+        let mut ipart = 0;
+        loop {
+            let ch = source.get(index).ok_or(index)?;
+            index += 1;
+            match *ch {
+                b'0'..=b'9' => {
+                    ipart = ipart * 10 + (ch - b'0') as u64;
+                }
+                b'.' => {
+                    break;
+                }
+                _ => return Err(index),
+            }
+        }
+
+        // fpart
+        let mut iexp = 0;
+        loop {
+            let ch = match source.get(index) {
+                Some(v) => v,
+                None => return combined(sign, ipart, iexp),
+            };
+            index += 1;
+            match *ch {
+                b'0'..=b'9' => {
+                    ipart = ipart * 10 + (ch - b'0') as u64;
+                    iexp -= 1;
+                }
+                b'e' | b'E' => {
+                    break;
+                }
+                _ => return Err(index),
+            }
+        }
+
+        // exp sign
+        let ch = source.get(index).ok_or(index)?;
+        let exp_sign = match *ch {
+            b'+' => {
+                index += 1;
+                1
+            }
+            b'-' => {
+                index += 1;
+                -1
+            }
+            _ => 1,
+        };
+
+        // exp
+        let mut exp = 0;
+        loop {
+            let ch = match source.get(index) {
+                Some(v) => v,
+                None => return combined(sign, ipart, (exp * exp_sign) + iexp),
+            };
+            index += 1;
+            match *ch {
+                b'0'..=b'9' => {
+                    exp = exp * 10 + (ch - b'0') as isize;
+                    if exp > 310 {
+                        return Err(index);
+                    }
+                }
+                _ => return Err(index),
+            }
+        }
+    }
 }
 
 impl<KEYWORD> core::fmt::Debug for Token<KEYWORD>

@@ -9,6 +9,7 @@
 
   (global $stack_pointer (export "__stack_pointer") (mut i32) (i32.const 123))
   (global $global1 (export "global1") (mut i32) (i32.const 123))
+  (global $global2 (export "global2") (mut f64) (f64.const -0.0))
 
   (table 10 funcref)
   (elem (i32.const 1) $elem1 $elem2 $elem3 $call_indirect_test)
@@ -31,6 +32,15 @@
     i32.add
     global.set $global1
     global.get $global1
+  )
+
+  ;; fn global_fadd(v: f64) -> f64
+  (func $global_fadd (export "global_fadd") (param f64) (result f64)
+    global.get $global2
+    local.get 0
+    f64.add
+    global.set $global2
+    global.get $global2
   )
 
   ;; fn fib(v: i32) -> i32
