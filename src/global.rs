@@ -1,8 +1,6 @@
 //! WebAssembly global variables
-use crate::WasmRuntimeErrorKind;
 use crate::*;
-use core::mem::transmute;
-use core::sync::atomic::{AtomicI32, AtomicI64, Ordering};
+use core::sync::atomic::{AtomicI32, AtomicI64, AtomicU32, AtomicU64, Ordering};
 
 /// WebAssembly global variable
 pub enum WasmGlobal {
@@ -153,40 +151,64 @@ impl<T: Copy> WasmGlobalProp<T> for WasmGlobalFixedValue<T> {
     }
 }
 
-macro_rules! decl_wasm_global_atomics {
+macro_rules! decl_wasm_global_integer {
     ($class_name:ident, $val_type:ident, $atomic_type:ident) => {
-        pub struct $class_name {
-            value: $atomic_type,
-        }
+        pub struct $class_name($atomic_type);
 
         impl $class_name {
             #[inline]
             pub const fn new(value: $val_type) -> Self {
-                Self {
-                    value: $atomic_type::new(unsafe { transmute(value) }),
-                }
+                Self($atomic_type::new(value))
             }
         }
 
         impl WasmGlobalProp<$val_type> for $class_name {
             #[inline]
             fn get(&self) -> Result<$val_type, WasmRuntimeErrorKind> {
-                Ok(unsafe { transmute(self.value.load(Ordering::Relaxed)) })
+                Ok(self.0.load(Ordering::Relaxed))
             }
         }
 
         impl WasmGlobalPropMut<$val_type> for $class_name {
             #[inline]
             fn set(&self, value: $val_type) -> Result<(), WasmRuntimeErrorKind> {
-                self.value
-                    .store(unsafe { transmute(value) }, Ordering::SeqCst);
+                self.0.store(value, Ordering::SeqCst);
                 Ok(())
             }
         }
     };
 }
 
-decl_wasm_global_atomics!(WasmGlobalI32, i32, AtomicI32);
-decl_wasm_global_atomics!(WasmGlobalI64, i64, AtomicI64);
-decl_wasm_global_atomics!(WasmGlobalF32, f32, AtomicI32);
-decl_wasm_global_atomics!(WasmGlobalF64, f64, AtomicI64);
+decl_wasm_global_integer!(WasmGlobalI32, i32, AtomicI32);
+decl_wasm_global_integer!(WasmGlobalI64, i64, AtomicI64);
+
+macro_rules! decl_wasm_global_float {
+    ($class_name:ident, $val_type:ident, $atomic_type:ident) => {
+        pub struct $class_name($atomic_type);
+
+        impl $class_name {
+            #[inline]
+            pub const fn new(value: $val_type) -> Self {
+                Self($atomic_type::new(value.to_bits()))
+            }
+        }
+
+        impl WasmGlobalProp<$val_type> for $class_name {
+            #[inline]
+            fn get(&self) -> Result<$val_type, WasmRuntimeErrorKind> {
+                Ok($val_type::from_bits(self.0.load(Ordering::Relaxed)))
+            }
+        }
+
+        impl WasmGlobalPropMut<$val_type> for $class_name {
+            #[inline]
+            fn set(&self, value: $val_type) -> Result<(), WasmRuntimeErrorKind> {
+                self.0.store(value.to_bits(), Ordering::SeqCst);
+                Ok(())
+            }
+        }
+    };
+}
+
+decl_wasm_global_float!(WasmGlobalF32, f32, AtomicU32);
+decl_wasm_global_float!(WasmGlobalF64, f64, AtomicU64);

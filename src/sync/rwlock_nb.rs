@@ -180,15 +180,15 @@ impl SharedXorMutable {
 
     #[inline]
     pub fn try_write(&self) -> Result<(), WriteError> {
-        self.0
-            .compare_exchange_weak(
-                Self::DEFAULT_VALUE,
-                Self::LOCK_WRITE,
-                Ordering::SeqCst,
-                Ordering::Relaxed,
-            )
-            .map(|_| ())
-            .map_err(|_| WriteError::WouldBlock)
+        match self.0.compare_exchange_weak(
+            Self::DEFAULT_VALUE,
+            Self::LOCK_WRITE,
+            Ordering::SeqCst,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => Ok(()),
+            Err(_) => Err(WriteError::WouldBlock),
+        }
     }
 
     pub fn try_read(&self) -> Result<(), ReadError> {
