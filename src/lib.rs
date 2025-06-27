@@ -17,7 +17,6 @@ pub use crate::wasm::*;
 
 pub mod cg;
 pub mod global;
-// pub mod leb128;
 pub mod memory;
 pub mod stack;
 pub mod sync;
@@ -26,6 +25,7 @@ pub mod sync;
 pub mod opcode;
 
 #[cfg(test)]
+#[path = "tests/tests.rs"]
 mod tests;
 
 pub mod prelude {

@@ -1885,7 +1885,10 @@ impl<'a> StackFrame<'a> {
     ///
     /// Since stack-level verification is guaranteed by the code verifier
     #[inline]
-    pub unsafe fn split_at_mut_unchecked(&mut self, index: StackLevel) -> (StackFrame, StackFrame) {
+    pub unsafe fn split_at_mut_unchecked<'b>(
+        &'b mut self,
+        index: StackLevel,
+    ) -> (StackFrame<'b>, StackFrame<'b>) {
         #[cfg(test)]
         let _ = self.0.split_at(index.as_usize());
 
