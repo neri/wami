@@ -5,7 +5,7 @@ use core::marker::PhantomData;
 use core::mem::{size_of, transmute};
 use core::ops::{Deref, DerefMut};
 use core::slice;
-use core::sync::atomic::{fence, AtomicU32, Ordering};
+use core::sync::atomic::{AtomicU32, Ordering, fence};
 
 /// WebAssembly memory object
 pub struct WasmMemory {

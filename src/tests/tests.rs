@@ -98,7 +98,7 @@ fn shared_instance() -> WasmInstance {
     static BINARY: OnceLock<Vec<u8>> = OnceLock::new();
     let wasm = BINARY.get_or_init(|| {
         let src = include_bytes!("./tester.wat").to_vec();
-        WebAssembly::wat2wasm("tester.wat", src).unwrap()
+        WebAssembly::from_wat("tester.wat", src).unwrap()
     });
     WebAssembly::instantiate(&wasm, &Env {}).unwrap()
 }

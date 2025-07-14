@@ -54,7 +54,7 @@ fn main() {
     };
 
     let src = read_to_string(path_input.as_str()).unwrap();
-    let binary = match WasmAssembler::assemble(path_input.as_str(), src.into_bytes()) {
+    let binary = match WatAssembler::assemble(path_input.as_str(), src.into_bytes()) {
         Ok(v) => v,
         Err(e) => {
             panic!("{}", e);

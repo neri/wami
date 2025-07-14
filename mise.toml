@@ -1,0 +1,7 @@
+[tasks.test]
+description = "Run a test"
+run = "cargo test"
+
+[tasks.hello]
+description = "Run the hello example"
+run = "cargo run -p hello"

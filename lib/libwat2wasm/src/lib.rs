@@ -34,9 +34,9 @@ pub(crate) use error::*;
 use keyword::Keyword;
 use lexer::*;
 
-pub struct WasmAssembler;
+pub struct WatAssembler;
 
-impl WasmAssembler {
+impl WatAssembler {
     fn _from_src<F, R>(file_name: &str, src: Vec<u8>, kernel: F) -> Result<R, String>
     where
         F: FnOnce(&mut TokenStream<Keyword>) -> Result<R, AssembleError>,

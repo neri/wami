@@ -78,7 +78,7 @@ fn main() {
   )
 )
 "#;
-    let bin = WebAssembly::wat2wasm("hello.wat", src.as_bytes().to_vec()).unwrap();
+    let bin = WebAssembly::from_wat("hello.wat", src.as_bytes().to_vec()).unwrap();
     let instance = WebAssembly::instantiate(&bin, &Env {}).unwrap();
     instance.exports().main().unwrap();
 }

@@ -15,7 +15,7 @@ use core::slice;
 use core::str;
 use global::WasmGlobal;
 use leb128::*;
-use libwat2wasm::WasmAssembler;
+use libwat2wasm::WatAssembler;
 use smallvec::SmallVec;
 
 pub struct WebAssembly;
@@ -61,8 +61,9 @@ impl WebAssembly {
     }
 
     /// Translates WebAssembly Text format into binary format
-    pub fn wat2wasm(file_name: &str, src: Vec<u8>) -> Result<Vec<u8>, String> {
-        WasmAssembler::assemble(file_name, src)
+    #[inline]
+    pub fn from_wat(file_name: &str, src: Vec<u8>) -> Result<Vec<u8>, String> {
+        WatAssembler::assemble(file_name, src)
     }
 }
 
@@ -955,17 +956,21 @@ impl From<f64> for WasmValType {
 
 impl fmt::Display for WasmValType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", match *self {
-            Self::I32 => "i32",
-            Self::I64 => "i64",
-            Self::F32 => "f32",
-            Self::F64 => "f64",
-            // Self::V128 => "v128",
-            // Self::I8 => "i8",
-            // Self::I16 => "i16",
-            // Self::FuncRef => "func",
-            // Self::ExternRef => "extern",
-        })
+        write!(
+            f,
+            "{}",
+            match *self {
+                Self::I32 => "i32",
+                Self::I64 => "i64",
+                Self::F32 => "f32",
+                Self::F64 => "f64",
+                // Self::V128 => "v128",
+                // Self::I8 => "i8",
+                // Self::I16 => "i16",
+                // Self::FuncRef => "func",
+                // Self::ExternRef => "extern",
+            }
+        )
     }
 }
 
@@ -2355,14 +2360,12 @@ unsafe impl<T> UnsafeInto<WasmPtrMut<T>> for WasmUnionValue {
     }
 }
 
-pub struct WasmArgs<'a> {
-    iter: core::slice::Iter<'a, WasmUnionValue>,
-}
+pub struct WasmArgs<'a>(core::slice::Iter<'a, WasmUnionValue>);
 
 impl<'a> WasmArgs<'a> {
     #[inline]
     pub fn new(slice: &'a [WasmUnionValue]) -> Self {
-        Self { iter: slice.iter() }
+        Self(slice.iter())
     }
 }
 
@@ -2372,7 +2375,7 @@ impl WasmArgs<'_> {
     where
         WasmUnionValue: UnsafeInto<U>,
     {
-        self.iter
+        self.0
             .next()
             .map(|v| unsafe { UnsafeInto::unsafe_into(*v) })
             .ok_or(WasmRuntimeErrorKind::InvalidParameter.into())
