@@ -3,9 +3,9 @@ use crate::cg::WasmCodeBlock;
 use crate::cg::intr::WasmInterpreter;
 use crate::opcode::WasmMnemonic;
 use crate::prelude::*;
+use core::assert_matches;
 use core::f64::consts::{PI, TAU};
 use leb128::*;
-use std::assert_matches::assert_matches;
 use std::sync::OnceLock;
 
 struct Env;

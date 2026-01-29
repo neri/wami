@@ -13,7 +13,7 @@ use leb128::*;
 use smallvec::SmallVec;
 
 #[cfg(test)]
-use core::assert_matches::assert_matches;
+use core::assert_matches;
 
 /// WebAssembly code block
 pub struct WasmCodeBlock {
