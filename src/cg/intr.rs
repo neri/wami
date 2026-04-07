@@ -928,7 +928,7 @@ impl WasmInterpreter<'_> {
 
                 WasmImInstruction::F32Abs => {
                     Self::unary_op(code, &mut value_stack, |v| unsafe {
-                        v.map_f32(|v| core::intrinsics::fabsf32(v));
+                        v.map_f32(|v| v.abs());
                     });
                 }
                 WasmImInstruction::F32Neg => {
@@ -1031,7 +1031,7 @@ impl WasmInterpreter<'_> {
 
                 WasmImInstruction::F64Abs => {
                     Self::unary_op(code, &mut value_stack, |v| unsafe {
-                        v.map_f64(|v| core::intrinsics::fabsf64(v));
+                        v.map_f64(|v| v.abs());
                     });
                 }
                 WasmImInstruction::F64Neg => {

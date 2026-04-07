@@ -4,7 +4,6 @@
 //
 #![feature(float_minimum_maximum)]
 #![feature(negative_impls)]
-#![feature(assert_matches)]
 //
 #![allow(internal_features)]
 #![feature(core_intrinsics)]

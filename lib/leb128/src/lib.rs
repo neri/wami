@@ -419,43 +419,45 @@ impl Leb128Reader<'_> {
     pub fn read_unsigned(&mut self) -> Result<u64, ReadError> {
         let mut value: u64 = 0;
         let mut scale = 0;
-        let mut cursor = self.position;
+        let mut index = self.position;
         loop {
-            let d = match self.slice.get(cursor) {
+            let d = match self.slice.get(index) {
                 Some(v) => *v,
                 None => return Err(ReadError::UnexpectedEof),
             };
-            cursor += 1;
+            index += 1;
 
+            let is_terminated = (d & 0x80) == 0;
             value |= (d as u64 & 0x7F) << scale;
             scale += 7;
-            if (d & 0x80) == 0 {
+            if is_terminated {
                 break;
             }
         }
-        self.position = cursor;
+        self.position = index;
         Ok(value)
     }
 
     pub fn read_signed(&mut self) -> Result<i64, ReadError> {
         let mut value: u64 = 0;
         let mut scale = 0;
-        let mut cursor = self.position;
+        let mut index = self.position;
         let signed = loop {
-            let d = match self.slice.get(cursor) {
+            let d = match self.slice.get(index) {
                 Some(v) => *v,
                 None => return Err(ReadError::UnexpectedEof),
             };
-            cursor += 1;
+            index += 1;
 
+            let is_terminated = (d & 0x80) == 0;
             value |= (d as u64 & 0x7F) << scale;
             let signed = (d & 0x40) != 0;
-            if (d & 0x80) == 0 {
+            if is_terminated {
                 break signed;
             }
             scale += 7;
         };
-        self.position = cursor;
+        self.position = index;
         if signed {
             Ok((value | 0xFFFF_FFFF_FFFF_FFC0 << scale) as i64)
         } else {
