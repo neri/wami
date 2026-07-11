@@ -1,6 +1,6 @@
 //! WebAssembly opcodes
 
-/* This file is generated automatically. DO NOT EDIT DIRECTLY. */
+/* This file is @generated automatically. DO NOT EDIT DIRECTLY. */
 
 use crate::types::ValType;
 

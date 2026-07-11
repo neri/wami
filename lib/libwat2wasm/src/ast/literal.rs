@@ -2,7 +2,6 @@
 use crate::*;
 use ast::expect;
 use keyword::Keyword;
-use lexer::*;
 
 #[derive(Debug)]
 pub struct StringLiteral {

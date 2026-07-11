@@ -219,7 +219,7 @@ impl SharedXorMutable {
     pub unsafe fn unlock_read(&self) {
         let _ = self
             .0
-            .fetch_update(Ordering::SeqCst, Ordering::Relaxed, |value| {
+            .try_update(Ordering::SeqCst, Ordering::Relaxed, |value| {
                 value.checked_sub(Self::LOCK_READ)
             });
     }

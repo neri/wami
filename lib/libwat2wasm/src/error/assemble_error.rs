@@ -3,7 +3,6 @@ use ast::ModuleName;
 use ast::identifier::Identifier;
 use core::cmp;
 use core::ops::Range;
-use lexer::*;
 use types::ValType;
 
 #[derive(Debug)]

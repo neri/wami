@@ -62,7 +62,7 @@ fn make_enum(
         os,
         "//! {comment}
 
-/* This file is generated automatically. DO NOT EDIT DIRECTLY. */
+/* This file is @generated automatically. DO NOT EDIT DIRECTLY. */
 
 /// {comment}
 #[non_exhaustive]
@@ -298,7 +298,7 @@ fn make_opcode(os: &mut File, lines: &[String]) -> Vec<String> {
         os,
         "//! WebAssembly opcodes
 
-/* This file is generated automatically. DO NOT EDIT DIRECTLY. */
+/* This file is @generated automatically. DO NOT EDIT DIRECTLY. */
 
 use crate::types::ValType;
 

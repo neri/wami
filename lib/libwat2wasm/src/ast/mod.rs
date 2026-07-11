@@ -10,7 +10,6 @@ use export::Export;
 use function::Function;
 use global::Global;
 use import::Import;
-use lexer::*;
 use memory::Memory;
 use start::Start;
 use table::Table;

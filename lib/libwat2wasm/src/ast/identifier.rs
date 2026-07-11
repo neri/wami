@@ -2,7 +2,6 @@
 use crate::*;
 use ast::{expect, literal::NumericLiteral};
 use core::{convert::Infallible, ops::ControlFlow};
-use lexer::*;
 use types::ValType;
 
 #[derive(Debug)]

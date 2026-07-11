@@ -1,6 +1,6 @@
 //! WebAssembly Reserved Keywords
 
-/* This file is generated automatically. DO NOT EDIT DIRECTLY. */
+/* This file is @generated automatically. DO NOT EDIT DIRECTLY. */
 
 /// WebAssembly Reserved Keywords
 #[non_exhaustive]

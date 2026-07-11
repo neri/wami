@@ -4,7 +4,6 @@ use super::intcode::*;
 use super::*;
 use crate::memory::WasmMemory;
 use crate::stack::*;
-use crate::wasm::*;
 use crate::*;
 use alloc::format;
 use core::error::Error;

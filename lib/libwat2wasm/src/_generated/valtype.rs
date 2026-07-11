@@ -1,6 +1,6 @@
 //! WebAssembly Value Types
 
-/* This file is generated automatically. DO NOT EDIT DIRECTLY. */
+/* This file is @generated automatically. DO NOT EDIT DIRECTLY. */
 
 /// WebAssembly Value Types
 #[non_exhaustive]

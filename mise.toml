@@ -4,7 +4,6 @@ description = "Clean up"
 run = "cargo clean"
 
 [tasks.update]
-confirm = "Are youn sure?"
 description = "Update dependencies"
 run = "cargo update"
 
