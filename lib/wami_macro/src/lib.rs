@@ -384,10 +384,9 @@ impl ParsedType {
             syn::Type::Ptr(ptr) => {
                 if options.allow_reference {
                     Self::new(ptr.elem.as_ref(), options.extend(|v| v.allow_nil = false)).map(|v| {
-                        if ptr.mutability.is_some() {
-                            ParsedType::PtrMut(Box::new(v))
-                        } else {
-                            ParsedType::Ptr(Box::new(v))
+                        match ptr.mutability {
+                            syn::PointerMutability::Const(_) => ParsedType::Ptr(Box::new(v)),
+                            syn::PointerMutability::Mut(_) => ParsedType::PtrMut(Box::new(v)),
                         }
                     })
                 } else {
